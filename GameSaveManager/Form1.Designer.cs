@@ -1,6 +1,6 @@
 ﻿namespace GameSaveManager
 {
-    partial class Form1
+    partial class Form
     {
         /// <summary>
         /// 必需的设计器变量。
@@ -45,8 +45,8 @@
             // splitContainer.Panel1
             // 
             this.splitContainer.Panel1.Controls.Add(this.menuList);
-            this.splitContainer.Size = new System.Drawing.Size(800, 450);
-            this.splitContainer.SplitterDistance = 162;
+            this.splitContainer.Size = new System.Drawing.Size(900, 500);
+            this.splitContainer.SplitterDistance = 182;
             this.splitContainer.TabIndex = 0;
             // 
             // menuList
@@ -55,19 +55,24 @@
             this.menuList.HideSelection = false;
             this.menuList.Location = new System.Drawing.Point(0, 0);
             this.menuList.Name = "menuList";
-            this.menuList.Size = new System.Drawing.Size(162, 450);
+            this.menuList.Size = new System.Drawing.Size(182, 500);
             this.menuList.TabIndex = 0;
             this.menuList.UseCompatibleStateImageBehavior = false;
             this.menuList.View = System.Windows.Forms.View.Details;
+            this.menuList.MouseClick += new System.Windows.Forms.MouseEventHandler(this.menuList_MouseClick);
             // 
-            // Form1
+            // Form
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(800, 450);
+            this.ClientSize = new System.Drawing.Size(882, 453);
             this.Controls.Add(this.splitContainer);
-            this.Name = "Form1";
-            this.Text = "Form1";
+            this.MaximizeBox = false;
+            this.MaximumSize = new System.Drawing.Size(900, 500);
+            this.MinimumSize = new System.Drawing.Size(900, 500);
+            this.Name = "Form";
+            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
+            this.Text = "GameSaveManager";
             this.Load += new System.EventHandler(this.Form1_Load);
             this.splitContainer.Panel1.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer)).EndInit();
