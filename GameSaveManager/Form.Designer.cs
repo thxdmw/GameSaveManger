@@ -1,4 +1,7 @@
-﻿namespace GameSaveManager
+﻿using System.Runtime.CompilerServices;
+using System.Windows.Forms;
+
+namespace GameSaveManager
 {
     partial class Form
     {
@@ -105,6 +108,11 @@
         private System.Windows.Forms.SplitContainer splitContainer;
         private System.Windows.Forms.ListView menuList;
         private System.Windows.Forms.ImageList MenuImageList;
+
+        public SplitContainer getSplitContainer()
+        {
+            return this.splitContainer;
+        }
     }
 }
 

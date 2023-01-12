@@ -64,9 +64,10 @@ namespace cn.thx
             // gamePictureBox
             // 
             this.gamePictureBox.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.gamePictureBox.Location = new System.Drawing.Point(182, 21);
+            this.gamePictureBox.Location = new System.Drawing.Point(205, 25);
+            this.gamePictureBox.Margin = new System.Windows.Forms.Padding(0);
             this.gamePictureBox.Name = "gamePictureBox";
-            this.gamePictureBox.Size = new System.Drawing.Size(200, 200);
+            this.gamePictureBox.Size = new System.Drawing.Size(225, 240);
             this.gamePictureBox.SizeMode = System.Windows.Forms.PictureBoxSizeMode.StretchImage;
             this.gamePictureBox.TabIndex = 0;
             this.gamePictureBox.TabStop = false;
@@ -75,72 +76,73 @@ namespace cn.thx
             // gamePictureLabel
             // 
             this.gamePictureLabel.AutoSize = true;
-            this.gamePictureLabel.Location = new System.Drawing.Point(228, 227);
+            this.gamePictureLabel.Location = new System.Drawing.Point(256, 272);
             this.gamePictureLabel.Name = "gamePictureLabel";
-            this.gamePictureLabel.Size = new System.Drawing.Size(97, 15);
+            this.gamePictureLabel.Size = new System.Drawing.Size(116, 18);
             this.gamePictureLabel.TabIndex = 1;
             this.gamePictureLabel.Text = "选择游戏图片";
             // 
             // gameName
             // 
             this.gameName.AutoSize = true;
-            this.gameName.Location = new System.Drawing.Point(49, 287);
+            this.gameName.Location = new System.Drawing.Point(55, 344);
             this.gameName.Name = "gameName";
-            this.gameName.Size = new System.Drawing.Size(67, 15);
+            this.gameName.Size = new System.Drawing.Size(80, 18);
             this.gameName.TabIndex = 2;
             this.gameName.Text = "游戏名称";
             // 
             // archiveDirectory
             // 
             this.archiveDirectory.AutoSize = true;
-            this.archiveDirectory.Location = new System.Drawing.Point(49, 342);
+            this.archiveDirectory.Location = new System.Drawing.Point(55, 410);
             this.archiveDirectory.Name = "archiveDirectory";
-            this.archiveDirectory.Size = new System.Drawing.Size(67, 15);
+            this.archiveDirectory.Size = new System.Drawing.Size(80, 18);
             this.archiveDirectory.TabIndex = 3;
             this.archiveDirectory.Text = "存档目录";
             // 
             // startupFile
             // 
             this.startupFile.AutoSize = true;
-            this.startupFile.Location = new System.Drawing.Point(49, 397);
+            this.startupFile.Location = new System.Drawing.Point(55, 476);
             this.startupFile.Name = "startupFile";
-            this.startupFile.Size = new System.Drawing.Size(67, 15);
+            this.startupFile.Size = new System.Drawing.Size(80, 18);
             this.startupFile.TabIndex = 4;
             this.startupFile.Text = "启动文件";
             // 
             // gameNameBox
             // 
             this.gameNameBox.AllowDrop = true;
-            this.gameNameBox.Location = new System.Drawing.Point(122, 284);
+            this.gameNameBox.Location = new System.Drawing.Point(137, 341);
+            this.gameNameBox.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
             this.gameNameBox.Name = "gameNameBox";
-            this.gameNameBox.Size = new System.Drawing.Size(327, 25);
+            this.gameNameBox.Size = new System.Drawing.Size(367, 28);
             this.gameNameBox.TabIndex = 5;
             // 
             // archiveDirectoryBox
             // 
-            this.archiveDirectoryBox.Location = new System.Drawing.Point(122, 339);
+            this.archiveDirectoryBox.Location = new System.Drawing.Point(137, 407);
             this.archiveDirectoryBox.Margin = new System.Windows.Forms.Padding(0);
             this.archiveDirectoryBox.Name = "archiveDirectoryBox";
             this.archiveDirectoryBox.ReadOnly = true;
-            this.archiveDirectoryBox.Size = new System.Drawing.Size(327, 25);
+            this.archiveDirectoryBox.Size = new System.Drawing.Size(367, 28);
             this.archiveDirectoryBox.TabIndex = 6;
             // 
             // startupFileBox
             // 
-            this.startupFileBox.Location = new System.Drawing.Point(122, 394);
+            this.startupFileBox.Location = new System.Drawing.Point(137, 473);
             this.startupFileBox.Margin = new System.Windows.Forms.Padding(0);
             this.startupFileBox.Name = "startupFileBox";
             this.startupFileBox.ReadOnly = true;
-            this.startupFileBox.Size = new System.Drawing.Size(327, 25);
+            this.startupFileBox.Size = new System.Drawing.Size(367, 28);
             this.startupFileBox.TabIndex = 7;
             // 
             // selectDirectoryButton
             // 
             this.selectDirectoryButton.AutoSize = true;
-            this.selectDirectoryButton.Location = new System.Drawing.Point(450, 339);
+            this.selectDirectoryButton.Location = new System.Drawing.Point(506, 407);
             this.selectDirectoryButton.Margin = new System.Windows.Forms.Padding(0);
             this.selectDirectoryButton.Name = "selectDirectoryButton";
-            this.selectDirectoryButton.Size = new System.Drawing.Size(77, 25);
+            this.selectDirectoryButton.Size = new System.Drawing.Size(90, 30);
             this.selectDirectoryButton.TabIndex = 8;
             this.selectDirectoryButton.Text = "选择目录";
             this.selectDirectoryButton.UseVisualStyleBackColor = true;
@@ -149,10 +151,10 @@ namespace cn.thx
             // selectFileButton
             // 
             this.selectFileButton.AutoSize = true;
-            this.selectFileButton.Location = new System.Drawing.Point(450, 394);
+            this.selectFileButton.Location = new System.Drawing.Point(506, 473);
             this.selectFileButton.Margin = new System.Windows.Forms.Padding(0);
             this.selectFileButton.Name = "selectFileButton";
-            this.selectFileButton.Size = new System.Drawing.Size(77, 25);
+            this.selectFileButton.Size = new System.Drawing.Size(90, 30);
             this.selectFileButton.TabIndex = 9;
             this.selectFileButton.Text = "选择文件";
             this.selectFileButton.UseVisualStyleBackColor = true;
@@ -165,9 +167,10 @@ namespace cn.thx
             // addButton
             // 
             this.addButton.AutoSize = true;
-            this.addButton.Location = new System.Drawing.Point(546, 339);
+            this.addButton.Location = new System.Drawing.Point(614, 407);
+            this.addButton.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
             this.addButton.Name = "addButton";
-            this.addButton.Size = new System.Drawing.Size(78, 80);
+            this.addButton.Size = new System.Drawing.Size(88, 96);
             this.addButton.TabIndex = 10;
             this.addButton.Text = "添加";
             this.addButton.UseVisualStyleBackColor = true;
@@ -179,9 +182,9 @@ namespace cn.thx
             // 
             // AddGamePage
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 15F);
+            this.AutoScaleDimensions = new System.Drawing.SizeF(9F, 18F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.BackColor = System.Drawing.SystemColors.Control;
+            this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(192)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
             this.Controls.Add(this.addButton);
             this.Controls.Add(this.selectFileButton);
             this.Controls.Add(this.selectDirectoryButton);
@@ -194,10 +197,10 @@ namespace cn.thx
             this.Controls.Add(this.gamePictureLabel);
             this.Controls.Add(this.gamePictureBox);
             this.Margin = new System.Windows.Forms.Padding(0);
-            this.MaximumSize = new System.Drawing.Size(650, 450);
-            this.MinimumSize = new System.Drawing.Size(650, 450);
+            this.MaximumSize = new System.Drawing.Size(731, 540);
+            this.MinimumSize = new System.Drawing.Size(731, 540);
             this.Name = "AddGamePage";
-            this.Size = new System.Drawing.Size(650, 450);
+            this.Size = new System.Drawing.Size(731, 540);
             ((System.ComponentModel.ISupportInitialize)(this.gamePictureBox)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();

@@ -17,6 +17,8 @@ namespace GameSaveManager
         public static string GAMEINFO_PATH = System.Windows.Forms.Application.StartupPath + "/GameInfo.json";
         //GameInfo是否为空
         //public static bool GAMEINFO_EMPTY = true;
+        //Form窗口实例
+        public static Form form = null;
 
         //判断文本是否为空
         public static bool isEmpty(string text)

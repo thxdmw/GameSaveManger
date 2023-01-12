@@ -28,6 +28,7 @@ namespace GameSaveManager
             {
                 File.Create(GlobalConstant.GAMEINFO_PATH).Close();
             }
+            GlobalConstant.form= this;
         }
 
         public void Form1_Load(object sender, EventArgs e)
