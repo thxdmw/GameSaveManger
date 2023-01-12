@@ -23,6 +23,11 @@ namespace GameSaveManager
             {
                 Directory.CreateDirectory(GlobalConstant.EXE_PATH + "/save_data");
             }
+            // 判断是否已有相同文件 
+            if (!File.Exists(GlobalConstant.GAMEINFO_PATH))
+            {
+                File.Create(GlobalConstant.GAMEINFO_PATH).Close();
+            }
         }
 
         public void Form1_Load(object sender, EventArgs e)
@@ -45,10 +50,12 @@ namespace GameSaveManager
             //清空菜单
             menuList.Items.Clear();
             //添加菜单
-            ListViewItem 游戏存档管理 = new ListViewItem("游戏存档管理");
+            ListViewItem 游戏列表 = new ListViewItem("游戏列表");
             ListViewItem 添加游戏 = new ListViewItem("添加游戏");
+            游戏列表.ImageIndex = 0;
+            添加游戏.ImageIndex = 1;
 
-            menuList.Items.Add(游戏存档管理);
+            menuList.Items.Add(游戏列表);
             menuList.Items.Add(添加游戏);
 
 
@@ -69,6 +76,13 @@ namespace GameSaveManager
         {
             switch (name)
             {
+                case "游戏列表":
+                    splitContainer.Panel2.Controls.Clear();
+                    GameListPage gameListPage = new GameListPage();
+                    gameListPage.Parent = splitContainer.Panel2;
+                    gameListPage.Dock = DockStyle.Fill;
+                    gameListPage.Show();
+                    break;
                 case "添加游戏":
                     splitContainer.Panel2.Controls.Clear();
                     AddGamePage addGamePage = new AddGamePage();

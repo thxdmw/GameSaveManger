@@ -64,7 +64,7 @@ namespace cn.thx
             // gamePictureBox
             // 
             this.gamePictureBox.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.gamePictureBox.Location = new System.Drawing.Point(3, 3);
+            this.gamePictureBox.Location = new System.Drawing.Point(182, 21);
             this.gamePictureBox.Name = "gamePictureBox";
             this.gamePictureBox.Size = new System.Drawing.Size(200, 200);
             this.gamePictureBox.SizeMode = System.Windows.Forms.PictureBoxSizeMode.StretchImage;
@@ -75,7 +75,7 @@ namespace cn.thx
             // gamePictureLabel
             // 
             this.gamePictureLabel.AutoSize = true;
-            this.gamePictureLabel.Location = new System.Drawing.Point(46, 206);
+            this.gamePictureLabel.Location = new System.Drawing.Point(228, 227);
             this.gamePictureLabel.Name = "gamePictureLabel";
             this.gamePictureLabel.Size = new System.Drawing.Size(97, 15);
             this.gamePictureLabel.TabIndex = 1;
@@ -110,6 +110,7 @@ namespace cn.thx
             // 
             // gameNameBox
             // 
+            this.gameNameBox.AllowDrop = true;
             this.gameNameBox.Location = new System.Drawing.Point(122, 284);
             this.gameNameBox.Name = "gameNameBox";
             this.gameNameBox.Size = new System.Drawing.Size(327, 25);
@@ -180,7 +181,7 @@ namespace cn.thx
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.BackColor = System.Drawing.SystemColors.Control;
             this.Controls.Add(this.addButton);
             this.Controls.Add(this.selectFileButton);
             this.Controls.Add(this.selectDirectoryButton);
@@ -192,8 +193,11 @@ namespace cn.thx
             this.Controls.Add(this.gameName);
             this.Controls.Add(this.gamePictureLabel);
             this.Controls.Add(this.gamePictureBox);
+            this.Margin = new System.Windows.Forms.Padding(0);
+            this.MaximumSize = new System.Drawing.Size(650, 450);
+            this.MinimumSize = new System.Drawing.Size(650, 450);
             this.Name = "AddGamePage";
-            this.Size = new System.Drawing.Size(644, 444);
+            this.Size = new System.Drawing.Size(650, 450);
             ((System.ComponentModel.ISupportInitialize)(this.gamePictureBox)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
@@ -234,26 +238,33 @@ namespace cn.thx
         private void addButton_Click(object sender, EventArgs e)
         {
             bool flag = true;
-            if (gameNameBox.Text == "" || gameNameBox.Text == null)
+            if (GlobalConstant.isEmpty(gameNameBox.Text))
             {
                 MessageBox.Show("游戏名称不能为空！");
                 flag = false;
             }
-            else if (archiveDirectoryBox.Text == "" || archiveDirectoryBox.Text == null)
+            else if (isExistGame(gameNameBox.Text))
             {
-                MessageBox.Show("游戏目录不能为空！");
+                MessageBox.Show("游戏已经存在!！");
                 flag = false;
             }
-            else if (startupFileBox.Text == "" || startupFileBox.Text == null)
-            {
-                MessageBox.Show("游戏文件不能为空！");
-                flag = false;
-            }
+            //else if (GlobalConstant.isEmpty(archiveDirectoryBox.Text))
+            //{
+            //    MessageBox.Show("游戏目录不能为空！");
+            //    flag = false;
+            //}
+            //else if (GlobalConstant.isEmpty(startupFileBox.Text))
+            //{
+            //    MessageBox.Show("游戏文件不能为空！");
+            //    flag = false;
+            //}
 
             if (flag)
             {
                 addSaveData();
+                //GlobalConstant.GAMEINFO_EMPTY = false;
                 MessageBox.Show("添加成功！");
+
             }
 
 
@@ -283,22 +294,32 @@ namespace cn.thx
             game.SaveDirectorPath = archiveDirectoryBox.Text;
             game.StartupPath = startupFileBox.Text;
 
-            // 获取当前程序所在路径，并将要创建的文件命名为info.json 
-            string fp = GlobalConstant.EXE_PATH + "/GameInfo.json";
-            if (!File.Exists(fp))  // 判断是否已有相同文件 
-            {
-                File.Create(fp).Close();
-            }
             //创建游戏文件夹
-            Directory.CreateDirectory(GlobalConstant.EXE_PATH+"/save_data/"+game.Name);
-            //创建输出流
-            StreamWriter sw = new StreamWriter(fp, true);
-            try { sw.WriteLine(JsonConvert.SerializeObject(game)); }
+            Directory.CreateDirectory(GlobalConstant.EXE_PATH + "/save_data/" + game.Name);
+            //写入文件
+            try { File.WriteAllText(GlobalConstant.GAMEINFO_PATH, GlobalConstant.toJsonList<Game>(GlobalConstant.GAMEINFO_PATH, game)); }
             catch (Exception e) { MessageBox.Show("添加异常! " + e.Message); }
-            finally { sw.Close(); }
 
             MessageBox.Show(game.ToString());
 
         }
+        
+        //判断游戏名是否有重复
+        private bool isExistGame(string name)
+        {
+            List<Game> games = GlobalConstant.toObjectFromJson<Game>(GlobalConstant.GAMEINFO_PATH);
+            if (games != null)
+            {
+                foreach (Game game in games)
+                {
+                    if (game.Name.Equals(name))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
     }
 }
