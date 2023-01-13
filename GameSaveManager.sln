@@ -5,9 +5,7 @@ VisualStudioVersion = 17.4.33205.214
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameSaveManager", "GameSaveManager\GameSaveManager.csproj", "{02CD0923-CB81-4BB0-B50F-7E71CA956182}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "左菜单栏的winfrom", "左菜单栏的winfrom\左菜单栏的winfrom.csproj", "{2F693B2B-50A0-4472-A13A-DDD0471D1A53}"
-EndProject
-Project("{54435603-DBB4-11D2-8724-00A0C9A8B90C}") = "GameSaveManager_SetUp", "GameSaveManager_SetUp\GameSaveManager_SetUp.vdproj", "{0E0FD4A9-65BC-402E-8AA6-712EF1E678D4}"
+Project("{54435603-DBB4-11D2-8724-00A0C9A8B90C}") = "SetUp", "GameSaveManager_SetUp\GameSaveManager_SetUp.vdproj", "{0E0FD4A9-65BC-402E-8AA6-712EF1E678D4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -19,10 +17,6 @@ Global
 		{02CD0923-CB81-4BB0-B50F-7E71CA956182}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{02CD0923-CB81-4BB0-B50F-7E71CA956182}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{02CD0923-CB81-4BB0-B50F-7E71CA956182}.Release|Any CPU.Build.0 = Release|Any CPU
-		{2F693B2B-50A0-4472-A13A-DDD0471D1A53}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{2F693B2B-50A0-4472-A13A-DDD0471D1A53}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{2F693B2B-50A0-4472-A13A-DDD0471D1A53}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{2F693B2B-50A0-4472-A13A-DDD0471D1A53}.Release|Any CPU.Build.0 = Release|Any CPU
 		{0E0FD4A9-65BC-402E-8AA6-712EF1E678D4}.Debug|Any CPU.ActiveCfg = Debug
 		{0E0FD4A9-65BC-402E-8AA6-712EF1E678D4}.Release|Any CPU.ActiveCfg = Release
 	EndGlobalSection
