@@ -46,7 +46,7 @@ namespace GameSaveManager
             this.gameList.Margin = new System.Windows.Forms.Padding(0);
             this.gameList.MultiSelect = false;
             this.gameList.Name = "gameList";
-            this.gameList.Size = new System.Drawing.Size(650, 385);
+            this.gameList.Size = new System.Drawing.Size(650, 400);
             this.gameList.TabIndex = 1;
             this.gameList.UseCompatibleStateImageBehavior = false;
             this.gameList.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(this.gameList_MouseDoubleClick);
@@ -86,6 +86,7 @@ namespace GameSaveManager
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.Controls.Add(this.deleteGameButton);
             this.Controls.Add(this.GameListLable);
             this.Controls.Add(this.gameList);
@@ -93,7 +94,7 @@ namespace GameSaveManager
             this.MaximumSize = new System.Drawing.Size(650, 450);
             this.MinimumSize = new System.Drawing.Size(650, 450);
             this.Name = "GameListPage";
-            this.Size = new System.Drawing.Size(650, 450);
+            this.Size = new System.Drawing.Size(648, 448);
             this.ResumeLayout(false);
             this.PerformLayout();
 
