@@ -1,13 +1,8 @@
-﻿using System;
+﻿using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.IO;
 using System.Windows.Forms;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.ToolTip;
 
 namespace GameSaveManager
 {
@@ -21,6 +16,7 @@ namespace GameSaveManager
         private System.Windows.Forms.ListView gameList;
         private ImageList imageList;
         private IContainer components;
+        private Button deleteGameButton;
         private System.Windows.Forms.Label GameListLable;
 
         //构造方法执行初始化组件
@@ -38,6 +34,7 @@ namespace GameSaveManager
             this.gameList = new System.Windows.Forms.ListView();
             this.GameListLable = new System.Windows.Forms.Label();
             this.imageList = new System.Windows.Forms.ImageList(this.components);
+            this.deleteGameButton = new System.Windows.Forms.Button();
             this.SuspendLayout();
             // 
             // gameList
@@ -45,10 +42,11 @@ namespace GameSaveManager
             this.gameList.Activation = System.Windows.Forms.ItemActivation.TwoClick;
             this.gameList.Font = new System.Drawing.Font("微软雅黑", 15F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.gameList.HideSelection = false;
-            this.gameList.Location = new System.Drawing.Point(0, 60);
+            this.gameList.Location = new System.Drawing.Point(0, 50);
             this.gameList.Margin = new System.Windows.Forms.Padding(0);
+            this.gameList.MultiSelect = false;
             this.gameList.Name = "gameList";
-            this.gameList.Size = new System.Drawing.Size(731, 461);
+            this.gameList.Size = new System.Drawing.Size(650, 385);
             this.gameList.TabIndex = 1;
             this.gameList.UseCompatibleStateImageBehavior = false;
             this.gameList.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(this.gameList_MouseDoubleClick);
@@ -57,10 +55,10 @@ namespace GameSaveManager
             // 
             this.GameListLable.AutoSize = true;
             this.GameListLable.Font = new System.Drawing.Font("微软雅黑", 15F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.GameListLable.Location = new System.Drawing.Point(0, 12);
+            this.GameListLable.Location = new System.Drawing.Point(-4, 10);
             this.GameListLable.Margin = new System.Windows.Forms.Padding(0);
             this.GameListLable.Name = "GameListLable";
-            this.GameListLable.Size = new System.Drawing.Size(137, 39);
+            this.GameListLable.Size = new System.Drawing.Size(114, 32);
             this.GameListLable.TabIndex = 2;
             this.GameListLable.Text = "游戏列表";
             this.GameListLable.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -71,17 +69,31 @@ namespace GameSaveManager
             this.imageList.TransparentColor = System.Drawing.Color.Transparent;
             this.imageList.Images.SetKeyName(0, "image1.jpeg");
             // 
+            // deleteGameButton
+            // 
+            this.deleteGameButton.AutoSize = true;
+            this.deleteGameButton.Font = new System.Drawing.Font("微软雅黑", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.deleteGameButton.Location = new System.Drawing.Point(515, 0);
+            this.deleteGameButton.Margin = new System.Windows.Forms.Padding(0);
+            this.deleteGameButton.Name = "deleteGameButton";
+            this.deleteGameButton.Size = new System.Drawing.Size(125, 50);
+            this.deleteGameButton.TabIndex = 3;
+            this.deleteGameButton.Text = "删除选定的游戏";
+            this.deleteGameButton.UseVisualStyleBackColor = true;
+            this.deleteGameButton.MouseClick += new System.Windows.Forms.MouseEventHandler(this.deleteGameButton_MouseClick);
+            // 
             // GameListPage
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(9F, 18F);
+            this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.Controls.Add(this.deleteGameButton);
             this.Controls.Add(this.GameListLable);
             this.Controls.Add(this.gameList);
             this.Margin = new System.Windows.Forms.Padding(0);
-            this.MaximumSize = new System.Drawing.Size(731, 540);
-            this.MinimumSize = new System.Drawing.Size(731, 540);
+            this.MaximumSize = new System.Drawing.Size(650, 450);
+            this.MinimumSize = new System.Drawing.Size(650, 450);
             this.Name = "GameListPage";
-            this.Size = new System.Drawing.Size(731, 540);
+            this.Size = new System.Drawing.Size(650, 450);
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -135,6 +147,40 @@ namespace GameSaveManager
             gameInfoPage.Parent = GlobalConstant.form.getSplitContainer().Panel2;
             gameInfoPage.Dock = DockStyle.Fill;
             gameInfoPage.Show();
+        }
+
+        //删除选定的游戏
+        private void deleteGameButton_MouseClick(object sender, MouseEventArgs e)
+        {
+            if (gameList.SelectedItems.Count > 0)
+            {
+                //选中的游戏名
+                string name = gameList.SelectedItems[0].Text;
+                if (MessageBox.Show("您真的要删除 " + name + " 吗？", "此删除不可恢复", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                {
+                    //删除GameInfo文件中的信息
+                    List<Game> games = GlobalConstant.toObjectFromJson<Game>(GlobalConstant.GAMEINFO_PATH);
+                    for (int i = 0; i < games.Count; i++)
+                    {
+                        if (games[i].Name.Equals(name))
+                        {
+                            games.Remove(games[i]);
+                            break;
+                        }
+                    }
+                    File.WriteAllText(GlobalConstant.GAMEINFO_PATH, JsonConvert.SerializeObject(games));
+                    //删除游戏目录
+                    GlobalConstant.deleteDirectory(GlobalConstant.EXE_PATH + "/save_data/" + name);
+                    MessageBox.Show("删除成功:" + name);
+                    //刷新页面
+                    GlobalConstant.refreshPage(new GameListPage(), GlobalConstant.form.getSplitContainer().Panel2);
+                }
+            }
+            else
+            {
+                MessageBox.Show("你没有选中任何游戏!");
+            }
+
         }
     }
 }

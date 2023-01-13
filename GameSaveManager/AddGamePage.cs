@@ -1,12 +1,7 @@
 ﻿using GameSaveManager;
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace cn.thx
@@ -299,14 +294,16 @@ namespace cn.thx
 
             //创建游戏文件夹
             Directory.CreateDirectory(GlobalConstant.EXE_PATH + "/save_data/" + game.Name);
+            //创建Save.json文件并关闭文件
+            File.Create(GlobalConstant.EXE_PATH + "/save_data/" + game.Name + "/Save.json").Close();
             //写入文件
-            try { File.WriteAllText(GlobalConstant.GAMEINFO_PATH, GlobalConstant.toJsonList<Game>(GlobalConstant.GAMEINFO_PATH, game)); }
+            try { File.WriteAllText(GlobalConstant.GAMEINFO_PATH, GlobalConstant.toJsonObject<Game>(GlobalConstant.GAMEINFO_PATH, game)); }
             catch (Exception e) { MessageBox.Show("添加异常! " + e.Message); }
 
             MessageBox.Show(game.ToString());
 
         }
-        
+
         //判断游戏名是否有重复
         private bool isExistGame(string name)
         {

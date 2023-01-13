@@ -78,18 +78,10 @@ namespace GameSaveManager
             switch (name)
             {
                 case "游戏列表":
-                    splitContainer.Panel2.Controls.Clear();
-                    GameListPage gameListPage = new GameListPage();
-                    gameListPage.Parent = splitContainer.Panel2;
-                    gameListPage.Dock = DockStyle.Fill;
-                    gameListPage.Show();
+                    GlobalConstant.refreshPage(new GameListPage(), splitContainer.Panel2);
                     break;
                 case "添加游戏":
-                    splitContainer.Panel2.Controls.Clear();
-                    AddGamePage addGamePage = new AddGamePage();
-                    addGamePage.Parent = splitContainer.Panel2;
-                    addGamePage.Dock = DockStyle.Fill;
-                    addGamePage.Show();
+                    GlobalConstant.refreshPage(new AddGamePage(), splitContainer.Panel2);
                     break;
             }
         }
