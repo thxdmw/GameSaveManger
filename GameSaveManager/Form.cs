@@ -1,5 +1,6 @@
 ﻿using cn.thx;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -15,6 +16,9 @@ namespace GameSaveManager
 {
     public partial class Form : System.Windows.Forms.Form
     {
+        //所有的菜单页面
+        private Hashtable allPage;
+
         public Form()
         {
             InitializeComponent();
@@ -28,8 +32,17 @@ namespace GameSaveManager
             {
                 File.Create(GlobalConstant.GAMEINFO_PATH).Close();
             }
-            GlobalConstant.form= this;
+            GlobalConstant.form = this;
         }
+
+        public Hashtable AllPage { get => allPage; set => allPage = value; }
+
+        //添加页面
+        //public void addPage()
+        //{
+        //    if (allPage == null) { return; };
+        //    this.allPage.Add("游戏列表",new )
+        //}
 
         public void Form1_Load(object sender, EventArgs e)
         {
@@ -51,13 +64,19 @@ namespace GameSaveManager
             //清空菜单
             menuList.Items.Clear();
             //添加菜单
+
             ListViewItem 游戏列表 = new ListViewItem("游戏列表");
             ListViewItem 添加游戏 = new ListViewItem("添加游戏");
+            ListViewItem 演示 = new ListViewItem("演示");
+
             游戏列表.ImageIndex = 0;
             添加游戏.ImageIndex = 1;
+            演示.ImageIndex = 1;
 
             menuList.Items.Add(游戏列表);
             menuList.Items.Add(添加游戏);
+            menuList.Items.Add(演示);
+
 
 
         }
@@ -82,6 +101,9 @@ namespace GameSaveManager
                     break;
                 case "添加游戏":
                     GlobalConstant.refreshPage(new AddGamePage(), splitContainer.Panel2);
+                    break;
+                case "演示":
+                    GlobalConstant.refreshPage(new SortListViewPage(), splitContainer.Panel2);
                     break;
             }
         }
