@@ -40,7 +40,6 @@ namespace GameSaveManager
         private ListView SaveListViewBox;
         private ColumnHeader columnHeader1;
         private ColumnHeader columnHeader2;
-        private System.ComponentModel.IContainer components;
         private PictureBox gamePictureBox;
 
         public GameInfoPage()
