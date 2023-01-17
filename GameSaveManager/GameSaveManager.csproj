@@ -95,13 +95,9 @@
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="GlobalConstant.cs" />
-    <Compile Include="ListViewColumnSorter .cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SaveData.cs" />
-    <Compile Include="SortListViewPage.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
     <EmbeddedResource Include="AddGamePage.resx">
       <DependentUpon>AddGamePage.cs</DependentUpon>
     </EmbeddedResource>
@@ -124,9 +120,6 @@
       <DependentUpon>Resources.resx</DependentUpon>
       <DesignTime>True</DesignTime>
     </Compile>
-    <EmbeddedResource Include="SortListViewPage.resx">
-      <DependentUpon>SortListViewPage.cs</DependentUpon>
-    </EmbeddedResource>
     <None Include="GameSaveManager_TemporaryKey.pfx" />
     <None Include="packages.config" />
     <None Include="Properties\Settings.settings">
