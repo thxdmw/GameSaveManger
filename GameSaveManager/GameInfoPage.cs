@@ -12,6 +12,7 @@ using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using Button = System.Windows.Forms.Button;
 using ListView = System.Windows.Forms.ListView;
 using TextBox = System.Windows.Forms.TextBox;
+using ToolTip = System.Windows.Forms.ToolTip;
 
 namespace GameSaveManager
 {
@@ -40,6 +41,8 @@ namespace GameSaveManager
         private ListView SaveListViewBox;
         private ColumnHeader columnHeader1;
         private ColumnHeader columnHeader2;
+        private ToolTip toolTip1;
+        private System.ComponentModel.IContainer components;
         private PictureBox gamePictureBox;
 
         public GameInfoPage()
@@ -66,6 +69,7 @@ namespace GameSaveManager
         //组件
         private void InitializeComponent()
         {
+            this.components = new System.ComponentModel.Container();
             this.gamePictureBox = new System.Windows.Forms.PictureBox();
             this.gameName = new System.Windows.Forms.Label();
             this.startBox = new System.Windows.Forms.PictureBox();
@@ -79,6 +83,7 @@ namespace GameSaveManager
             this.SaveListViewBox = new System.Windows.Forms.ListView();
             this.columnHeader1 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader2 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.toolTip1 = new System.Windows.Forms.ToolTip(this.components);
             ((System.ComponentModel.ISupportInitialize)(this.gamePictureBox)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.startBox)).BeginInit();
             this.SuspendLayout();
@@ -120,6 +125,7 @@ namespace GameSaveManager
             this.startBox.TabIndex = 2;
             this.startBox.TabStop = false;
             this.startBox.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(this.startBox_MouseDoubleClick);
+            this.startBox.MouseHover += new System.EventHandler(this.startBox_MouseHover);
             // 
             // label1
             // 
@@ -276,7 +282,7 @@ namespace GameSaveManager
         private void createButton_MouseClick(object sender, MouseEventArgs e)
         {
             //判断列表项的数量(最多创建5个备份)
-            if (SaveListViewBox.Items.Count <= 5)
+            if (SaveListViewBox.Items.Count < 5)
             {
                 if (describeBox.Text != null && describeBox.Text != "")
                 {
@@ -291,9 +297,12 @@ namespace GameSaveManager
                     //复制存档
                     GlobalConstant.copyAllFilesFromDirectory(game.SaveDirectorPath, saveData.FilePath);
                     MessageBox.Show("创建成功!");
+                    describeBox.Text = "";
                     loadSaveFileAndShow();
+                    return;
                 }
                 MessageBox.Show("描述不能为空!");
+                return;
             }
             MessageBox.Show("游戏备份数量最多为5个!");
         }
@@ -377,6 +386,13 @@ namespace GameSaveManager
                 }
             }
             MessageBox.Show("你没有选中一个存档!");
+        }
+
+        //启动键提示
+        private void startBox_MouseHover(object sender, EventArgs e)
+        {
+            ToolTip toolTip = new ToolTip();
+            toolTip.SetToolTip(startBox, "双击运行游戏");
         }
     }
 }
