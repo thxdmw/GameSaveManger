@@ -67,18 +67,12 @@ namespace GameSaveManager
 
             ListViewItem 游戏列表 = new ListViewItem("游戏列表");
             ListViewItem 添加游戏 = new ListViewItem("添加游戏");
-            ListViewItem 演示 = new ListViewItem("演示");
 
             游戏列表.ImageIndex = 0;
             添加游戏.ImageIndex = 1;
-            演示.ImageIndex = 1;
 
             menuList.Items.Add(游戏列表);
             menuList.Items.Add(添加游戏);
-            menuList.Items.Add(演示);
-
-
-
         }
 
         //点击菜单事件
@@ -101,9 +95,6 @@ namespace GameSaveManager
                     break;
                 case "添加游戏":
                     GlobalConstant.refreshPage(new AddGamePage(), splitContainer.Panel2);
-                    break;
-                case "演示":
-                    GlobalConstant.refreshPage(new SortListViewPage(), splitContainer.Panel2);
                     break;
             }
         }
