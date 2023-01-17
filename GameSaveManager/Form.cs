@@ -1,24 +1,12 @@
 ﻿using cn.thx;
 using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
 using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace GameSaveManager
 {
     public partial class Form : System.Windows.Forms.Form
     {
-        //所有的菜单页面
-        private Hashtable allPage;
-
         public Form()
         {
             InitializeComponent();
@@ -34,15 +22,6 @@ namespace GameSaveManager
             }
             GlobalConstant.form = this;
         }
-
-        public Hashtable AllPage { get => allPage; set => allPage = value; }
-
-        //添加页面
-        //public void addPage()
-        //{
-        //    if (allPage == null) { return; };
-        //    this.allPage.Add("游戏列表",new )
-        //}
 
         public void Form1_Load(object sender, EventArgs e)
         {
@@ -64,13 +43,10 @@ namespace GameSaveManager
             //清空菜单
             menuList.Items.Clear();
             //添加菜单
-
             ListViewItem 游戏列表 = new ListViewItem("游戏列表");
             ListViewItem 添加游戏 = new ListViewItem("添加游戏");
-
             游戏列表.ImageIndex = 0;
             添加游戏.ImageIndex = 1;
-
             menuList.Items.Add(游戏列表);
             menuList.Items.Add(添加游戏);
         }

@@ -14,7 +14,6 @@ namespace GameSaveManager
         private string date;
         //创建的文件位置
         private string filePath;
-
         public SaveData()
         {
 

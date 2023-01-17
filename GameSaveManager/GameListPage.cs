@@ -116,7 +116,6 @@ namespace GameSaveManager
                     item.ImageIndex = 0;
                 }
             }
-
         }
 
         //双击游戏展示游戏详细信息
@@ -137,7 +136,6 @@ namespace GameSaveManager
             }
             //进入界面
             entryGameInfoPage(game);
-            //MessageBox.Show(game.Name);
         }
 
         //进入游戏详情界面
@@ -177,11 +175,7 @@ namespace GameSaveManager
                     GlobalConstant.refreshPage(new GameListPage(), GlobalConstant.form.getSplitContainer().Panel2);
                 }
             }
-            else
-            {
-                MessageBox.Show("你没有选中任何游戏!");
-            }
-
+            MessageBox.Show("你没有选中任何游戏!");
         }
     }
 }

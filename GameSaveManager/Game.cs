@@ -15,18 +15,20 @@ namespace GameSaveManager
         private string picturePath;
         //存档目录
         private string saveDirectorPath;
+        //游戏目录
+        private string gameDirectorPath;
         //启动文件路径 
         private string startupPath;
 
         public Game() { }
-        public Game(string name, string picturePath, string saveDirectorPath, string startupPath)
+        public Game(string name, string picturePath, string saveDirectorPath, string gameDirectorPath, string startupPath)
         {
             this.name = name;
             this.picturePath = picturePath;
             this.saveDirectorPath = saveDirectorPath;
+            this.gameDirectorPath = gameDirectorPath;
             this.startupPath = startupPath;
         }
-
         public string Name
         {
             get { return name; }
@@ -47,11 +49,15 @@ namespace GameSaveManager
             get { return startupPath; }
             set { startupPath = value; }
         }
-
+        public string GameDirectorPath
+        {
+            get { return gameDirectorPath; }
+            set { gameDirectorPath = value; }
+        }
         public override string ToString()
         {
             return "naem: " + this.Name + " picturePath: " + this.picturePath
-                + " saveDirectorPath: " + this.saveDirectorPath + " startupPath: " + this.startupPath;
+                + " saveDirectorPath: " + this.saveDirectorPath + " gameDirectorPath: " + this.gameDirectorPath + " startupPath: " + this.startupPath;
         }
     }
 }

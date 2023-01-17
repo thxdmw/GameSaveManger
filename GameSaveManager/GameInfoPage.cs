@@ -1,8 +1,13 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices.ComTypes;
 using System.Windows.Forms;
+using System.Xml.Linq;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using Button = System.Windows.Forms.Button;
 using ListView = System.Windows.Forms.ListView;
@@ -16,12 +21,12 @@ namespace GameSaveManager
         private Game game;
         //游戏目录
         private string gameDirectory;
-        //SaveJson文件的位置
+        //Save文件的位置
         private string saveJsonPath;
         //Save文件的数据
         private List<SaveData> saveDataList;
-        //位置
-        private Point pointView = new Point(0, 0);
+        //当前项
+        //ListViewItem item = null;
 
         private Label gameName;
         private PictureBox startBox;
@@ -36,7 +41,6 @@ namespace GameSaveManager
         private ColumnHeader columnHeader1;
         private ColumnHeader columnHeader2;
         private System.ComponentModel.IContainer components;
-        private System.Windows.Forms.ToolTip toolTip1;
         private PictureBox gamePictureBox;
 
         public GameInfoPage()
@@ -63,7 +67,6 @@ namespace GameSaveManager
         //组件
         private void InitializeComponent()
         {
-            this.components = new System.ComponentModel.Container();
             this.gamePictureBox = new System.Windows.Forms.PictureBox();
             this.gameName = new System.Windows.Forms.Label();
             this.startBox = new System.Windows.Forms.PictureBox();
@@ -77,7 +80,6 @@ namespace GameSaveManager
             this.SaveListViewBox = new System.Windows.Forms.ListView();
             this.columnHeader1 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader2 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
-            this.toolTip1 = new System.Windows.Forms.ToolTip(this.components);
             ((System.ComponentModel.ISupportInitialize)(this.gamePictureBox)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.startBox)).BeginInit();
             this.SuspendLayout();
@@ -98,16 +100,18 @@ namespace GameSaveManager
             // 
             this.gameName.Anchor = System.Windows.Forms.AnchorStyles.Top;
             this.gameName.AutoSize = true;
-            this.gameName.Location = new System.Drawing.Point(68, 175);
+            this.gameName.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.gameName.Location = new System.Drawing.Point(180, 141);
             this.gameName.Margin = new System.Windows.Forms.Padding(0);
             this.gameName.Name = "gameName";
-            this.gameName.Size = new System.Drawing.Size(67, 15);
+            this.gameName.Size = new System.Drawing.Size(92, 27);
             this.gameName.TabIndex = 1;
             this.gameName.Text = "游戏名称";
             // 
             // startBox
             // 
             this.startBox.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.startBox.Cursor = System.Windows.Forms.Cursors.Hand;
             this.startBox.Image = global::GameSaveManager.Properties.Resources.startButtonImage;
             this.startBox.Location = new System.Drawing.Point(236, 97);
             this.startBox.Margin = new System.Windows.Forms.Padding(0);
@@ -131,7 +135,7 @@ namespace GameSaveManager
             // 
             // createButton
             // 
-            this.createButton.Location = new System.Drawing.Point(423, 23);
+            this.createButton.Location = new System.Drawing.Point(540, 32);
             this.createButton.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.createButton.Name = "createButton";
             this.createButton.Size = new System.Drawing.Size(90, 28);
@@ -142,7 +146,7 @@ namespace GameSaveManager
             // 
             // describeBox
             // 
-            this.describeBox.Location = new System.Drawing.Point(186, 25);
+            this.describeBox.Location = new System.Drawing.Point(302, 32);
             this.describeBox.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.describeBox.Name = "describeBox";
             this.describeBox.Size = new System.Drawing.Size(232, 25);
@@ -151,12 +155,13 @@ namespace GameSaveManager
             // describeLabel
             // 
             this.describeLabel.AutoSize = true;
-            this.describeLabel.Location = new System.Drawing.Point(182, 5);
+            this.describeLabel.Font = new System.Drawing.Font("宋体", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.describeLabel.Location = new System.Drawing.Point(298, 12);
             this.describeLabel.Margin = new System.Windows.Forms.Padding(0);
             this.describeLabel.Name = "describeLabel";
-            this.describeLabel.Size = new System.Drawing.Size(45, 15);
+            this.describeLabel.Size = new System.Drawing.Size(80, 15);
             this.describeLabel.TabIndex = 7;
-            this.describeLabel.Text = "描述:";
+            this.describeLabel.Text = "存档描述:";
             // 
             // applyButton
             // 
@@ -166,6 +171,7 @@ namespace GameSaveManager
             this.applyButton.TabIndex = 10;
             this.applyButton.Text = "应用";
             this.applyButton.UseVisualStyleBackColor = true;
+            this.applyButton.Click += new System.EventHandler(this.applyButton_Click);
             // 
             // deleteButton
             // 
@@ -175,6 +181,7 @@ namespace GameSaveManager
             this.deleteButton.TabIndex = 11;
             this.deleteButton.Text = "删除";
             this.deleteButton.UseVisualStyleBackColor = true;
+            this.deleteButton.MouseClick += new System.Windows.Forms.MouseEventHandler(this.deleteButton_MouseClick);
             // 
             // backButton
             // 
@@ -196,14 +203,13 @@ namespace GameSaveManager
             this.SaveListViewBox.HideSelection = false;
             this.SaveListViewBox.Location = new System.Drawing.Point(48, 212);
             this.SaveListViewBox.Margin = new System.Windows.Forms.Padding(0);
+            this.SaveListViewBox.MultiSelect = false;
             this.SaveListViewBox.Name = "SaveListViewBox";
             this.SaveListViewBox.Scrollable = false;
             this.SaveListViewBox.Size = new System.Drawing.Size(583, 221);
             this.SaveListViewBox.TabIndex = 13;
             this.SaveListViewBox.UseCompatibleStateImageBehavior = false;
             this.SaveListViewBox.View = System.Windows.Forms.View.Details;
-            this.SaveListViewBox.MouseHover += new System.EventHandler(this.SaveListViewBox_MouseHover);
-            this.SaveListViewBox.MouseMove += new System.Windows.Forms.MouseEventHandler(this.SaveListViewBox_MouseMove);
             // 
             // columnHeader1
             // 
@@ -254,8 +260,12 @@ namespace GameSaveManager
         {
             if (File.Exists(game.StartupPath))
             {
-                System.Diagnostics.Process.Start(game.StartupPath);
-
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.WorkingDirectory = this.game.GameDirectorPath;
+                psi.FileName = this.game.StartupPath;
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                System.Diagnostics.Process.Start(psi);
             }
             else
             {
@@ -266,20 +276,27 @@ namespace GameSaveManager
         //点击创建存档图标
         private void createButton_MouseClick(object sender, MouseEventArgs e)
         {
-            //判断列表项的数量
-            //封装一个SaveData的对象
-            SaveData svaeData = new SaveData();
-            svaeData.Describe = describeBox.Text.Trim();
-            svaeData.Date = DateTime.Now.ToString("yyyy-MM-dd  HH:mm:ss");
-            //创建的文件位置
-            svaeData.FilePath = this.gameDirectory;
-
-            //然后转Json字符串存入文件
-            File.WriteAllText(this.saveJsonPath, GlobalConstant.toJsonObject<SaveData>(this.saveJsonPath, svaeData));
-            MessageBox.Show("创建成功!");
-            loadSaveFileAndShow();
-            //MessageBox.Show(svaeData.ToString());
-
+            //判断列表项的数量(最多创建5个备份)
+            if (SaveListViewBox.Items.Count <= 5)
+            {
+                if (describeBox.Text != null && describeBox.Text != "")
+                {
+                    //封装一个SaveData的对象
+                    SaveData saveData = new SaveData();
+                    saveData.Describe = describeBox.Text.Trim();
+                    saveData.Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    //创建的文件位置
+                    saveData.FilePath = this.gameDirectory + "/" + Convert.ToDateTime(saveData.Date).ToString("yyyy-MM-dd-HH-mm-ss");
+                    //然后转Json字符串存入文件
+                    File.WriteAllText(this.saveJsonPath, GlobalConstant.toJsonObject<SaveData>(this.saveJsonPath, saveData));
+                    //复制存档
+                    GlobalConstant.copyAllFilesFromDirectory(game.SaveDirectorPath, saveData.FilePath);
+                    MessageBox.Show("创建成功!");
+                    loadSaveFileAndShow();
+                }
+                MessageBox.Show("描述不能为空!");
+            }
+            MessageBox.Show("游戏备份数量最多为5个!");
         }
 
         //加载Save文件数据并展示在列表
@@ -292,33 +309,75 @@ namespace GameSaveManager
             {
                 //每次加载列表清除数据
                 SaveListViewBox.Items.Clear();
-                foreach (SaveData data in this.saveDataList)
+                //逆序遍历
+                for (int i = this.saveDataList.Count - 1; i >= 0; i--)
                 {
-                    SaveListViewBox.Items.Add(data.Describe).SubItems.Add(data.Date);
+                    SaveListViewBox.Items.Add(this.saveDataList[i].Describe).SubItems.Add(this.saveDataList[i].Date);
                 }
             }
-
         }
 
-        //悬停显示项的全部信息
-        private void SaveListViewBox_MouseHover(object sender, EventArgs e)
+        //点击删除按钮
+        private void deleteButton_MouseClick(object sender, MouseEventArgs e)
         {
+            if (SaveListViewBox.SelectedItems.Count > 0)
+            {
+                //选中的存档(以时间来判定)
+                string time = SaveListViewBox.SelectedItems[0].SubItems[1].Text;
+                if (MessageBox.Show("您真的要删除吗？", "此删除不可恢复",
+                    MessageBoxButtons.YesNo) == DialogResult.Yes)
+                {
+                    //删除Save文件中的信息
+                    List<SaveData> data = GlobalConstant.toObjectFromJson<SaveData>(this.saveJsonPath);
+                    for (int i = 0; i < data.Count; i++)
+                    {
+                        if (data[i].Date.Equals(time))
+                        {
+                            //删除游戏对应存档
+                            GlobalConstant.deleteDirectory(data[i].FilePath);
+                            //删除Save文件中的数据
+                            data.Remove(data[i]);
+                            break;
+                        }
+                    }
+                    File.WriteAllText(this.saveJsonPath, JsonConvert.SerializeObject(data));
+                    MessageBox.Show("删除成功!");
+                    //重新加载列表
+                    loadSaveFileAndShow();
+                }
+            }
+            MessageBox.Show("你没有选中一个存档!");
         }
 
-        private void SaveListViewBox_MouseMove(object sender, MouseEventArgs e)
+        //点击应用按钮
+        private void applyButton_Click(object sender, EventArgs e)
         {
-            ListViewItem item = this.SaveListViewBox.GetItemAt(e.X, e.Y);
-            if (item != this.SaveListViewBox.GetItemAt(e.X, e.Y))
+            if (SaveListViewBox.SelectedItems.Count > 0)
             {
-                toolTip1.Show(item.Text, SaveListViewBox, new Point(e.X, e.Y), 1000);
-                return;
+                //选中的存档(以时间来判定)
+                string time = SaveListViewBox.SelectedItems[0].SubItems[1].Text;
+                if (MessageBox.Show("您确定要应用吗？", "应用对话框",
+                   MessageBoxButtons.YesNo) == DialogResult.Yes)
+                {
+                    //确认应用的数据
+                    List<SaveData> data = GlobalConstant.toObjectFromJson<SaveData>(this.saveJsonPath);
+                    for (int i = 0; i < data.Count; i++)
+                    {
+                        if (data[i].Date.Equals(time))
+                        {
+                            //删除对应游戏存档目录
+                            GlobalConstant.deleteDirectory(this.game.SaveDirectorPath);
+                            //复制备份数据数据到游戏存档目录
+                            GlobalConstant.copyAllFilesFromDirectory(data[i].FilePath, this.game.SaveDirectorPath);
+                            break;
+                        }
+                    }
+                    MessageBox.Show("应用成功!");
+                    //重新加载列表
+                    loadSaveFileAndShow();
+                }
             }
-            else
-            {
-                toolTip1.Hide(SaveListViewBox);
-                pointView = new Point(e.X, e.Y);
-            }
-            toolTip1.Show(item.Text, SaveListViewBox, new Point(e.X, e.Y), 1000);
+            MessageBox.Show("你没有选中一个存档!");
         }
     }
 }
