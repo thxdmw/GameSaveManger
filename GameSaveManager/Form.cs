@@ -34,6 +34,8 @@ namespace GameSaveManager
             menuList.Columns.Add(ch);
             //加载菜单
             LoadList();
+            //一进来显示游戏列表
+            GlobalConstant.refreshPage(new GameListPage(), splitContainer.Panel2);
             menuList.Width = ch.Width;
         }
 
