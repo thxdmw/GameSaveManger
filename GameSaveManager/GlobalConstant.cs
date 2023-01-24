@@ -96,6 +96,8 @@ namespace GameSaveManager
         {
             //目录为空，删除目录
             DirectoryInfo directoryInfo = new DirectoryInfo(directoryPath);
+            //把目录转换成正常的目录
+            directoryInfo.Attributes = FileAttributes.Normal;
             //如果有子目录，先循环删除子目录，再删除当前目录
             directoryInfo.Delete(true);
         }
@@ -128,5 +130,17 @@ namespace GameSaveManager
             }
         }
 
+        public static void setAttributesNormal(DirectoryInfo directory)
+        {
+            //foreach (string subDirectoryPath in directory.GetDirectories())
+            //{
+            //    var directoryInfo = new DirectoryInfo(subDirectoryPath);
+            //    foreach (string filePath in directoryInfo.GetFiles())
+            //    {
+            //        var file = new FileInfo(filePath);
+            //        file.Attributes = FileAttributes.Normal;
+            //    }
+            //}
+        }
     }
 }
