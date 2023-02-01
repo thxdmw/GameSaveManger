@@ -43,6 +43,7 @@ namespace GameSaveManager
         private ColumnHeader columnHeader2;
         private ToolTip toolTip1;
         private System.ComponentModel.IContainer components;
+        private Button coveredButton;
         private PictureBox gamePictureBox;
 
         public GameInfoPage()
@@ -84,6 +85,7 @@ namespace GameSaveManager
             this.columnHeader1 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader2 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.toolTip1 = new System.Windows.Forms.ToolTip(this.components);
+            this.coveredButton = new System.Windows.Forms.Button();
             ((System.ComponentModel.ISupportInitialize)(this.gamePictureBox)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.startBox)).BeginInit();
             this.SuspendLayout();
@@ -170,13 +172,13 @@ namespace GameSaveManager
             // 
             // applyButton
             // 
-            this.applyButton.Location = new System.Drawing.Point(525, 159);
+            this.applyButton.Location = new System.Drawing.Point(469, 159);
             this.applyButton.Name = "applyButton";
             this.applyButton.Size = new System.Drawing.Size(50, 50);
             this.applyButton.TabIndex = 10;
             this.applyButton.Text = "应用";
             this.applyButton.UseVisualStyleBackColor = true;
-            this.applyButton.Click += new System.EventHandler(this.applyButton_Click);
+            this.applyButton.MouseClick += new System.Windows.Forms.MouseEventHandler(this.applyButton_MouseClick);
             // 
             // deleteButton
             // 
@@ -226,11 +228,22 @@ namespace GameSaveManager
             this.columnHeader2.Text = "时间";
             this.columnHeader2.Width = 250;
             // 
+            // coveredButton
+            // 
+            this.coveredButton.Location = new System.Drawing.Point(525, 159);
+            this.coveredButton.Name = "coveredButton";
+            this.coveredButton.Size = new System.Drawing.Size(50, 50);
+            this.coveredButton.TabIndex = 14;
+            this.coveredButton.Text = "覆盖";
+            this.coveredButton.UseVisualStyleBackColor = true;
+            this.coveredButton.MouseClick += new System.Windows.Forms.MouseEventHandler(this.coveredButton_MouseClick);
+            // 
             // GameInfoPage
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(192)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
+            this.Controls.Add(this.coveredButton);
             this.Controls.Add(this.SaveListViewBox);
             this.Controls.Add(this.backButton);
             this.Controls.Add(this.deleteButton);
@@ -317,12 +330,97 @@ namespace GameSaveManager
             {
                 //每次加载列表清除数据
                 SaveListViewBox.Items.Clear();
+                //排序
+                this.saveDataList.Sort(delegate (SaveData x, SaveData y)
+                {
+                    return x.Date.CompareTo(y.Date);
+                });
                 //逆序遍历
                 for (int i = this.saveDataList.Count - 1; i >= 0; i--)
                 {
                     SaveListViewBox.Items.Add(this.saveDataList[i].Describe).SubItems.Add(this.saveDataList[i].Date);
                 }
             }
+        }
+
+        //启动键提示
+        private void startBox_MouseHover(object sender, EventArgs e)
+        {
+            ToolTip toolTip = new ToolTip();
+            toolTip.SetToolTip(startBox, "双击运行游戏");
+        }
+
+        //点击应用按钮
+        private void applyButton_MouseClick(object sender, MouseEventArgs e)
+        {
+            if (SaveListViewBox.SelectedItems.Count > 0)
+            {
+                //选中的存档(以时间来判定)
+                string time = SaveListViewBox.SelectedItems[0].SubItems[1].Text;
+                if (MessageBox.Show("您确定要应用吗？", "应用对话框",
+                   MessageBoxButtons.YesNo) == DialogResult.Yes)
+                {
+                    //确认应用的数据
+                    List<SaveData> data = GlobalConstant.toObjectFromJson<SaveData>(this.saveJsonPath);
+                    for (int i = 0; i < data.Count; i++)
+                    {
+                        if (data[i].Date.Equals(time))
+                        {
+                            //删除对应游戏存档目录
+                            GlobalConstant.deleteDirectory(this.game.SaveDirectorPath);
+                            //复制备份数据数据到游戏存档目录
+                            GlobalConstant.copyAllFilesFromDirectory(data[i].FilePath, this.game.SaveDirectorPath);
+                            break;
+                        }
+                    }
+                    MessageBox.Show("应用成功!");
+                    //重新加载列表
+                    loadSaveFileAndShow();
+                    return;
+                }
+            }
+            MessageBox.Show("你没有选中一个存档!");
+        }
+
+        //点击覆盖按钮
+        private void coveredButton_MouseClick(object sender, MouseEventArgs e)
+        {
+            if (SaveListViewBox.SelectedItems.Count > 0)
+            {
+                string describe = SaveListViewBox.SelectedItems[0].Text;
+                //选中的存档(以时间来判定)
+                string time = SaveListViewBox.SelectedItems[0].SubItems[1].Text;
+
+                if (MessageBox.Show("您真的要覆盖吗？", "此覆盖不可恢复",
+                   MessageBoxButtons.YesNo) == DialogResult.Yes)
+                {
+                    //修改Save文件中的信息
+                    List<SaveData> data = GlobalConstant.toObjectFromJson<SaveData>(this.saveJsonPath);
+                    string new_filePath = "";
+                    for (int i = 0; i < data.Count; i++)
+                    {
+                        if (data[i].Date.Equals(time))
+                        {
+                            //删除游戏对应存档
+                            GlobalConstant.deleteDirectory(data[i].FilePath);
+
+                            //修改Save文件中的数据
+                            data[i].Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                            data[i].FilePath = this.gameDirectory + "/" + Convert.ToDateTime(data[i].Date).ToString("yyyy-MM-dd-HH-mm-ss");
+                            new_filePath = data[i].FilePath;
+                            break;
+                        }
+                    }
+                    //然后转Json字符串存入文件
+                    File.WriteAllText(this.saveJsonPath, JsonConvert.SerializeObject(data));
+                    //复制存档
+                    GlobalConstant.copyAllFilesFromDirectory(game.SaveDirectorPath, new_filePath);
+                    MessageBox.Show("覆盖成功!");
+                    loadSaveFileAndShow();
+                    return;
+                }
+            }
+            MessageBox.Show("你没有选中一个存档!");
         }
 
         //点击删除按钮
@@ -352,47 +450,10 @@ namespace GameSaveManager
                     MessageBox.Show("删除成功!");
                     //重新加载列表
                     loadSaveFileAndShow();
+                    return;
                 }
             }
             MessageBox.Show("你没有选中一个存档!");
-        }
-
-        //点击应用按钮
-        private void applyButton_Click(object sender, EventArgs e)
-        {
-            if (SaveListViewBox.SelectedItems.Count > 0)
-            {
-                //选中的存档(以时间来判定)
-                string time = SaveListViewBox.SelectedItems[0].SubItems[1].Text;
-                if (MessageBox.Show("您确定要应用吗？", "应用对话框",
-                   MessageBoxButtons.YesNo) == DialogResult.Yes)
-                {
-                    //确认应用的数据
-                    List<SaveData> data = GlobalConstant.toObjectFromJson<SaveData>(this.saveJsonPath);
-                    for (int i = 0; i < data.Count; i++)
-                    {
-                        if (data[i].Date.Equals(time))
-                        {
-                            //删除对应游戏存档目录
-                            GlobalConstant.deleteDirectory(this.game.SaveDirectorPath);
-                            //复制备份数据数据到游戏存档目录
-                            GlobalConstant.copyAllFilesFromDirectory(data[i].FilePath, this.game.SaveDirectorPath);
-                            break;
-                        }
-                    }
-                    MessageBox.Show("应用成功!");
-                    //重新加载列表
-                    loadSaveFileAndShow();
-                }
-            }
-            MessageBox.Show("你没有选中一个存档!");
-        }
-
-        //启动键提示
-        private void startBox_MouseHover(object sender, EventArgs e)
-        {
-            ToolTip toolTip = new ToolTip();
-            toolTip.SetToolTip(startBox, "双击运行游戏");
         }
     }
 }
