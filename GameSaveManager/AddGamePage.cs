@@ -1,10 +1,9 @@
-﻿using GameSaveManager;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
 
-namespace cn.thx
+namespace GameSaveManager
 {
     class AddGamePage : UserControl
     {

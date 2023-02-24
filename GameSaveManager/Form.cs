@@ -1,5 +1,4 @@
-﻿using cn.thx;
-using System;
+﻿using System;
 using System.IO;
 using System.Windows.Forms;
 
@@ -18,11 +17,18 @@ namespace GameSaveManager
             // 判断是否已有相同文件 
             if (!File.Exists(GlobalConstant.GAMEINFO_PATH))
             {
+                //创建GameInfo文件
                 File.Create(GlobalConstant.GAMEINFO_PATH).Close();
+            }
+            if (!File.Exists(GlobalConstant.USERINFO_PATH))
+            {
+                //创建UserInfo文件
+                File.Create(GlobalConstant.USERINFO_PATH).Close();
             }
             GlobalConstant.form = this;
         }
 
+        //Form窗口加载
         public void Form1_Load(object sender, EventArgs e)
         {
             //固定分割线

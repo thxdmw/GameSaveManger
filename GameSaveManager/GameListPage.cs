@@ -17,6 +17,8 @@ namespace GameSaveManager
         private ImageList imageList;
         private IContainer components;
         private Button deleteGameButton;
+        private Button configUserButton;
+        private ErrorProvider errorProvider1;
         private System.Windows.Forms.Label GameListLable;
 
         //构造方法执行初始化组件
@@ -35,6 +37,9 @@ namespace GameSaveManager
             this.GameListLable = new System.Windows.Forms.Label();
             this.imageList = new System.Windows.Forms.ImageList(this.components);
             this.deleteGameButton = new System.Windows.Forms.Button();
+            this.configUserButton = new System.Windows.Forms.Button();
+            this.errorProvider1 = new System.Windows.Forms.ErrorProvider(this.components);
+            ((System.ComponentModel.ISupportInitialize)(this.errorProvider1)).BeginInit();
             this.SuspendLayout();
             // 
             // gameList
@@ -82,11 +87,28 @@ namespace GameSaveManager
             this.deleteGameButton.UseVisualStyleBackColor = true;
             this.deleteGameButton.MouseClick += new System.Windows.Forms.MouseEventHandler(this.deleteGameButton_MouseClick);
             // 
+            // configUserButton
+            // 
+            this.configUserButton.Font = new System.Drawing.Font("微软雅黑", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.configUserButton.Location = new System.Drawing.Point(113, 0);
+            this.configUserButton.Margin = new System.Windows.Forms.Padding(0);
+            this.configUserButton.Name = "configUserButton";
+            this.configUserButton.Size = new System.Drawing.Size(125, 50);
+            this.configUserButton.TabIndex = 4;
+            this.configUserButton.Text = "配置用户文件";
+            this.configUserButton.UseVisualStyleBackColor = true;
+            this.configUserButton.MouseClick += new System.Windows.Forms.MouseEventHandler(this.configUserButton_MouseClick);
+            // 
+            // errorProvider1
+            // 
+            this.errorProvider1.ContainerControl = this;
+            // 
             // GameListPage
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.Controls.Add(this.configUserButton);
             this.Controls.Add(this.deleteGameButton);
             this.Controls.Add(this.GameListLable);
             this.Controls.Add(this.gameList);
@@ -95,6 +117,7 @@ namespace GameSaveManager
             this.MinimumSize = new System.Drawing.Size(650, 450);
             this.Name = "GameListPage";
             this.Size = new System.Drawing.Size(648, 448);
+            ((System.ComponentModel.ISupportInitialize)(this.errorProvider1)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -176,6 +199,15 @@ namespace GameSaveManager
                 }
             }
             MessageBox.Show("你没有选中任何游戏!");
+        }
+
+        //点击配置用户文件按钮
+        private void configUserButton_MouseClick(object sender, MouseEventArgs e)
+        {
+            UserInfoForm form = new UserInfoForm();
+            //form.Show();
+            form.ShowDialog();
+
         }
     }
 }

@@ -5,6 +5,7 @@ using System.Linq;
 using System.IO;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
+using Qiniu.Util;
 
 namespace GameSaveManager
 {
@@ -14,9 +15,17 @@ namespace GameSaveManager
         public static string EXE_PATH = System.Windows.Forms.Application.StartupPath;
         //项目GameInfo文件路径
         public static string GAMEINFO_PATH = System.Windows.Forms.Application.StartupPath + "/GameInfo.json";
+        //项目UserInfo文件路径
+        public static string USERINFO_PATH = System.Windows.Forms.Application.StartupPath + "/UserInfo.json";
         //全局Form窗口实例
         public static Form form = null;
 
+        //全局的用户密匙和需要的配置
+        public static string accessKey = "";
+        public static string secretKey = "";
+        public static string bucket = "";
+        public static string domain = "rqh74myiq.hn-bkt.clouddn.com";
+        public static Mac mac;
 
         //在程序中用一个计时器，每隔几秒钟调用一次该函数，打开任务管理器，你会有惊奇的发现
         #region 内存回收
