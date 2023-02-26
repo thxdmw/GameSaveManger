@@ -197,6 +197,7 @@ namespace GameSaveManager
                     //刷新页面
                     GlobalConstant.refreshPage(new GameListPage(), GlobalConstant.form.getSplitContainer().Panel2);
                 }
+                return;
             }
             MessageBox.Show("你没有选中任何游戏!");
         }
@@ -206,8 +207,7 @@ namespace GameSaveManager
         {
             UserInfoForm form = new UserInfoForm();
             //form.Show();
-            form.ShowDialog();
-
+            form.ShowDialog(this);
         }
     }
 }

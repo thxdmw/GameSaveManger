@@ -282,7 +282,7 @@ namespace GameSaveManager
         private void addButton_Click(object sender, EventArgs e)
         {
             bool flag = true;
-            if (GlobalConstant.isEmpty(gameNameBox.Text))
+            if (string.IsNullOrEmpty(gameNameBox.Text))
             {
                 MessageBox.Show("游戏名称不能为空！");
                 flag = false;
@@ -292,17 +292,17 @@ namespace GameSaveManager
                 MessageBox.Show("游戏已经存在!！");
                 flag = false;
             }
-            else if (GlobalConstant.isEmpty(archiveDirectoryBox.Text))
+            else if (string.IsNullOrEmpty(archiveDirectoryBox.Text))
             {
                 MessageBox.Show("游戏存档目录不能为空！");
                 flag = false;
             }
-            else if (GlobalConstant.isEmpty(gameDirectorPathBox.Text))
+            else if (string.IsNullOrEmpty(gameDirectorPathBox.Text))
             {
                 MessageBox.Show("游戏目录不能为空！");
                 flag = false;
             }
-            else if (GlobalConstant.isEmpty(startupFileBox.Text))
+            else if (string.IsNullOrEmpty(startupFileBox.Text))
             {
                 MessageBox.Show("游戏启动文件不能为空！");
                 flag = false;
@@ -331,10 +331,10 @@ namespace GameSaveManager
         {
             Game game = new Game();
             game.Name = gameNameBox.Text.Trim();//去除首位空白字符
-            game.PicturePath = this.picturePath;
-            game.SaveDirectorPath = archiveDirectoryBox.Text;
-            game.GameDirectorPath = gameDirectorPathBox.Text;
-            game.StartupPath = startupFileBox.Text;
+            game.PicturePath = this.picturePath.Replace("\\","/");
+            game.SaveDirectorPath = archiveDirectoryBox.Text.Replace("\\", "/");
+            game.GameDirectorPath = gameDirectorPathBox.Text.Replace("\\", "/");
+            game.StartupPath = startupFileBox.Text.Replace("\\", "/");
             //创建游戏文件夹
             Directory.CreateDirectory(GlobalConstant.EXE_PATH + "/save_data/" + game.Name);
             //创建Save.json文件并关闭文件
