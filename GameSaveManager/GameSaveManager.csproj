@@ -114,7 +114,6 @@
     <Compile Include="UserInfoForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="WangPan.cs" />
     <EmbeddedResource Include="AddGamePage.resx">
       <DependentUpon>AddGamePage.cs</DependentUpon>
     </EmbeddedResource>

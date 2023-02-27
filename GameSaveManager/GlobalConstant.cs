@@ -36,7 +36,7 @@ namespace GameSaveManager
         public static string secretKey = "pdFE2Rj0ke1NwMXk8Gy17oDjnWuMHk0QJLa2tR8o";
         public static string bucket = "thxdmw";
         public static string domain = "rqh74myiq.hn-bkt.clouddn.com";
-        public static Mac mac;
+        public static Mac mac = new Mac(accessKey, secretKey);
 
         //在程序中用一个计时器，每隔几秒钟调用一次该函数，打开任务管理器，你会有惊奇的发现
         #region 内存回收
@@ -100,12 +100,16 @@ namespace GameSaveManager
         //删除整个目录
         public static void deleteDirectory(string directoryPath)
         {
-            //目录为空，删除目录
-            DirectoryInfo directoryInfo = new DirectoryInfo(directoryPath);
-            //把目录转换成正常的目录
-            directoryInfo.Attributes = FileAttributes.Normal;
-            //如果有子目录，先循环删除子目录，再删除当前目录
-            directoryInfo.Delete(true);
+            //判断目录存不存在
+            if (Directory.Exists(directoryPath))
+            {
+                //目录为空，删除目录
+                DirectoryInfo directoryInfo = new DirectoryInfo(directoryPath);
+                //把目录转换成正常的目录
+                directoryInfo.Attributes = FileAttributes.Normal;
+                //如果有子目录，先循环删除子目录，再删除当前目录
+                directoryInfo.Delete(true);
+            }
         }
 
         //复制游戏存档目录下所有文件
@@ -136,29 +140,6 @@ namespace GameSaveManager
             }
         }
 
-        //获取一个目录下所有文件夹和文件姓名
-        public static void getDirList(string path)
-        {
-            DirectoryInfo directory = new DirectoryInfo(path);
-            FileSystemInfo[] filesArray = directory.GetFileSystemInfos();
-            foreach (var item in filesArray)
-            {
-                //是否是一个文件夹
-                if (item.Attributes == FileAttributes.Directory)
-                {
-                    //GlobalConstant.files.Add(item.FullName);
-                    getDirList(item.FullName.Replace("\\", "/"));
-                }
-                else
-                {
-                    GlobalConstant.files.Add(item.FullName.Replace("\\", "/"));
-                }
-            }
-            //foreach (string name in Directory.GetFileSystemEntries(path,"*"))
-            //{
-            //    files.Add(name);
-            //}
-        }
         /**
          * 
          * 网盘相关API
@@ -192,6 +173,7 @@ namespace GameSaveManager
                 }
             } while (!string.IsNullOrEmpty(marker));
         }
+
         //获取云存储某个目录的所有文件
         public static List<string> listDir(string dirName)
         {
@@ -207,7 +189,7 @@ namespace GameSaveManager
             List<string> list = new List<string>();
             do
             {
-                result = bm.ListFiles(bucket, prefix, marker, limit, delimiter);
+                result = bm.ListFiles(GlobalConstant.bucket, prefix, marker, limit, delimiter);
             } while (!string.IsNullOrEmpty(marker));
             foreach (FileDesc file in result.Result.Items)
             {
@@ -216,6 +198,7 @@ namespace GameSaveManager
             }
             return list;
         }
+
         //一个目录下的下载
         public static string downloadDir(string gameName, string saveFile)
         {
@@ -223,36 +206,22 @@ namespace GameSaveManager
             List<string> fileNameList = listDir(gameName);
             if (fileNameList.Count > 0)
             {
-                //文件URL
-                string rawUrl = "http://" + domain + "/";
-                string downloadURL = null;
-                //创建目录
+                //文件URL统一前缀
+                string rawUrl = "http://" + GlobalConstant.domain + "/";
+                HttpResult result = null;
+                //遍历云端文件
                 for (int i = 0; i < fileNameList.Count; i++)
                 {
-                    if (fileNameList[i].Last() == '/')
-                    {
-                        //(杀手/shashou/)
-                        Directory.CreateDirectory(saveFile + fileNameList[i].Replace(gameName + "/", ""));
-                        fileNameList.Remove(fileNameList[i]);
-                        i--;
-                    }
-                }
-                HttpResult result = null;
-                //下载文件
-                foreach (string filePath in fileNameList)
-                {
-                    downloadURL = rawUrl + filePath;
-                    result = DownloadManager.Download(downloadURL, saveFile + filePath.Replace(gameName + "/", ""));
-                    //Console.WriteLine(result);
+                    //(杀手/shashou/)
+                    //创建目录
+                    Directory.CreateDirectory(saveFile + (fileNameList[i].Substring(0, fileNameList[i].LastIndexOf("/"))).Replace(gameName + "/", ""));
+                    //下载文件
+                    //注意云端的空文件不能下载(存在CDN缓存的问题 解决办法请求路径拼加参数("?"+ new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds())测试域名不能设置)
+                    result = DownloadManager.Download(rawUrl + fileNameList[i], saveFile + fileNameList[i].Replace(gameName + "/", ""));
                 }
                 return "云档存在";
             }
             return "云档不存在";
-        }
-        //去掉目录前缀
-        public static string rename(string gameName, string dirName)
-        {
-            return dirName.Replace(gameName + "/", "");
         }
 
         //一个目录的上传
@@ -260,18 +229,15 @@ namespace GameSaveManager
         {
             //创建凭证
             Mac mac = new Mac(GlobalConstant.accessKey, GlobalConstant.secretKey);
+
             //上传地区
             Config.ZONE = Zone.GetZone(ZoneID.CN_South);
+
             //上传文件集合
             getDirList(dirPath);
+
             //得到本地位置和上传文件名
             Dictionary<string, string> dictionary = renameUpLoadFiles(dirPath, gameName);
-
-            ////截取目录前部分
-            //dirPath = dirPath.Substring(0, dirPath.LastIndexOf("\\") + 1);
-            //string saveKey = "/无双大蛇/KOEI/Musou OROCHI Z TC/Savedata/save.dat";
-            //string saveKey = "save.dat";
-            //string localFile = "F:/test/无双大蛇/KOEI/Musou OROCHI Z TC/Savedata/save.dat";
 
             //上传代码
             PutPolicy putPolicy = new PutPolicy();
@@ -294,7 +260,8 @@ namespace GameSaveManager
                 Console.WriteLine(result);
             }
         }
-        //修改文件集合文件名（游戏名/游戏存档目录/开头）
+
+        //修改需上传文件的文件名（游戏名/游戏存档目录/开头）
         public static Dictionary<string, string> renameUpLoadFiles(string dirPath, string gameName)
         {
             Dictionary<string, string> dictionary = new Dictionary<string, string>();
@@ -306,12 +273,34 @@ namespace GameSaveManager
             }
             return dictionary;
         }
+
+        //获取一个目录下所有文件名
+        public static void getDirList(string path)
+        {
+            DirectoryInfo directory = new DirectoryInfo(path);
+            FileSystemInfo[] filesArray = directory.GetFileSystemInfos();
+            foreach (var item in filesArray)
+            {
+                //是否是一个文件夹
+                if (item.Attributes == FileAttributes.Directory)
+                {
+                    //GlobalConstant.files.Add(item.FullName);
+                    getDirList(item.FullName.Replace("\\", "/"));
+                }
+                else
+                {
+                    //FileStream stream = File.Create(item.FullName);
+                    //if (stream.Length != 0)
+                    //{
+                    //stream.Close();
+                    GlobalConstant.files.Add(item.FullName.Replace("\\", "/"));
+                    //}
+                }
+            }
+        }
+
         /**
          * 网盘相关API
          */
-
-
-
-
     }
 }
