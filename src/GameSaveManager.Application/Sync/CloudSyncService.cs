@@ -80,9 +80,12 @@ public sealed class CloudSyncService(
             new LocalSyncState(serverKey, gameId, committed.SnapshotId, committed.HeadVersion),
             cancellationToken);
 
+        string message = committed.Created
+            ? $"同步成功：上传 {missing.Count} 个新内容对象，创建快照 {committed.SnapshotId}。"
+            : $"同步完成：存档内容没有变化，继续使用快照 {committed.SnapshotId}，未创建重复版本。";
         return new CloudSyncResult(
             CloudSyncStatus.Success,
-            $"同步成功：上传 {missing.Count} 个新内容对象，创建快照 {committed.SnapshotId}。",
+            message,
             committed.SnapshotId,
             missing.Count,
             committed.FileCount,
