@@ -32,3 +32,7 @@ dotnet build -c Debug --no-restore
 ```
 
 GitHub Actions 使用 GitHub 官方维护的 checkout/setup-dotnet Action。PR 在自动构建通过前保持 Draft，不直接合并。
+
+## 注释规范
+
+V2 新增 C# XML 注释和专用文档统一使用中文。代码标识符、协议字段和稳定错误码继续使用英文，避免影响代码可读性和接口兼容性。
