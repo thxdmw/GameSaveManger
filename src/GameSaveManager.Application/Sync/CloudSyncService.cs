@@ -22,7 +22,11 @@ public sealed class CloudSyncService(
         string? description,
         CancellationToken cancellationToken)
     {
-        LocalSyncState? localState = await localSyncStateStore.GetAsync(gameId, cancellationToken);
+        string serverKey = GameSaveServerIdentity.CreateStableKey(server);
+        LocalSyncState? localState = await localSyncStateStore.GetAsync(
+            serverKey,
+            gameId,
+            cancellationToken);
         CloudHead remoteHead = await apiClient.GetHeadAsync(server, deviceToken, gameId, cancellationToken);
 
         if (!HeadsMatch(localState, remoteHead))
@@ -73,7 +77,7 @@ public sealed class CloudSyncService(
             cancellationToken);
 
         await localSyncStateStore.SaveAsync(
-            new LocalSyncState(gameId, committed.SnapshotId, committed.HeadVersion),
+            new LocalSyncState(serverKey, gameId, committed.SnapshotId, committed.HeadVersion),
             cancellationToken);
 
         return new CloudSyncResult(
