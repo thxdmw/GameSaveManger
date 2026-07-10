@@ -67,7 +67,8 @@ public sealed class WindowsCredentialStore : ICredentialStore
             {
                 return Task.FromResult<string?>(string.Empty);
             }
-            byte[] secretBytes = new byte[credential.CredentialBlobSize];
+            int blobSize = checked((int)credential.CredentialBlobSize);
+            byte[] secretBytes = new byte[blobSize];
             Marshal.Copy(credential.CredentialBlob, secretBytes, 0, secretBytes.Length);
             try
             {
