@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'GameSaveManager.V2.sln'
+      - 'V2-ARCHITECTURE.md'
+      - 'docs/v2-*.md'
       - 'src/GameSaveManager.App/**'
       - 'src/GameSaveManager.Application/**'
       - 'src/GameSaveManager.Domain/**'
