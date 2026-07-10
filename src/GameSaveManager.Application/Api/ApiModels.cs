@@ -22,6 +22,17 @@ public sealed record CloudSnapshotResult(
     long LogicalSize,
     int ChangedFileCount,
     bool Created);
+/// <summary>时间线展示用的轻量快照信息，不包含完整文件清单。</summary>
+public sealed record CloudSnapshotSummary(
+    string SnapshotId,
+    string? ParentSnapshotId,
+    string DeviceId,
+    string TriggerType,
+    string? Description,
+    int FileCount,
+    long LogicalSize,
+    int ChangedFileCount,
+    DateTimeOffset CreateTime);
 
 /// <summary>统一的快照触发类型字符串转换。</summary>
 public static class SnapshotTriggerNames
@@ -35,3 +46,20 @@ public static class SnapshotTriggerNames
         _ => throw new ArgumentOutOfRangeException(nameof(trigger), trigger, "未知快照触发类型")
     };
 }
+/// <summary>????????????????????????????</summary>
+public sealed record CloudSnapshotManifest(
+    string SnapshotId,
+    string GameId,
+    string DeviceId,
+    string? ParentSnapshotId,
+    string TriggerType,
+    string? Description,
+    DateTimeOffset CreateTime,
+    IReadOnlyList<CloudSnapshotFile> Files);
+
+/// <summary>??????????????ObjectId ???? GameSave ????????</summary>
+public sealed record CloudSnapshotFile(
+    string RelativePath,
+    string ObjectId,
+    string Sha256,
+    long Size);

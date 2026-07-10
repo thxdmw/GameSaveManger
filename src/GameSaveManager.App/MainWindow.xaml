@@ -2,10 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="GameSave Manager V2"
-        Width="1000"
-        Height="780"
-        MinWidth="820"
-        MinHeight="620"
+        Width="1080"
+        Height="820"
+        MinWidth="900"
+        MinHeight="650"
         WindowStartupLocation="CenterScreen"
         Background="#F5F6F8">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -20,7 +20,7 @@
 
             <Border Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
                 <StackPanel>
-                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="账号与服务器" />
+                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="账号与服务端" />
                     <Grid Margin="0,16,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="2*" />
@@ -33,83 +33,51 @@
                             <ColumnDefinition Width="8" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBox Height="38"
-                                 Padding="10,7"
-                                 VerticalContentAlignment="Center"
+                        <TextBox Height="38" Padding="10,7" VerticalContentAlignment="Center"
                                  Text="{Binding ServerAddress, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBox Grid.Column="2"
-                                 Height="38"
-                                 Padding="10,7"
-                                 VerticalContentAlignment="Center"
+                        <TextBox Grid.Column="2" Height="38" Padding="10,7" VerticalContentAlignment="Center"
                                  Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" />
-                        <PasswordBox x:Name="PasswordInput"
-                                     Grid.Column="4"
-                                     Height="38"
-                                     Padding="10,7"
-                                     VerticalContentAlignment="Center"
-                                     PasswordChanged="PasswordBox_OnPasswordChanged" />
-                        <Button Grid.Column="6"
-                                MinWidth="82"
-                                Height="38"
-                                Command="{Binding RegisterCommand}"
-                                Content="注册" />
-                        <Button Grid.Column="8"
-                                MinWidth="82"
-                                Height="38"
-                                Command="{Binding LoginCommand}"
-                                Content="登录" />
+                        <PasswordBox x:Name="PasswordInput" Grid.Column="4" Height="38" Padding="10,7"
+                                     VerticalContentAlignment="Center" PasswordChanged="PasswordBox_OnPasswordChanged" />
+                        <Button Grid.Column="6" MinWidth="82" Height="38" Command="{Binding RegisterCommand}" Content="注册" />
+                        <Button Grid.Column="8" MinWidth="82" Height="38" Command="{Binding LoginCommand}" Content="登录" />
                     </Grid>
-                    <TextBlock Margin="0,8,0,0"
-                               FontSize="12"
-                               Foreground="#777777"
-                               Text="依次填写：服务器地址、用户名、密码。设备 Token 登录成功后只写入 Windows Credential Manager。" />
+                    <TextBlock Margin="0,8,0,0" FontSize="12" Foreground="#777777"
+                               Text="依次填写服务端地址、用户名和密码。设备 Token 只保存到 Windows Credential Manager。" />
                 </StackPanel>
             </Border>
 
-            <Border Margin="0,20,0,0"
-                    Padding="20"
-                    Background="White"
-                    CornerRadius="8"
-                    BorderBrush="#DDDDDD"
-                    BorderThickness="1">
+            <Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
                 <StackPanel>
-                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="云端游戏" />
+                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="游戏与本地存档" />
                     <Grid Margin="0,16,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="2*" />
-                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="12" />
                             <ColumnDefinition Width="2*" />
                             <ColumnDefinition Width="12" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <ComboBox Height="38"
-                                  Padding="8,5"
-                                  ItemsSource="{Binding Games}"
-                                  SelectedItem="{Binding SelectedGame}"
-                                  DisplayMemberPath="Name" />
-                        <TextBox Grid.Column="2"
-                                 Height="38"
-                                 Padding="10,7"
-                                 VerticalContentAlignment="Center"
+                        <ComboBox Height="38" Padding="8,5" ItemsSource="{Binding Games}"
+                                  SelectedItem="{Binding SelectedGame}" DisplayMemberPath="Name" />
+                        <TextBox Grid.Column="2" Height="38" Padding="10,7" VerticalContentAlignment="Center"
                                  Text="{Binding NewGameName, UpdateSourceTrigger=PropertyChanged}" />
-                        <Button Grid.Column="4"
-                                MinWidth="130"
-                                Height="38"
-                                Command="{Binding CreateGameCommand}"
-                                Content="创建云端游戏" />
+                        <Button Grid.Column="4" MinWidth="130" Height="38" Command="{Binding CreateGameCommand}" Content="创建云端游戏" />
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox Height="38" Padding="8,5" ItemsSource="{Binding DiscoveredGames}"
+                                  SelectedItem="{Binding SelectedDiscoveredGame}" DisplayMemberPath="Name" />
+                        <Button Grid.Column="2" MinWidth="130" Height="38"
+                                Command="{Binding DiscoverGamesCommand}" Content="扫描本机游戏" />
                     </Grid>
-                </StackPanel>
-            </Border>
-
-            <Border Margin="0,20,0,0"
-                    Padding="20"
-                    Background="White"
-                    CornerRadius="8"
-                    BorderBrush="#DDDDDD"
-                    BorderThickness="1">
-                <StackPanel>
-                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="本机存档目录" />
-                    <Grid Margin="0,16,0,0">
+                    <TextBlock Margin="0,8,0,0" FontSize="12" Foreground="#777777"
+                               Text="扫描 Steam、Epic 和 GOG 安装信息；选中后预填名称和进程名，存档目录始终需要您手动确认。" />
+                    </Grid>
+                    <Grid Margin="0,12,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="12" />
@@ -117,21 +85,66 @@
                             <ColumnDefinition Width="8" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBox Height="38"
-                                 Padding="10,7"
-                                 VerticalContentAlignment="Center"
+                        <TextBox Height="38" Padding="10,7" VerticalContentAlignment="Center"
                                  Text="{Binding SaveDirectory, UpdateSourceTrigger=PropertyChanged}" />
-                        <Button Grid.Column="2"
-                                MinWidth="130"
-                                Height="38"
-                                Command="{Binding BuildManifestCommand}"
-                                Content="构建 Manifest" />
-                        <Button Grid.Column="4"
-                                MinWidth="110"
-                                Height="38"
-                                Command="{Binding SyncCommand}"
-                                Content="立即同步" />
+                        <Button Grid.Column="2" MinWidth="130" Height="38" Command="{Binding BuildManifestCommand}" Content="构建 Manifest" />
+                        <Button Grid.Column="4" MinWidth="110" Height="38" Command="{Binding SyncCommand}" Content="立即同步" />
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Height="38" Padding="10,7" VerticalContentAlignment="Center"
+                                 Text="{Binding AutoSnapshotProcessName, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button Grid.Column="2" MinWidth="130" Height="38"
+                                Command="{Binding StartAutoSnapshotCommand}" Content="启用自动快照" />
+                        <Button Grid.Column="4" MinWidth="100" Height="38"
+                                Command="{Binding StopAutoSnapshotCommand}" Content="停止监控" />
                     </Grid>
+                    <TextBlock Margin="0,8,0,0" FontSize="12" Foreground="#777777"
+                               Text="填写游戏进程名（例如 eldenring.exe）。存档目录发生变化且游戏进程退出后，系统会自动创建并同步快照。" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
+                <StackPanel>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" FontSize="16" FontWeight="SemiBold" Text="快照时间线" />
+                        <Button DockPanel.Dock="Right" MinWidth="110" Height="32" Command="{Binding ReloadSnapshotsCommand}" Content="刷新时间线" />
+                    </DockPanel>
+                    <ListBox Margin="0,14,0,0" MinHeight="180" MaxHeight="330"
+                             ItemsSource="{Binding Snapshots}" SelectedItem="{Binding SelectedSnapshot}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="170" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="120" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding CreateTime, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" />
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock FontWeight="SemiBold" Text="{Binding Description}" />
+                                        <TextBlock Margin="0,3,0,0" FontSize="12" Foreground="#666666"
+                                                   Text="{Binding TriggerType}" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" HorizontalAlignment="Right"
+                                               Text="{Binding ChangedFileCount, StringFormat=变更 {0} 个文件}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <DockPanel Margin="0,12,0,0">
+                        <TextBlock VerticalAlignment="Center" Foreground="#666666"
+                                   Text="选择快照后可安全恢复；恢复前会下载、校验并保留当前存档的安全备份。" />
+                        <Button DockPanel.Dock="Right" MinWidth="150" Height="38" Command="{Binding RestoreCommand}" Content="恢复所选快照" />
+                        <Button DockPanel.Dock="Right" Margin="0,0,10,0" MinWidth="190" Height="38"
+                                Command="{Binding KeepLocalConflictCommand}" Content="冲突时保留本机版本" />
+                    </DockPanel>
                 </StackPanel>
             </Border>
 
@@ -159,10 +172,8 @@
                 <StackPanel>
                     <TextBlock FontSize="15" FontWeight="SemiBold" Text="状态" />
                     <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Text="{Binding StatusText}" />
-                    <TextBlock Margin="0,20,0,0"
-                               Foreground="#666666"
-                               TextWrapping="Wrap"
-                               Text="当前同步闭环：SQLite Hash Cache → 完整 Manifest → 缺失对象检查 → 流式上传 → 不可变 Snapshot → HEAD CAS。远端 HEAD 与本机最后确认版本不一致时直接阻断上传。" />
+                    <TextBlock Margin="0,20,0,0" Foreground="#666666" TextWrapping="Wrap"
+                               Text="同步流程：SQLite Hash Cache → 完整 Manifest → 缺失对象检查 → 流式上传 → 不可变快照 → HEAD CAS。远端 HEAD 领先时，客户端会阻止静默上传并引导您从时间线选择恢复版本。" />
                 </StackPanel>
             </Border>
         </StackPanel>

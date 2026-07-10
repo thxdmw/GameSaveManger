@@ -20,7 +20,8 @@ public sealed class CloudSyncService(
         string saveDirectory,
         SnapshotTrigger trigger,
         string? description,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool keepLocalOnConflict = false)
     {
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
         LocalSyncState? localState = await localSyncStateStore.GetAsync(
@@ -29,7 +30,7 @@ public sealed class CloudSyncService(
             cancellationToken);
         CloudHead remoteHead = await apiClient.GetHeadAsync(server, deviceToken, gameId, cancellationToken);
 
-        if (!HeadsMatch(localState, remoteHead))
+        if (!HeadsMatch(localState, remoteHead) && !keepLocalOnConflict)
         {
             return new CloudSyncResult(
                 CloudSyncStatus.RemoteAhead,
@@ -40,6 +41,7 @@ public sealed class CloudSyncService(
                 0);
         }
 
+        // 用户显式选择“保留本机版本”时，以当前云端 HEAD 为父快照提交；旧云端版本保留在时间线中。
         IReadOnlyList<SnapshotFile> manifest =
             await manifestBuilder.BuildAsync(saveDirectory, cancellationToken);
 

@@ -81,13 +81,25 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         return await SendForDataAsync<CloudHead>(request, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CloudSnapshotSummary>> ListSnapshotsAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        int safeLimit = Math.Clamp(limit, 1, 200);
+        string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/snapshots?limit={safeLimit}";
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, server, path, deviceToken);
+        return await SendForDataAsync<List<CloudSnapshotSummary>>(request, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ContentObjectDescriptor>> CheckMissingAsync(
         Uri server,
         string deviceToken,
         IReadOnlyCollection<ContentObjectDescriptor> objects,
         CancellationToken cancellationToken)
     {
-        // System.Text.Json 不直接实例化 IReadOnlyList<T> 接口，先反序列化为具体 List<T>。
         return await PostJsonAsync<List<ContentObjectDescriptor>>(
             server,
             "api/game-save/v1/objects/check",
@@ -148,6 +160,65 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         }, cancellationToken);
     }
 
+    public async Task<CloudSnapshotManifest> GetSnapshotAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        string snapshotId,
+        CancellationToken cancellationToken)
+    {
+        string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/snapshots/{Uri.EscapeDataString(snapshotId)}";
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, server, path, deviceToken);
+        return await SendForDataAsync<CloudSnapshotManifest>(request, cancellationToken);
+    }
+
+    public async Task DownloadObjectAsync(
+        Uri server,
+        string deviceToken,
+        string objectId,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        string path = $"api/game-save/v1/objects/{Uri.EscapeDataString(objectId)}/download-url";
+        using HttpRequestMessage authorizationRequest = CreateRequest(HttpMethod.Get, server, path, deviceToken);
+        string downloadUrl = await SendForDataAsync<string>(authorizationRequest, cancellationToken);
+        if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? downloadUri))
+        {
+            throw new InvalidDataException("服务端返回的对象下载地址不合法");
+        }
+
+        // 预签名地址已携带访问授权；禁止把设备 Token 转发给对象存储服务。
+        using HttpRequestMessage request = new(HttpMethod.Get, downloadUri);
+        using HttpResponseMessage response = await httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new GameSaveApiException(
+                (int)response.StatusCode,
+                "OBJECT_DOWNLOAD_FAILED",
+                $"对象下载请求失败: {(int)response.StatusCode}");
+        }
+
+        string? parent = Path.GetDirectoryName(destinationPath);
+        if (string.IsNullOrWhiteSpace(parent))
+        {
+            throw new ArgumentException("下载目标必须位于一个目录中", nameof(destinationPath));
+        }
+        Directory.CreateDirectory(parent);
+        await using Stream input = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using FileStream output = new(
+            destinationPath,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 1024 * 1024,
+            options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await input.CopyToAsync(output, 1024 * 1024, cancellationToken);
+        await output.FlushAsync(cancellationToken);
+    }
+
     private async Task<T> PostJsonAsync<T>(
         Uri server,
         string path,
@@ -171,7 +242,6 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
         string json = await response.Content.ReadAsStringAsync(cancellationToken);
-
         ApiEnvelope<T>? envelope = string.IsNullOrWhiteSpace(json)
             ? null
             : JsonSerializer.Deserialize<ApiEnvelope<T>>(json, JsonOptions);
