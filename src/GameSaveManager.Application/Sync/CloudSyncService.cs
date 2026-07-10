@@ -97,14 +97,26 @@ public sealed class CloudSyncService(
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// 把 Manifest 相对路径解析回本地文件，并再次确认结果仍位于存档根目录内。
+    /// 使用 Path.GetRelativePath 做边界判断，避免磁盘根目录被 TrimEnd 成 C: 后改变 Path.Combine 语义。
+    /// </summary>
     private static string ResolveSourcePath(string saveDirectory, string relativePath)
     {
-        string root = Path.GetFullPath(saveDirectory)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string root = Path.GetFullPath(saveDirectory);
         string localRelativePath = relativePath.Replace('/', Path.DirectorySeparatorChar);
         string fullPath = Path.GetFullPath(Path.Combine(root, localRelativePath));
-        string rootPrefix = root + Path.DirectorySeparatorChar;
-        if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+        string resolvedRelativePath = Path.GetRelativePath(root, fullPath);
+
+        bool escapesRoot = Path.IsPathRooted(resolvedRelativePath)
+                           || string.Equals(resolvedRelativePath, "..", StringComparison.Ordinal)
+                           || resolvedRelativePath.StartsWith(
+                               ".." + Path.DirectorySeparatorChar,
+                               StringComparison.Ordinal)
+                           || resolvedRelativePath.StartsWith(
+                               ".." + Path.AltDirectorySeparatorChar,
+                               StringComparison.Ordinal);
+        if (escapesRoot)
         {
             throw new IOException($"快照相对路径越过存档目录边界: {relativePath}");
         }
