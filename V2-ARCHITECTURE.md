@@ -81,6 +81,10 @@ SQLite 当前保存：
 
 V2 新增 C# XML 注释和 V2 专用文档统一使用中文。类名、接口名、HTTP 字段、数据库字段和稳定业务错误码保留英文标识，因为它们属于代码/协议契约。
 
+## 自动构建与合并边界
+
+`.github/workflows/v2-build.yml` 使用 Windows Runner 和 .NET 10 编译 V2 Solution。PR 在自动构建通过前保持 Draft；自动编译通过后仍需执行客户端到 CMS 的真实同步闭环和多设备冲突集成测试。
+
 ## 尚未实现
 
 - Steam/GOG/Epic 自动发现。
