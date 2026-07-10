@@ -1,7 +1,19 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace GameSaveManager.Application.Security;
 
-/// <summary>Windows Credential Manager 中使用的稳定凭据名称。</summary>
+/// <summary>生成 Windows Credential Manager 使用的稳定凭据名称。</summary>
 public static class CredentialTargets
 {
-    public const string DeviceToken = "GameSaveManager/DeviceToken";
+    /// <summary>
+    /// 设备 Token 按服务端地址隔离，避免切换 GameSave 服务端时把 A 服务签发的 Bearer Token 发给 B 服务。
+    /// </summary>
+    public static string ForDeviceToken(Uri server)
+    {
+        ArgumentNullException.ThrowIfNull(server);
+        string normalizedServer = server.AbsoluteUri.TrimEnd('/').ToLowerInvariant();
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedServer));
+        return $"GameSaveManager/DeviceToken/{Convert.ToHexString(hash).ToLowerInvariant()}";
+    }
 }
