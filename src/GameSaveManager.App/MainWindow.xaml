@@ -42,7 +42,8 @@
                                  Padding="10,7"
                                  VerticalContentAlignment="Center"
                                  Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" />
-                        <PasswordBox Grid.Column="4"
+                        <PasswordBox x:Name="PasswordInput"
+                                     Grid.Column="4"
                                      Height="38"
                                      Padding="10,7"
                                      VerticalContentAlignment="Center"
@@ -92,10 +93,10 @@
                                  VerticalContentAlignment="Center"
                                  Text="{Binding NewGameName, UpdateSourceTrigger=PropertyChanged}" />
                         <Button Grid.Column="4"
-                                MinWidth="120"
+                                MinWidth="130"
                                 Height="38"
                                 Command="{Binding CreateGameCommand}"
-                                Content="创建自定义游戏" />
+                                Content="创建云端游戏" />
                     </Grid>
                 </StackPanel>
             </Border>
@@ -126,55 +127,42 @@
                                 Command="{Binding BuildManifestCommand}"
                                 Content="构建 Manifest" />
                         <Button Grid.Column="4"
-                                MinWidth="130"
+                                MinWidth="110"
                                 Height="38"
                                 Command="{Binding SyncCommand}"
                                 Content="立即同步" />
                     </Grid>
-
-                    <Grid Margin="0,20,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="16" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Border Padding="18" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="6">
-                            <StackPanel>
-                                <TextBlock FontSize="13" Foreground="#666666" Text="文件数量" />
-                                <TextBlock Margin="0,8,0,0"
-                                           FontSize="28"
-                                           FontWeight="SemiBold"
-                                           Text="{Binding FileCount}" />
-                            </StackPanel>
-                        </Border>
-                        <Border Grid.Column="2"
-                                Padding="18"
-                                BorderBrush="#E0E0E0"
-                                BorderThickness="1"
-                                CornerRadius="6">
-                            <StackPanel>
-                                <TextBlock FontSize="13" Foreground="#666666" Text="逻辑存档大小" />
-                                <TextBlock Margin="0,8,0,0"
-                                           FontSize="28"
-                                           FontWeight="SemiBold"
-                                           Text="{Binding LogicalSizeText}" />
-                            </StackPanel>
-                        </Border>
-                    </Grid>
                 </StackPanel>
             </Border>
 
-            <Border Margin="0,20,0,0"
-                    Padding="20"
-                    Background="White"
-                    CornerRadius="8"
-                    BorderBrush="#DDDDDD"
-                    BorderThickness="1">
+            <Grid Margin="0,20,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Padding="20" Background="White" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="8">
+                    <StackPanel>
+                        <TextBlock FontSize="13" Text="文件数量" />
+                        <TextBlock Margin="0,8,0,0" FontSize="30" FontWeight="SemiBold" Text="{Binding FileCount}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Padding="20" Background="White" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="8">
+                    <StackPanel>
+                        <TextBlock FontSize="13" Text="逻辑存档大小" />
+                        <TextBlock Margin="0,8,0,0" FontSize="30" FontWeight="SemiBold" Text="{Binding LogicalSizeText}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Border Margin="0,20,0,0" Padding="20" Background="White" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="8">
                 <StackPanel>
                     <TextBlock FontSize="15" FontWeight="SemiBold" Text="状态" />
-                    <TextBlock Margin="0,10,0,0"
+                    <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Text="{Binding StatusText}" />
+                    <TextBlock Margin="0,20,0,0"
+                               Foreground="#666666"
                                TextWrapping="Wrap"
-                               Text="{Binding StatusText}" />
+                               Text="当前同步闭环：SQLite Hash Cache → 完整 Manifest → 缺失对象检查 → 流式上传 → 不可变 Snapshot → HEAD CAS。远端 HEAD 与本机最后确认版本不一致时直接阻断上传。" />
                 </StackPanel>
             </Border>
         </StackPanel>
