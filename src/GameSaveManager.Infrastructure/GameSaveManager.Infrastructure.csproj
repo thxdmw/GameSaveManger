@@ -5,6 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.6" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\GameSaveManager.Domain\GameSaveManager.Domain.csproj" />
     <ProjectReference Include="..\GameSaveManager.Application\GameSaveManager.Application.csproj" />
   </ItemGroup>
