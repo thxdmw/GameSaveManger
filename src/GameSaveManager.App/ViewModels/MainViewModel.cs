@@ -247,19 +247,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : token;
     }
 
-    private Uri ParseServerUri()
-    {
-        if (!Uri.TryCreate(ServerAddress.Trim(), UriKind.Absolute, out Uri? uri)
-            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-        {
-            throw new InvalidOperationException("服务器地址必须是有效的 http/https URL");
-        }
-        if (uri.Scheme == Uri.UriSchemeHttp && !uri.IsLoopback)
-        {
-            throw new InvalidOperationException("远程 GameSave 服务端必须使用 HTTPS；HTTP 仅允许 localhost/回环地址");
-        }
-        return uri;
-    }
+    private Uri ParseServerUri() => GameSaveServerIdentity.ParseAndValidate(ServerAddress);
 
     private void ClearPassword()
     {
