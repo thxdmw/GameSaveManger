@@ -18,7 +18,7 @@ public sealed class SqliteSyncStateStore(SqliteDatabase database) : ILocalSyncSt
             LIMIT 1;
             """;
         command.Parameters.AddWithValue("$gameId", gameId);
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
             return null;
