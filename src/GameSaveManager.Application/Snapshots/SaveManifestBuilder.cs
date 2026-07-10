@@ -5,7 +5,7 @@ namespace GameSaveManager.Application.Snapshots;
 
 /// <summary>
 /// 构建存档内容清单。目录扫描是事实来源；mtime/size 只用于命中 SHA-256 缓存。
-/// 文件在 Hash 期间发生变化时拒绝生成半一致 Manifest，由上层稍后重新扫描。
+/// 文件在构建期间发生变化时拒绝生成半一致 Manifest，由上层稍后重新扫描。
 /// </summary>
 public sealed class SaveManifestBuilder(
     ISaveDirectoryScanner scanner,
@@ -42,6 +42,8 @@ public sealed class SaveManifestBuilder(
                     cancellationToken);
             }
 
+            // 缓存命中同样不能跳过稳定性检查：文件可能在初始 Scan 后、读取缓存前后发生变化。
+            EnsureFileStayedStable(file);
             manifest.Add(new SnapshotFile(file.RelativePath, sha256, file.Size));
         }
 
@@ -55,7 +57,7 @@ public sealed class SaveManifestBuilder(
             || current.Length != scannedFile.Size
             || current.LastWriteTimeUtc != scannedFile.LastWriteTimeUtc)
         {
-            throw new IOException($"Save file changed while hashing and must be rescanned: {scannedFile.RelativePath}");
+            throw new IOException($"Save file changed while building manifest and must be rescanned: {scannedFile.RelativePath}");
         }
     }
 }
