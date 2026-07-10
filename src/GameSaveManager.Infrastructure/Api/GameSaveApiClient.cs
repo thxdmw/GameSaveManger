@@ -81,17 +81,20 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         return await SendForDataAsync<CloudHead>(request, cancellationToken);
     }
 
-    public Task<IReadOnlyList<ContentObjectDescriptor>> CheckMissingAsync(
+    public async Task<IReadOnlyList<ContentObjectDescriptor>> CheckMissingAsync(
         Uri server,
         string deviceToken,
         IReadOnlyCollection<ContentObjectDescriptor> objects,
-        CancellationToken cancellationToken) =>
-        PostJsonAsync<IReadOnlyList<ContentObjectDescriptor>>(
+        CancellationToken cancellationToken)
+    {
+        // System.Text.Json 不直接实例化 IReadOnlyList<T> 接口，先反序列化为具体 List<T>。
+        return await PostJsonAsync<List<ContentObjectDescriptor>>(
             server,
             "api/game-save/v1/objects/check",
             deviceToken,
             new { objects },
             cancellationToken);
+    }
 
     public async Task UploadObjectAsync(
         Uri server,
