@@ -17,4 +17,18 @@ dotnet build .\GameSaveManager.V2.sln -c Debug
 - 服务端已执行 `docs/db/file_system.sql` 和 `docs/db/game_save.sql`。
 - MinIO 中存在 `game-save-private` Bucket，或部署流程负责创建。
 
-本分支会增加 GitHub Actions Windows 构建检查。PR 在自动构建通过前保持 Draft，不直接合并。
+## 自动构建
+
+`.github/workflows/v2-build.yml` 会在 V2 Solution 或四个 V2 项目发生变化时触发 Windows 构建：
+
+```text
+windows-latest
+    ↓
+.NET 10 SDK
+    ↓
+dotnet restore
+    ↓
+dotnet build -c Debug --no-restore
+```
+
+PR 在自动构建通过前保持 Draft，不直接合并。
