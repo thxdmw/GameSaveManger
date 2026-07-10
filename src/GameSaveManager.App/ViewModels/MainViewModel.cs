@@ -107,6 +107,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand BuildManifestCommand { get; }
     public ICommand SyncCommand { get; }
 
+    /// <summary>认证完成后通知 PasswordBox 清除明文密码。</summary>
+    public event EventHandler? PasswordClearRequested;
+
     /// <summary>PasswordBox 通过薄 UI 适配层更新密码；密码不会写入 SQLite。</summary>
     public void SetPassword(string password) => _password = password;
 
@@ -129,7 +132,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     server, Username, _password, deviceId, Environment.MachineName, CancellationToken.None);
 
             await _credentialStore.SaveAsync(
-                CredentialTargets.DeviceToken,
+                CredentialTargets.ForDeviceToken(server),
                 session.DeviceToken,
                 CancellationToken.None);
             await ReloadGamesAsync(server, session.DeviceToken);
@@ -138,6 +141,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception exception)
         {
             ShowError(register ? "注册失败" : "登录失败", exception);
+        }
+        finally
+        {
+            ClearPassword();
         }
     }
 
@@ -158,7 +165,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Uri server = ParseServerUri();
-            string token = await RequireDeviceTokenAsync();
+            string token = await RequireDeviceTokenAsync(server);
             if (string.IsNullOrWhiteSpace(NewGameName))
             {
                 throw new InvalidOperationException("请先输入游戏名称");
@@ -209,7 +216,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             Uri server = ParseServerUri();
-            string token = await RequireDeviceTokenAsync();
+            string token = await RequireDeviceTokenAsync(server);
             StatusText = "正在检查本机 HEAD、云端 HEAD 和缺失内容对象…";
             CloudSyncResult result = await _cloudSyncService.SyncAsync(
                 server,
@@ -230,13 +237,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task<string> RequireDeviceTokenAsync()
+    private async Task<string> RequireDeviceTokenAsync(Uri server)
     {
         string? token = await _credentialStore.ReadAsync(
-            CredentialTargets.DeviceToken,
+            CredentialTargets.ForDeviceToken(server),
             CancellationToken.None);
         return string.IsNullOrWhiteSpace(token)
-            ? throw new InvalidOperationException("当前没有设备 Token，请先注册或登录")
+            ? throw new InvalidOperationException("当前服务端没有设备 Token，请先注册或登录")
             : token;
     }
 
@@ -247,7 +254,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             throw new InvalidOperationException("服务器地址必须是有效的 http/https URL");
         }
+        if (uri.Scheme == Uri.UriSchemeHttp && !uri.IsLoopback)
+        {
+            throw new InvalidOperationException("远程 GameSave 服务端必须使用 HTTPS；HTTP 仅允许 localhost/回环地址");
+        }
         return uri;
+    }
+
+    private void ClearPassword()
+    {
+        _password = string.Empty;
+        PasswordClearRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void UpdateManifestSummary(IReadOnlyList<SnapshotFile> files)
