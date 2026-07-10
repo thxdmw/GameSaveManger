@@ -3,6 +3,7 @@ using GameSaveManager.Application.Files;
 
 namespace GameSaveManager.Infrastructure.FileSystem;
 
+/// <summary>使用异步顺序读取流式计算文件 SHA-256，避免把大存档一次性读入内存。</summary>
 public sealed class FileHashService : IFileHashService
 {
     private const int BufferSize = 1024 * 1024;
