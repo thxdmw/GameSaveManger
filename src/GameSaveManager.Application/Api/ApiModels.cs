@@ -14,13 +14,14 @@ public sealed record CloudHead(string GameId, string? HeadSnapshotId, long Versi
 /// <summary>以 SHA-256 和大小唯一描述一个用户级内容对象。</summary>
 public sealed record ContentObjectDescriptor(string Sha256, long Size);
 
-/// <summary>云端快照提交成功结果。</summary>
+/// <summary>云端快照提交结果；Created=false 表示 Manifest 未变化，本次为幂等 no-op。</summary>
 public sealed record CloudSnapshotResult(
     string SnapshotId,
     long HeadVersion,
     int FileCount,
     long LogicalSize,
-    int ChangedFileCount);
+    int ChangedFileCount,
+    bool Created);
 
 /// <summary>统一的快照触发类型字符串转换。</summary>
 public static class SnapshotTriggerNames
