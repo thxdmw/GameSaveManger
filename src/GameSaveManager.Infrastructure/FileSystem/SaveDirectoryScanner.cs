@@ -2,6 +2,7 @@ using GameSaveManager.Application.Files;
 
 namespace GameSaveManager.Infrastructure.FileSystem;
 
+/// <summary>完整递归扫描存档目录中的普通文件，并跳过符号链接/Junction 等 Reparse Point。</summary>
 public sealed class SaveDirectoryScanner : ISaveDirectoryScanner
 {
     public Task<IReadOnlyList<ScannedSaveFile>> ScanAsync(
@@ -10,13 +11,13 @@ public sealed class SaveDirectoryScanner : ISaveDirectoryScanner
     {
         if (string.IsNullOrWhiteSpace(saveDirectory))
         {
-            throw new ArgumentException("Save directory is required.", nameof(saveDirectory));
+            throw new ArgumentException("存档目录不能为空", nameof(saveDirectory));
         }
 
         string root = Path.GetFullPath(saveDirectory);
         if (!Directory.Exists(root))
         {
-            throw new DirectoryNotFoundException($"Save directory does not exist: {root}");
+            throw new DirectoryNotFoundException($"存档目录不存在: {root}");
         }
 
         return Task.Run<IReadOnlyList<ScannedSaveFile>>(() =>
