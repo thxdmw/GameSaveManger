@@ -30,3 +30,7 @@
 - 自动更新。
 - 代码签名。
 - self-contained、framework-dependent、trimming 的发布体积对比测试。
+
+## 代码规范
+
+V2 新增 C# XML 注释和 V2 专用文档统一使用中文；代码标识符、协议字段和稳定错误码继续使用英文。
