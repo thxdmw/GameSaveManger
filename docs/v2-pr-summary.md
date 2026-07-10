@@ -15,5 +15,8 @@
 - 不可变 Snapshot Manifest 提交。
 - 本地 HEAD 与远端 HEAD 不一致时阻断上传。
 - WPF 同步闭环验证界面。
+- Windows + .NET 10 GitHub Actions 自动构建。
+
+所有 V2 新增代码注释和项目文档统一使用中文。
 
 PR 在 Windows/.NET 10 自动构建通过前保持 Draft。
