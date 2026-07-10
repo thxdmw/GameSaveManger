@@ -28,7 +28,24 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: 还原依赖
-        run: dotnet restore .\GameSaveManager.V2.sln
+        shell: pwsh
+        run: |
+          dotnet restore .\GameSaveManager.V2.sln *>&1 | Tee-Object -FilePath dotnet-restore.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: 编译 V2
-        run: dotnet build .\GameSaveManager.V2.sln -c Debug --no-restore
+        shell: pwsh
+        run: |
+          dotnet build .\GameSaveManager.V2.sln -c Debug --no-restore *>&1 | Tee-Object -FilePath dotnet-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 上传 .NET 构建日志
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gamesave-v2-dotnet-logs
+          path: |
+            dotnet-restore.log
+            dotnet-build.log
+          if-no-files-found: warn
+          retention-days: 7
