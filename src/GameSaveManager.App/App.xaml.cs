@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.Windows;
 using GameSaveManager.App.ViewModels;
 using GameSaveManager.Application.Snapshots;
@@ -10,7 +11,7 @@ using GameSaveManager.Infrastructure.Security;
 namespace GameSaveManager.App;
 
 /// <summary>V2 客户端组合根：只在启动阶段组装具体基础设施实现。</summary>
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private HttpClient? _httpClient;
 
