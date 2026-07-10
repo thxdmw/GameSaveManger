@@ -1,6 +1,6 @@
 # GameSave Manager V2 评审检查清单
 
-- [ ] 在 Windows + .NET 10 SDK 执行 `dotnet build .\GameSaveManager.V2.sln -c Debug`。
+- [ ] GitHub Actions `Windows .NET 10 构建` 通过。
 - [ ] 扫描空目录、嵌套目录和包含大量小文件的存档目录。
 - [ ] Hash 期间修改文件，确认 Manifest 安全失败而不是生成半一致快照。
 - [ ] 确认 Reparse Point 不会被递归遍历。
