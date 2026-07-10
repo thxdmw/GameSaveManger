@@ -31,4 +31,4 @@ dotnet restore
 dotnet build -c Debug --no-restore
 ```
 
-PR 在自动构建通过前保持 Draft，不直接合并。
+GitHub Actions 使用 GitHub 官方维护的 checkout/setup-dotnet Action。PR 在自动构建通过前保持 Draft，不直接合并。
