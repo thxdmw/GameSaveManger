@@ -154,6 +154,7 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         string? deviceToken,
         object body,
         CancellationToken cancellationToken)
+        where T : class
     {
         using HttpRequestMessage request = CreateRequest(HttpMethod.Post, server, path, deviceToken);
         request.Content = JsonContent.Create(body, options: JsonOptions);
@@ -163,6 +164,7 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
     private async Task<T> SendForDataAsync<T>(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
+        where T : class
     {
         using HttpResponseMessage response = await httpClient.SendAsync(
             request,
@@ -203,6 +205,7 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
     }
 
     private sealed class ApiEnvelope<T>
+        where T : class
     {
         public int Status { get; set; }
         public string? Code { get; set; }
