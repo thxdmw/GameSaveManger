@@ -2,71 +2,181 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="GameSave Manager V2"
-        Width="960"
-        Height="640"
-        MinWidth="760"
-        MinHeight="520"
-        WindowStartupLocation="CenterScreen">
-    <Grid Margin="32">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="24" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="24" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
-        <StackPanel>
-            <TextBlock FontSize="28" FontWeight="SemiBold" Text="GameSave Manager V2" />
-            <TextBlock Margin="0,8,0,0" FontSize="14" Text="本地优先的游戏存档版本控制与多设备同步客户端" />
-        </StackPanel>
-
-        <Grid Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="16" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBox Height="38"
-                     Padding="10,7"
-                     VerticalContentAlignment="Center"
-                     Text="{Binding SaveDirectory, UpdateSourceTrigger=PropertyChanged}" />
-            <Button Grid.Column="2"
-                    MinWidth="140"
-                    Height="38"
-                    Padding="18,0"
-                    Command="{Binding BuildManifestCommand}"
-                    Content="构建 Manifest" />
-        </Grid>
-
-        <Grid Grid.Row="4">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="24" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <Border Padding="20" BorderBrush="Gray" BorderThickness="1" CornerRadius="6">
-                <StackPanel>
-                    <TextBlock FontSize="13" Text="文件数量" />
-                    <TextBlock Margin="0,8,0,0" FontSize="30" FontWeight="SemiBold" Text="{Binding FileCount}" />
-                </StackPanel>
-            </Border>
-            <Border Grid.Column="2" Padding="20" BorderBrush="Gray" BorderThickness="1" CornerRadius="6">
-                <StackPanel>
-                    <TextBlock FontSize="13" Text="逻辑存档大小" />
-                    <TextBlock Margin="0,8,0,0" FontSize="30" FontWeight="SemiBold" Text="{Binding LogicalSizeText}" />
-                </StackPanel>
-            </Border>
-        </Grid>
-
-        <Border Grid.Row="5" Margin="0,24,0,0" Padding="20" BorderBrush="Gray" BorderThickness="1" CornerRadius="6">
-            <StackPanel>
-                <TextBlock FontSize="15" FontWeight="SemiBold" Text="状态" />
-                <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Text="{Binding StatusText}" />
-                <TextBlock Margin="0,24,0,0" TextWrapping="Wrap"
-                           Text="当前 V2 已接入完整目录扫描、SHA-256 流式 Hash 和 Hash Cache 契约。FileSystemWatcher 后续只负责 dirty 标记，游戏退出后仍执行完整扫描。" />
+        Width="1000"
+        Height="780"
+        MinWidth="820"
+        MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        Background="#F5F6F8">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32">
+            <StackPanel Margin="0,0,0,24">
+                <TextBlock FontSize="28" FontWeight="SemiBold" Text="GameSave Manager V2" />
+                <TextBlock Margin="0,8,0,0"
+                           FontSize="14"
+                           Foreground="#666666"
+                           Text="本地优先的游戏存档版本控制与多设备同步客户端" />
             </StackPanel>
-        </Border>
-    </Grid>
+
+            <Border Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="账号与服务器" />
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Height="38"
+                                 Padding="10,7"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding ServerAddress, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Grid.Column="2"
+                                 Height="38"
+                                 Padding="10,7"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" />
+                        <PasswordBox Grid.Column="4"
+                                     Height="38"
+                                     Padding="10,7"
+                                     VerticalContentAlignment="Center"
+                                     PasswordChanged="PasswordBox_OnPasswordChanged" />
+                        <Button Grid.Column="6"
+                                MinWidth="82"
+                                Height="38"
+                                Command="{Binding RegisterCommand}"
+                                Content="注册" />
+                        <Button Grid.Column="8"
+                                MinWidth="82"
+                                Height="38"
+                                Command="{Binding LoginCommand}"
+                                Content="登录" />
+                    </Grid>
+                    <TextBlock Margin="0,8,0,0"
+                               FontSize="12"
+                               Foreground="#777777"
+                               Text="依次填写：服务器地址、用户名、密码。设备 Token 登录成功后只写入 Windows Credential Manager。" />
+                </StackPanel>
+            </Border>
+
+            <Border Margin="0,20,0,0"
+                    Padding="20"
+                    Background="White"
+                    CornerRadius="8"
+                    BorderBrush="#DDDDDD"
+                    BorderThickness="1">
+                <StackPanel>
+                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="云端游戏" />
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox Height="38"
+                                  Padding="8,5"
+                                  ItemsSource="{Binding Games}"
+                                  SelectedItem="{Binding SelectedGame}"
+                                  DisplayMemberPath="Name" />
+                        <TextBox Grid.Column="2"
+                                 Height="38"
+                                 Padding="10,7"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding NewGameName, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button Grid.Column="4"
+                                MinWidth="120"
+                                Height="38"
+                                Command="{Binding CreateGameCommand}"
+                                Content="创建自定义游戏" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Margin="0,20,0,0"
+                    Padding="20"
+                    Background="White"
+                    CornerRadius="8"
+                    BorderBrush="#DDDDDD"
+                    BorderThickness="1">
+                <StackPanel>
+                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="本机存档目录" />
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Height="38"
+                                 Padding="10,7"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding SaveDirectory, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button Grid.Column="2"
+                                MinWidth="130"
+                                Height="38"
+                                Command="{Binding BuildManifestCommand}"
+                                Content="构建 Manifest" />
+                        <Button Grid.Column="4"
+                                MinWidth="130"
+                                Height="38"
+                                Command="{Binding SyncCommand}"
+                                Content="立即同步" />
+                    </Grid>
+
+                    <Grid Margin="0,20,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Padding="18" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="6">
+                            <StackPanel>
+                                <TextBlock FontSize="13" Foreground="#666666" Text="文件数量" />
+                                <TextBlock Margin="0,8,0,0"
+                                           FontSize="28"
+                                           FontWeight="SemiBold"
+                                           Text="{Binding FileCount}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2"
+                                Padding="18"
+                                BorderBrush="#E0E0E0"
+                                BorderThickness="1"
+                                CornerRadius="6">
+                            <StackPanel>
+                                <TextBlock FontSize="13" Foreground="#666666" Text="逻辑存档大小" />
+                                <TextBlock Margin="0,8,0,0"
+                                           FontSize="28"
+                                           FontWeight="SemiBold"
+                                           Text="{Binding LogicalSizeText}" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Margin="0,20,0,0"
+                    Padding="20"
+                    Background="White"
+                    CornerRadius="8"
+                    BorderBrush="#DDDDDD"
+                    BorderThickness="1">
+                <StackPanel>
+                    <TextBlock FontSize="15" FontWeight="SemiBold" Text="状态" />
+                    <TextBlock Margin="0,10,0,0"
+                               TextWrapping="Wrap"
+                               Text="{Binding StatusText}" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
 </Window>
