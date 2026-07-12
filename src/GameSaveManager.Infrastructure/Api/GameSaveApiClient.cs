@@ -56,6 +56,26 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         return await SendForDataAsync<List<CloudGame>>(request, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CloudDevice>> ListDevicesAsync(
+        Uri server,
+        string deviceToken,
+        CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = CreateRequest(
+            HttpMethod.Get, server, "api/game-save/v1/devices", deviceToken);
+        return await SendForDataAsync<List<CloudDevice>>(request, cancellationToken);
+    }
+
+    public async Task RevokeDeviceAsync(
+        Uri server,
+        string deviceToken,
+        string deviceId,
+        CancellationToken cancellationToken)
+    {
+        string path = $"api/game-save/v1/devices/{Uri.EscapeDataString(deviceId)}";
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Delete, server, path, deviceToken);
+        await SendForSuccessAsync(request, cancellationToken);
+    }
     public Task<CloudGame> CreateGameAsync(
         Uri server,
         string deviceToken,
@@ -92,6 +112,18 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/snapshots?limit={safeLimit}";
         using HttpRequestMessage request = CreateRequest(HttpMethod.Get, server, path, deviceToken);
         return await SendForDataAsync<List<CloudSnapshotSummary>>(request, cancellationToken);
+    }
+
+    public async Task DeleteSnapshotAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        string snapshotId,
+        CancellationToken cancellationToken)
+    {
+        string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/snapshots/{Uri.EscapeDataString(snapshotId)}";
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Delete, server, path, deviceToken);
+        await SendForSuccessAsync(request, cancellationToken);
     }
 
     public async Task<IReadOnlyList<ContentObjectDescriptor>> CheckMissingAsync(
@@ -232,6 +264,26 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         return await SendForDataAsync<T>(request, cancellationToken);
     }
 
+    /// <summary>处理不返回 data 的成功响应，同时保留统一错误码解析。</summary>
+    private async Task SendForSuccessAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        if (response.IsSuccessStatusCode) return;
+
+        string json = await response.Content.ReadAsStringAsync(cancellationToken);
+        ApiEnvelope<object>? envelope = string.IsNullOrWhiteSpace(json)
+            ? null
+            : JsonSerializer.Deserialize<ApiEnvelope<object>>(json, JsonOptions);
+        throw new GameSaveApiException(
+            (int)response.StatusCode,
+            envelope?.Code ?? "HTTP_ERROR",
+            envelope?.Msg ?? $"GameSave API request failed: {(int)response.StatusCode}");
+    }
     private async Task<T> SendForDataAsync<T>(
         HttpRequestMessage request,
         CancellationToken cancellationToken)

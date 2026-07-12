@@ -47,7 +47,34 @@
                 </StackPanel>
             </Border>
 
-            <Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
+                        <Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
+                <StackPanel>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" FontSize="16" FontWeight="SemiBold" Text="设备管理" />
+                        <Button DockPanel.Dock="Right" MinWidth="100" Height="32" Command="{Binding ReloadDevicesCommand}" Content="刷新设备" />
+                    </DockPanel>
+                    <ListBox Margin="0,12,0,0" MaxHeight="160" ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="180" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding DeviceName}" />
+                                    <TextBlock Grid.Column="1" HorizontalAlignment="Right"
+                                               Text="{Binding LastSeenTime, StringFormat={}{0:yyyy-MM-dd HH:mm}}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <DockPanel Margin="0,10,0,0">
+                        <TextBlock VerticalAlignment="Center" Foreground="#666666" Text="撤销后设备 Token 立即失效；当前设备不能在此处撤销。" />
+                        <Button DockPanel.Dock="Right" MinWidth="110" Height="34" Command="{Binding RevokeDeviceCommand}" Content="撤销设备" />
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+<Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
                 <StackPanel>
                     <TextBlock FontSize="16" FontWeight="SemiBold" Text="游戏与本地存档" />
                     <Grid Margin="0,16,0,0">
@@ -89,6 +116,7 @@
                                  Text="{Binding SaveDirectory, UpdateSourceTrigger=PropertyChanged}" />
                         <Button Grid.Column="2" MinWidth="130" Height="38" Command="{Binding BuildManifestCommand}" Content="构建 Manifest" />
                         <Button Grid.Column="4" MinWidth="110" Height="38" Command="{Binding SyncCommand}" Content="立即同步" />
+                        <Button Grid.Column="4" Margin="0,46,0,0" MinWidth="110" Height="38" Command="{Binding LoadLocalProfileCommand}" Content="加载本机配置" />
                     <Grid Margin="0,12,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -144,6 +172,8 @@
                         <Button DockPanel.Dock="Right" MinWidth="150" Height="38" Command="{Binding RestoreCommand}" Content="恢复所选快照" />
                         <Button DockPanel.Dock="Right" Margin="0,0,10,0" MinWidth="190" Height="38"
                                 Command="{Binding KeepLocalConflictCommand}" Content="冲突时保留本机版本" />
+                        <Button DockPanel.Dock="Right" Margin="0,0,10,0" MinWidth="160" Height="38"
+                                Click="DeleteSnapshotButton_OnClick" Content="删除历史快照" />
                     </DockPanel>
                 </StackPanel>
             </Border>

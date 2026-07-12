@@ -21,6 +21,18 @@ public interface IGameSaveApiClient
         string deviceName,
         CancellationToken cancellationToken);
 
+    /// <summary>读取当前账号的已登记设备。</summary>
+    Task<IReadOnlyList<CloudDevice>> ListDevicesAsync(
+        Uri server,
+        string deviceToken,
+        CancellationToken cancellationToken);
+
+    /// <summary>撤销其他设备；服务端拒绝撤销当前设备。</summary>
+    Task RevokeDeviceAsync(
+        Uri server,
+        string deviceToken,
+        string deviceId,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<CloudGame>> ListGamesAsync(
         Uri server,
         string deviceToken,
@@ -46,6 +58,14 @@ public interface IGameSaveApiClient
         string deviceToken,
         string gameId,
         int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>删除非当前 HEAD 的历史快照；服务端会释放其内容对象引用并保留当前 HEAD。</summary>
+    Task DeleteSnapshotAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        string snapshotId,
         CancellationToken cancellationToken);
 
     Task<IReadOnlyList<ContentObjectDescriptor>> CheckMissingAsync(

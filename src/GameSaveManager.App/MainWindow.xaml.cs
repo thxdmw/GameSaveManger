@@ -41,4 +41,24 @@ public partial class MainWindow : Window
     {
         PasswordInput.Clear();
     }
+    /// <summary>删除快照前由界面收集一次明确确认，业务删除仍由 ViewModel 命令执行。</summary>
+    private void DeleteSnapshotButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainViewModel viewModel || viewModel.SelectedSnapshot is null)
+        {
+            MessageBox.Show(this, "请先在时间线中选择要删除的历史快照。", "GameSave Manager", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        MessageBoxResult confirmation = MessageBox.Show(
+            this,
+            "删除后，该快照将不再出现在时间线中；未被其他快照引用的内容会进入云端清理流程。当前同步 HEAD 无法删除。是否继续？",
+            "确认删除历史快照",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirmation == MessageBoxResult.Yes && viewModel.DeleteSnapshotCommand.CanExecute(null))
+        {
+            viewModel.DeleteSnapshotCommand.Execute(null);
+        }
+    }
 }

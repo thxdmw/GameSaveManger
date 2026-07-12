@@ -49,6 +49,7 @@ public sealed class SqliteDatabase
         }
 
         await EnsureSyncStateSchemaAsync(connection, cancellationToken);
+        await EnsureLocalGameProfileSchemaAsync(connection, cancellationToken);
     }
 
     /// <summary>
@@ -104,5 +105,24 @@ public sealed class SqliteDatabase
             );
             """;
         await createCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+    /// <summary>创建按服务端隔离的本机游戏配置表。</summary>
+    private static async Task EnsureLocalGameProfileSchemaAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS local_game_profile (
+                server_key TEXT NOT NULL,
+                game_id TEXT NOT NULL,
+                save_directory TEXT NOT NULL,
+                process_name TEXT NOT NULL,
+                auto_snapshot_enabled INTEGER NOT NULL,
+                update_time_utc INTEGER NOT NULL,
+                PRIMARY KEY(server_key, game_id)
+            );
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 }

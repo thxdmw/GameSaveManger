@@ -66,6 +66,7 @@ public partial class App : System.Windows.Application
                     restoreService,
                     _autoSnapshotMonitor,
                     new WindowsGameDiscoveryService(),
+                    new SqliteLocalGameProfileStore(database),
                     new WindowsCredentialStore(),
                     new SqliteDeviceIdentityProvider(database))
             };

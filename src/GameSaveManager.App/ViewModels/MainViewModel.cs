@@ -1,11 +1,13 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using GameSaveManager.App.Common;
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Device;
 using GameSaveManager.Application.Discovery;
+using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Monitoring;
 using GameSaveManager.Application.Restores;
 using GameSaveManager.Application.Security;
@@ -24,6 +26,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly SafeRestoreService _safeRestoreService;
     private readonly IAutoSnapshotMonitor _autoSnapshotMonitor;
     private readonly IGameDiscoveryService _gameDiscoveryService;
+    private readonly ILocalGameProfileStore _localGameProfileStore;
     private readonly ICredentialStore _credentialStore;
     private readonly IDeviceIdentityProvider _deviceIdentityProvider;
 
@@ -39,6 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private CloudGame? _selectedGame;
     private CloudSnapshotSummary? _selectedSnapshot;
     private DiscoveredGame? _selectedDiscoveredGame;
+    private CloudDevice? _selectedDevice;
 
     public MainViewModel(
         SaveManifestBuilder manifestBuilder,
@@ -47,6 +51,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SafeRestoreService safeRestoreService,
         IAutoSnapshotMonitor autoSnapshotMonitor,
         IGameDiscoveryService gameDiscoveryService,
+        ILocalGameProfileStore localGameProfileStore,
         ICredentialStore credentialStore,
         IDeviceIdentityProvider deviceIdentityProvider)
     {
@@ -56,6 +61,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _safeRestoreService = safeRestoreService;
         _autoSnapshotMonitor = autoSnapshotMonitor;
         _gameDiscoveryService = gameDiscoveryService;
+        _localGameProfileStore = localGameProfileStore;
         _credentialStore = credentialStore;
         _deviceIdentityProvider = deviceIdentityProvider;
 
@@ -65,16 +71,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         BuildManifestCommand = new AsyncCommand(BuildManifestAsync);
         SyncCommand = new AsyncCommand(SyncAsync);
         ReloadSnapshotsCommand = new AsyncCommand(ReloadSnapshotsFromUiAsync);
+        DeleteSnapshotCommand = new AsyncCommand(DeleteSnapshotAsync);
         RestoreCommand = new AsyncCommand(RestoreAsync);
         StartAutoSnapshotCommand = new AsyncCommand(StartAutoSnapshotAsync);
         StopAutoSnapshotCommand = new AsyncCommand(StopAutoSnapshotAsync);
         DiscoverGamesCommand = new AsyncCommand(DiscoverGamesAsync);
+        LoadLocalProfileCommand = new AsyncCommand(LoadLocalProfileFromUiAsync);
+        ReloadDevicesCommand = new AsyncCommand(ReloadDevicesAsync);
+        RevokeDeviceCommand = new AsyncCommand(RevokeDeviceAsync);
         KeepLocalConflictCommand = new AsyncCommand(KeepLocalConflictAsync);
     }
 
     public ObservableCollection<CloudGame> Games { get; } = [];
     public ObservableCollection<CloudSnapshotSummary> Snapshots { get; } = [];
     public ObservableCollection<DiscoveredGame> DiscoveredGames { get; } = [];
+    public ObservableCollection<CloudDevice> Devices { get; } = [];
 
     public string ServerAddress { get => _serverAddress; set => SetField(ref _serverAddress, value); }
     public string Username { get => _username; set => SetField(ref _username, value); }
@@ -104,6 +115,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetField(ref _selectedSnapshot, value);
     }
 
+    public CloudDevice? SelectedDevice
+    {
+        get => _selectedDevice;
+        set => SetField(ref _selectedDevice, value);
+    }
     public DiscoveredGame? SelectedDiscoveredGame
     {
         get => _selectedDiscoveredGame;
@@ -123,10 +139,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand BuildManifestCommand { get; }
     public ICommand SyncCommand { get; }
     public ICommand ReloadSnapshotsCommand { get; }
+    public ICommand DeleteSnapshotCommand { get; }
     public ICommand RestoreCommand { get; }
     public ICommand StartAutoSnapshotCommand { get; }
     public ICommand StopAutoSnapshotCommand { get; }
     public ICommand DiscoverGamesCommand { get; }
+    public ICommand LoadLocalProfileCommand { get; }
+    public ICommand ReloadDevicesCommand { get; }
+    public ICommand RevokeDeviceCommand { get; }
     public ICommand KeepLocalConflictCommand { get; }
 
     public event EventHandler? PasswordClearRequested;
@@ -146,6 +166,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : await _apiClient.LoginAsync(server, Username, _password, deviceId, Environment.MachineName, CancellationToken.None);
             await _credentialStore.SaveAsync(CredentialTargets.ForDeviceToken(server), session.DeviceToken, CancellationToken.None);
             await ReloadGamesAsync(server, session.DeviceToken);
+            await ReloadDevicesAsync(server, session.DeviceToken);
             StatusText = $"认证成功，已加载 {Games.Count} 个云端游戏。";
         }
         catch (Exception exception)
@@ -165,9 +186,87 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Games.Clear();
         foreach (CloudGame game in games) Games.Add(game);
         SelectedGame = Games.FirstOrDefault();
-        if (SelectedGame is not null) await ReloadSnapshotsAsync(server, token);
+        if (SelectedGame is not null) { await RestoreLocalProfileAsync(server, token); await ReloadSnapshotsAsync(server, token); }
     }
 
+    private async Task RestoreLocalProfileAsync(Uri server, string token)
+    {
+        if (SelectedGame is null) return;
+        string serverKey = GameSaveServerIdentity.CreateStableKey(server);
+        LocalGameProfile? profile = await _localGameProfileStore.GetAsync(
+            serverKey, SelectedGame.GameId, CancellationToken.None);
+        if (profile is null) return;
+
+        SaveDirectory = profile.SaveDirectory;
+        AutoSnapshotProcessName = profile.ProcessName;
+        if (!profile.AutoSnapshotEnabled
+            || string.IsNullOrWhiteSpace(profile.ProcessName)
+            || !Directory.Exists(profile.SaveDirectory)) return;
+
+        string gameId = SelectedGame.GameId;
+        string saveDirectory = profile.SaveDirectory;
+        await _autoSnapshotMonitor.StartAsync(
+            new AutoSnapshotProfile(profile.ProcessName, saveDirectory),
+            cancellationToken => _cloudSyncService.SyncAsync(
+                server, token, gameId, saveDirectory, SnapshotTrigger.GameExit, "Automatic snapshot after game exit", cancellationToken),
+            CancellationToken.None);
+    }
+
+    private Task SaveLocalProfileAsync(Uri server, bool autoSnapshotEnabled)
+    {
+        if (SelectedGame is null) return Task.CompletedTask;
+        return _localGameProfileStore.SaveAsync(
+            new LocalGameProfile(
+                GameSaveServerIdentity.CreateStableKey(server),
+                SelectedGame.GameId,
+                SaveDirectory,
+                AutoSnapshotProcessName,
+                autoSnapshotEnabled),
+            CancellationToken.None);
+    }
+    private async Task ReloadDevicesAsync()
+    {
+        try
+        {
+            Uri server = ParseServerUri();
+            await ReloadDevicesAsync(server, await RequireDeviceTokenAsync(server));
+            StatusText = $"Loaded {Devices.Count} registered devices.";
+        }
+        catch (Exception exception) { ShowError("Load devices failed", exception); }
+    }
+
+    private async Task ReloadDevicesAsync(Uri server, string token)
+    {
+        IReadOnlyList<CloudDevice> devices = await _apiClient.ListDevicesAsync(server, token, CancellationToken.None);
+        Devices.Clear();
+        foreach (CloudDevice device in devices) Devices.Add(device);
+        SelectedDevice = Devices.FirstOrDefault(device => device.Active);
+    }
+
+    private async Task RevokeDeviceAsync()
+    {
+        try
+        {
+            if (SelectedDevice is null) throw new InvalidOperationException("Select a device to revoke first");
+            Uri server = ParseServerUri();
+            string token = await RequireDeviceTokenAsync(server);
+            await _apiClient.RevokeDeviceAsync(server, token, SelectedDevice.DeviceId, CancellationToken.None);
+            await ReloadDevicesAsync(server, token);
+            StatusText = "Device token revoked.";
+        }
+        catch (Exception exception) { ShowError("Revoke device failed", exception); }
+    }
+    private async Task LoadLocalProfileFromUiAsync()
+    {
+        try
+        {
+            if (SelectedGame is null) throw new InvalidOperationException("Please select a cloud game first");
+            Uri server = ParseServerUri();
+            await RestoreLocalProfileAsync(server, await RequireDeviceTokenAsync(server));
+            StatusText = "Local game configuration loaded.";
+        }
+        catch (Exception exception) { ShowError("Load local configuration failed", exception); }
+    }
     private async Task DiscoverGamesAsync()
     {
         try
@@ -290,6 +389,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception exception) { ShowError("恢复存档失败", exception); }
     }
 
+    /// <summary>删除已明确确认的历史快照；服务端会拒绝删除当前同步 HEAD。</summary>
+    private async Task DeleteSnapshotAsync()
+    {
+        try
+        {
+            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (SelectedSnapshot is null) throw new InvalidOperationException("请从时间线选择要删除的历史快照");
+            Uri server = ParseServerUri();
+            string token = await RequireDeviceTokenAsync(server);
+            string snapshotId = SelectedSnapshot.SnapshotId;
+            await _apiClient.DeleteSnapshotAsync(
+                server, token, SelectedGame.GameId, snapshotId, CancellationToken.None);
+            await ReloadSnapshotsAsync(server, token);
+            StatusText = $"已删除历史快照 {snapshotId}；未被其他快照引用的内容将按云端清理策略回收。";
+        }
+        catch (Exception exception) { ShowError("删除历史快照失败", exception); }
+    }
+
     private async Task StartAutoSnapshotAsync()
     {
         try
@@ -306,6 +423,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 cancellationToken => _cloudSyncService.SyncAsync(
                     server, token, gameId, saveDirectory, SnapshotTrigger.GameExit, "游戏退出自动快照", cancellationToken),
                 CancellationToken.None);
+            await SaveLocalProfileAsync(server, true);
             StatusText = "自动快照已启用：目录变化只标记 dirty，游戏退出后才会同步。";
         }
         catch (Exception exception) { ShowError("启用自动快照失败", exception); }

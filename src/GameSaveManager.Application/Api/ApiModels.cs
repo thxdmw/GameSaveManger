@@ -7,6 +7,13 @@ public sealed record AuthSession(string UserId, string DeviceId, string DeviceTo
 
 /// <summary>云端逻辑游戏，不包含任何本机绝对路径。</summary>
 public sealed record CloudGame(string GameId, string Name, string Provider, string? ProviderGameId);
+/// <summary>当前账号已登记设备的安全摘要，不含 Token。</summary>
+public sealed record CloudDevice(
+    string DeviceId,
+    string DeviceName,
+    DateTimeOffset? LastSeenTime,
+    bool Active,
+    DateTimeOffset? CreateTime);
 
 /// <summary>指定游戏当前云端同步 HEAD。</summary>
 public sealed record CloudHead(string GameId, string? HeadSnapshotId, long Version);

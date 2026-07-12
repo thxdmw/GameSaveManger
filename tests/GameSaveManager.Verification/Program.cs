@@ -1,4 +1,5 @@
 using GameSaveManager.Application.Api;
+using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Sync;
 using GameSaveManager.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
@@ -40,6 +41,7 @@ Run("服务端基础路径大小写必须保持隔离", () =>
 });
 
 await RunAsync("旧 sync_state 表迁移并按服务端隔离 HEAD", VerifySyncStateMigrationAsync);
+await RunAsync("本机游戏配置按服务端隔离", VerifyLocalGameProfileAsync);
 
 if (failures.Count > 0)
 {
@@ -80,6 +82,31 @@ async Task RunAsync(string name, Func<Task> action)
     }
 }
 
+async Task VerifyLocalGameProfileAsync()
+{
+    string tempDirectory = Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(tempDirectory);
+    string databasePath = Path.Combine(tempDirectory, "profiles.db");
+    try
+    {
+        var database = new SqliteDatabase(databasePath);
+        await database.InitializeAsync(CancellationToken.None);
+        var store = new SqliteLocalGameProfileStore(database);
+        await store.SaveAsync(new LocalGameProfile("server-a", "same-game", "D:\\Saves\\A", "game-a.exe", true), CancellationToken.None);
+        await store.SaveAsync(new LocalGameProfile("server-b", "same-game", "E:\\Saves\\B", "game-b.exe", false), CancellationToken.None);
+        LocalGameProfile? serverA = await store.GetAsync("server-a", "same-game", CancellationToken.None);
+        LocalGameProfile? serverB = await store.GetAsync("server-b", "same-game", CancellationToken.None);
+        Check(serverA is { SaveDirectory: "D:\\Saves\\A", ProcessName: "game-a.exe", AutoSnapshotEnabled: true }, "server-a local profile read failed");
+        Check(serverB is { SaveDirectory: "E:\\Saves\\B", ProcessName: "game-b.exe", AutoSnapshotEnabled: false }, "server-b local profile read failed");
+    }
+    finally
+    {
+        TryDelete(databasePath);
+        TryDelete(databasePath + "-wal");
+        TryDelete(databasePath + "-shm");
+        try { Directory.Delete(tempDirectory, recursive: true); } catch (IOException) { }
+    }
+}
 async Task VerifySyncStateMigrationAsync()
 {
     string tempDirectory = Path.Combine(
