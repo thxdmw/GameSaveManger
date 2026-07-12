@@ -21,6 +21,11 @@ public interface IGameSaveApiClient
         string deviceName,
         CancellationToken cancellationToken);
 
+    /// <summary>读取当前账号的物理内容对象配额。</summary>
+    Task<CloudQuota> GetQuotaAsync(
+        Uri server,
+        string deviceToken,
+        CancellationToken cancellationToken);
     /// <summary>读取当前账号的已登记设备。</summary>
     Task<IReadOnlyList<CloudDevice>> ListDevicesAsync(
         Uri server,

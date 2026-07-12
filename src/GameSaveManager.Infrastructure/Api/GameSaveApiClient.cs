@@ -56,6 +56,15 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         return await SendForDataAsync<List<CloudGame>>(request, cancellationToken);
     }
 
+    public async Task<CloudQuota> GetQuotaAsync(
+        Uri server,
+        string deviceToken,
+        CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = CreateRequest(
+            HttpMethod.Get, server, "api/game-save/v1/account/quota", deviceToken);
+        return await SendForDataAsync<CloudQuota>(request, cancellationToken);
+    }
     public async Task<IReadOnlyList<CloudDevice>> ListDevicesAsync(
         Uri server,
         string deviceToken,

@@ -39,6 +39,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _statusText = "请先注册或登录，然后选择云端游戏并配置本地存档目录。";
     private int _fileCount;
     private string _logicalSizeText = "0 B";
+    private string _quotaUsageText = "尚未加载存储容量";
     private CloudGame? _selectedGame;
     private CloudSnapshotSummary? _selectedSnapshot;
     private DiscoveredGame? _selectedDiscoveredGame;
@@ -78,6 +79,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DiscoverGamesCommand = new AsyncCommand(DiscoverGamesAsync);
         LoadLocalProfileCommand = new AsyncCommand(LoadLocalProfileFromUiAsync);
         ReloadDevicesCommand = new AsyncCommand(ReloadDevicesAsync);
+        ReloadQuotaCommand = new AsyncCommand(ReloadQuotaAsync);
         RevokeDeviceCommand = new AsyncCommand(RevokeDeviceAsync);
         KeepLocalConflictCommand = new AsyncCommand(KeepLocalConflictAsync);
     }
@@ -95,6 +97,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string StatusText { get => _statusText; private set => SetField(ref _statusText, value); }
     public int FileCount { get => _fileCount; private set => SetField(ref _fileCount, value); }
     public string LogicalSizeText { get => _logicalSizeText; private set => SetField(ref _logicalSizeText, value); }
+    public string QuotaUsageText { get => _quotaUsageText; private set => SetField(ref _quotaUsageText, value); }
 
     public CloudGame? SelectedGame
     {
@@ -146,6 +149,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand DiscoverGamesCommand { get; }
     public ICommand LoadLocalProfileCommand { get; }
     public ICommand ReloadDevicesCommand { get; }
+    public ICommand ReloadQuotaCommand { get; }
     public ICommand RevokeDeviceCommand { get; }
     public ICommand KeepLocalConflictCommand { get; }
 
@@ -167,6 +171,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await _credentialStore.SaveAsync(CredentialTargets.ForDeviceToken(server), session.DeviceToken, CancellationToken.None);
             await ReloadGamesAsync(server, session.DeviceToken);
             await ReloadDevicesAsync(server, session.DeviceToken);
+            await ReloadQuotaAsync(server, session.DeviceToken);
             StatusText = $"认证成功，已加载 {Games.Count} 个云端游戏。";
         }
         catch (Exception exception)
@@ -224,15 +229,31 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 autoSnapshotEnabled),
             CancellationToken.None);
     }
+    private async Task ReloadQuotaAsync()
+    {
+        try
+        {
+            Uri server = ParseServerUri();
+            await ReloadQuotaAsync(server, await RequireDeviceTokenAsync(server));
+            StatusText = "存储容量已刷新。";
+        }
+        catch (Exception exception) { ShowError("加载存储容量失败", exception); }
+    }
+
+    private async Task ReloadQuotaAsync(Uri server, string token)
+    {
+        CloudQuota quota = await _apiClient.GetQuotaAsync(server, token, CancellationToken.None);
+        QuotaUsageText = $"已用 {FormatBytes(quota.UsedBytes)} / {FormatBytes(quota.QuotaBytes)}，剩余 {FormatBytes(quota.RemainingBytes)}";
+    }
     private async Task ReloadDevicesAsync()
     {
         try
         {
             Uri server = ParseServerUri();
             await ReloadDevicesAsync(server, await RequireDeviceTokenAsync(server));
-            StatusText = $"Loaded {Devices.Count} registered devices.";
+            StatusText = $"已加载 {Devices.Count} 台登记设备。";
         }
-        catch (Exception exception) { ShowError("Load devices failed", exception); }
+        catch (Exception exception) { ShowError("加载设备失败", exception); }
     }
 
     private async Task ReloadDevicesAsync(Uri server, string token)
@@ -252,20 +273,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
             string token = await RequireDeviceTokenAsync(server);
             await _apiClient.RevokeDeviceAsync(server, token, SelectedDevice.DeviceId, CancellationToken.None);
             await ReloadDevicesAsync(server, token);
-            StatusText = "Device token revoked.";
+            StatusText = "设备 Token 已撤销。";
         }
-        catch (Exception exception) { ShowError("Revoke device failed", exception); }
+        catch (Exception exception) { ShowError("撤销设备失败", exception); }
     }
     private async Task LoadLocalProfileFromUiAsync()
     {
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("Please select a cloud game first");
+            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
             Uri server = ParseServerUri();
             await RestoreLocalProfileAsync(server, await RequireDeviceTokenAsync(server));
-            StatusText = "Local game configuration loaded.";
+            StatusText = "本机游戏配置已加载。";
         }
-        catch (Exception exception) { ShowError("Load local configuration failed", exception); }
+        catch (Exception exception) { ShowError("加载本机配置失败", exception); }
     }
     private async Task DiscoverGamesAsync()
     {
@@ -294,6 +315,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await ReloadGamesAsync(server, token);
             SelectedGame = Games.FirstOrDefault(item => item.GameId == game.GameId);
             await ReloadSnapshotsAsync(server, token);
+            await ReloadQuotaAsync(server, token);
             NewGameName = string.Empty;
             StatusText = $"已创建云端游戏：{game.Name}。";
         }
@@ -328,6 +350,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ? result.Message + " 请从时间线选择云端快照恢复，或先处理本机版本冲突。"
                 : result.Message;
             await ReloadSnapshotsAsync(server, token);
+            await ReloadQuotaAsync(server, token);
         }
         catch (Exception exception) { ShowError("同步失败", exception); }
     }
@@ -344,6 +367,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 "多设备冲突：保留本机版本", CancellationToken.None, keepLocalOnConflict: true);
             StatusText = $"已保留本机版本并创建快照 {result.SnapshotId}；原云端版本仍在时间线中。";
             await ReloadSnapshotsAsync(server, token);
+            await ReloadQuotaAsync(server, token);
         }
         catch (Exception exception) { ShowError("保留本机版本失败", exception); }
     }
@@ -402,6 +426,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await _apiClient.DeleteSnapshotAsync(
                 server, token, SelectedGame.GameId, snapshotId, CancellationToken.None);
             await ReloadSnapshotsAsync(server, token);
+            await ReloadQuotaAsync(server, token);
             StatusText = $"已删除历史快照 {snapshotId}；未被其他快照引用的内容将按云端清理策略回收。";
         }
         catch (Exception exception) { ShowError("删除历史快照失败", exception); }

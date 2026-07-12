@@ -8,6 +8,8 @@ public sealed record AuthSession(string UserId, string DeviceId, string DeviceTo
 /// <summary>云端逻辑游戏，不包含任何本机绝对路径。</summary>
 public sealed record CloudGame(string GameId, string Name, string Provider, string? ProviderGameId);
 /// <summary>当前账号已登记设备的安全摘要，不含 Token。</summary>
+/// <summary>当前账号按去重内容对象计算的物理存储配额摘要。</summary>
+public sealed record CloudQuota(long QuotaBytes, long UsedBytes, long RemainingBytes);
 public sealed record CloudDevice(
     string DeviceId,
     string DeviceName,
