@@ -142,6 +142,34 @@
 
             <Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
                 <StackPanel>
+                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="快照保留策略" />
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="18" />
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="18" />
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <CheckBox VerticalAlignment="Center" IsChecked="{Binding RetentionEnabled}" Content="启用自动清理" />
+                        <TextBox Grid.Column="2" Height="34" Padding="8,5" Text="{Binding RetentionCountText, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Grid.Column="4" Height="34" Padding="8,5" Text="{Binding RetentionDaysText, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button Grid.Column="6" MinWidth="100" Height="34" Command="{Binding ReloadRetentionCommand}" Content="加载策略" />
+                        <Button Grid.Column="8" MinWidth="100" Height="34" Command="{Binding SaveRetentionCommand}" Content="保存策略" />
+                        <Button Grid.Column="10" MinWidth="110" Height="34" Command="{Binding CleanupRetentionCommand}" Content="立即清理" />
+                    </Grid>
+                    <TextBlock Margin="155,6,0,0" FontSize="12" Foreground="#777777"
+                               Text="左侧输入最多保留快照数，右侧输入保留天数；0 天表示不按时间清理。当前 HEAD 始终保留。" />
+                </StackPanel>
+            </Border>
+            <Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
+                <StackPanel>
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Left" FontSize="16" FontWeight="SemiBold" Text="快照时间线" />
                         <Button DockPanel.Dock="Right" MinWidth="110" Height="32" Command="{Binding ReloadSnapshotsCommand}" Content="刷新时间线" />

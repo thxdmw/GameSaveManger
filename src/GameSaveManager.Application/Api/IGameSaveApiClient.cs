@@ -21,6 +21,29 @@ public interface IGameSaveApiClient
         string deviceName,
         CancellationToken cancellationToken);
 
+    /// <summary>读取单个云端游戏的快照保留策略。</summary>
+    Task<CloudRetentionPolicy> GetRetentionPolicyAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        CancellationToken cancellationToken);
+
+    /// <summary>更新单个云端游戏的快照保留策略。</summary>
+    Task<CloudRetentionPolicy> UpdateRetentionPolicyAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        bool enabled,
+        int retentionCount,
+        int retentionDays,
+        CancellationToken cancellationToken);
+
+    /// <summary>立即执行一次保留策略。</summary>
+    Task<CloudRetentionCleanupResult> CleanupRetentionAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        CancellationToken cancellationToken);
     /// <summary>读取当前账号的物理内容对象配额。</summary>
     Task<CloudQuota> GetQuotaAsync(
         Uri server,

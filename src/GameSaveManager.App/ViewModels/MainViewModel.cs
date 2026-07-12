@@ -40,6 +40,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _fileCount;
     private string _logicalSizeText = "0 B";
     private string _quotaUsageText = "尚未加载存储容量";
+    private bool _retentionEnabled;
+    private string _retentionCountText = "50";
+    private string _retentionDaysText = "0";
     private CloudGame? _selectedGame;
     private CloudSnapshotSummary? _selectedSnapshot;
     private DiscoveredGame? _selectedDiscoveredGame;
@@ -80,6 +83,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         LoadLocalProfileCommand = new AsyncCommand(LoadLocalProfileFromUiAsync);
         ReloadDevicesCommand = new AsyncCommand(ReloadDevicesAsync);
         ReloadQuotaCommand = new AsyncCommand(ReloadQuotaAsync);
+        ReloadRetentionCommand = new AsyncCommand(ReloadRetentionAsync);
+        SaveRetentionCommand = new AsyncCommand(SaveRetentionAsync);
+        CleanupRetentionCommand = new AsyncCommand(CleanupRetentionAsync);
         RevokeDeviceCommand = new AsyncCommand(RevokeDeviceAsync);
         KeepLocalConflictCommand = new AsyncCommand(KeepLocalConflictAsync);
     }
@@ -98,6 +104,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public int FileCount { get => _fileCount; private set => SetField(ref _fileCount, value); }
     public string LogicalSizeText { get => _logicalSizeText; private set => SetField(ref _logicalSizeText, value); }
     public string QuotaUsageText { get => _quotaUsageText; private set => SetField(ref _quotaUsageText, value); }
+    public bool RetentionEnabled { get => _retentionEnabled; set => SetField(ref _retentionEnabled, value); }
+    public string RetentionCountText { get => _retentionCountText; set => SetField(ref _retentionCountText, value); }
+    public string RetentionDaysText { get => _retentionDaysText; set => SetField(ref _retentionDaysText, value); }
 
     public CloudGame? SelectedGame
     {
@@ -150,6 +159,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand LoadLocalProfileCommand { get; }
     public ICommand ReloadDevicesCommand { get; }
     public ICommand ReloadQuotaCommand { get; }
+    public ICommand ReloadRetentionCommand { get; }
+    public ICommand SaveRetentionCommand { get; }
+    public ICommand CleanupRetentionCommand { get; }
     public ICommand RevokeDeviceCommand { get; }
     public ICommand KeepLocalConflictCommand { get; }
 
@@ -191,7 +203,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Games.Clear();
         foreach (CloudGame game in games) Games.Add(game);
         SelectedGame = Games.FirstOrDefault();
-        if (SelectedGame is not null) { await RestoreLocalProfileAsync(server, token); await ReloadSnapshotsAsync(server, token); }
+        if (SelectedGame is not null) { await RestoreLocalProfileAsync(server, token); await ReloadSnapshotsAsync(server, token); await ReloadRetentionAsync(server, token); }
     }
 
     private async Task RestoreLocalProfileAsync(Uri server, string token)
@@ -228,6 +240,67 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 AutoSnapshotProcessName,
                 autoSnapshotEnabled),
             CancellationToken.None);
+    }
+    private async Task ReloadRetentionAsync()
+    {
+        try
+        {
+            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            Uri server = ParseServerUri();
+            string token = await RequireDeviceTokenAsync(server);
+            await ReloadRetentionAsync(server, token);
+            StatusText = "快照保留策略已加载。";
+        }
+        catch (Exception exception) { ShowError("加载保留策略失败", exception); }
+    }
+
+    private async Task ReloadRetentionAsync(Uri server, string token)
+    {
+        if (SelectedGame is null) return;
+        CloudRetentionPolicy policy = await _apiClient.GetRetentionPolicyAsync(
+            server, token, SelectedGame.GameId, CancellationToken.None);
+        ApplyRetentionPolicy(policy);
+    }
+    private async Task SaveRetentionAsync()
+    {
+        try
+        {
+            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (!int.TryParse(RetentionCountText, out int count) || count is < 1 or > 500)
+                throw new InvalidOperationException("保留数量必须是 1 到 500 之间的整数");
+            if (!int.TryParse(RetentionDaysText, out int days) || days is < 0 or > 3650)
+                throw new InvalidOperationException("保留天数必须是 0 到 3650 之间的整数，0 表示不按时间清理");
+            Uri server = ParseServerUri();
+            string token = await RequireDeviceTokenAsync(server);
+            CloudRetentionPolicy policy = await _apiClient.UpdateRetentionPolicyAsync(
+                server, token, SelectedGame.GameId, RetentionEnabled, count, days, CancellationToken.None);
+            ApplyRetentionPolicy(policy);
+            StatusText = policy.Enabled ? "快照自动保留策略已启用。" : "快照自动保留策略已关闭。";
+        }
+        catch (Exception exception) { ShowError("保存保留策略失败", exception); }
+    }
+
+    private async Task CleanupRetentionAsync()
+    {
+        try
+        {
+            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            Uri server = ParseServerUri();
+            string token = await RequireDeviceTokenAsync(server);
+            CloudRetentionCleanupResult result = await _apiClient.CleanupRetentionAsync(
+                server, token, SelectedGame.GameId, CancellationToken.None);
+            await ReloadSnapshotsAsync(server, token);
+            await ReloadQuotaAsync(server, token);
+            StatusText = $"保留策略执行完成，删除 {result.DeletedSnapshotCount} 个历史快照。";
+        }
+        catch (Exception exception) { ShowError("执行保留策略失败", exception); }
+    }
+
+    private void ApplyRetentionPolicy(CloudRetentionPolicy policy)
+    {
+        RetentionEnabled = policy.Enabled;
+        RetentionCountText = policy.RetentionCount.ToString();
+        RetentionDaysText = policy.RetentionDays.ToString();
     }
     private async Task ReloadQuotaAsync()
     {
@@ -315,6 +388,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await ReloadGamesAsync(server, token);
             SelectedGame = Games.FirstOrDefault(item => item.GameId == game.GameId);
             await ReloadSnapshotsAsync(server, token);
+            await ReloadRetentionAsync(server, token);
             await ReloadQuotaAsync(server, token);
             NewGameName = string.Empty;
             StatusText = $"已创建云端游戏：{game.Name}。";

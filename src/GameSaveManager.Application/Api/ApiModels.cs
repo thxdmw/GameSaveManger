@@ -9,6 +9,15 @@ public sealed record AuthSession(string UserId, string DeviceId, string DeviceTo
 public sealed record CloudGame(string GameId, string Name, string Provider, string? ProviderGameId);
 /// <summary>当前账号已登记设备的安全摘要，不含 Token。</summary>
 /// <summary>当前账号按去重内容对象计算的物理存储配额摘要。</summary>
+/// <summary>单个云端游戏的快照自动保留策略。</summary>
+public sealed record CloudRetentionPolicy(
+    string GameId,
+    bool Enabled,
+    int RetentionCount,
+    int RetentionDays);
+
+/// <summary>手动或自动执行保留策略后的清理摘要。</summary>
+public sealed record CloudRetentionCleanupResult(string GameId, int DeletedSnapshotCount);
 public sealed record CloudQuota(long QuotaBytes, long UsedBytes, long RemainingBytes);
 public sealed record CloudDevice(
     string DeviceId,

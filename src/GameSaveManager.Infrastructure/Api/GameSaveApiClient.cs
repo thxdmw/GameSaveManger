@@ -56,6 +56,45 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         return await SendForDataAsync<List<CloudGame>>(request, cancellationToken);
     }
 
+    public async Task<CloudRetentionPolicy> GetRetentionPolicyAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        CancellationToken cancellationToken)
+    {
+        string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/retention";
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, server, path, deviceToken);
+        return await SendForDataAsync<CloudRetentionPolicy>(request, cancellationToken);
+    }
+
+    public Task<CloudRetentionPolicy> UpdateRetentionPolicyAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        bool enabled,
+        int retentionCount,
+        int retentionDays,
+        CancellationToken cancellationToken)
+    {
+        string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/retention";
+        return PutJsonAsync<CloudRetentionPolicy>(server, path, deviceToken, new
+        {
+            enabled,
+            retentionCount,
+            retentionDays
+        }, cancellationToken);
+    }
+
+    public Task<CloudRetentionCleanupResult> CleanupRetentionAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        CancellationToken cancellationToken)
+    {
+        string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/retention/cleanup";
+        return PostJsonAsync<CloudRetentionCleanupResult>(
+            server, path, deviceToken, new { }, cancellationToken);
+    }
     public async Task<CloudQuota> GetQuotaAsync(
         Uri server,
         string deviceToken,
@@ -273,6 +312,18 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         return await SendForDataAsync<T>(request, cancellationToken);
     }
 
+    private async Task<T> PutJsonAsync<T>(
+        Uri server,
+        string path,
+        string? deviceToken,
+        object body,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Put, server, path, deviceToken);
+        request.Content = JsonContent.Create(body, options: JsonOptions);
+        return await SendForDataAsync<T>(request, cancellationToken);
+    }
     /// <summary>处理不返回 data 的成功响应，同时保留统一错误码解析。</summary>
     private async Task SendForSuccessAsync(
         HttpRequestMessage request,
