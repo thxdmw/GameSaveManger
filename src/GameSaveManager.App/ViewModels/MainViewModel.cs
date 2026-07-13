@@ -229,7 +229,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         await _autoSnapshotMonitor.StartAsync(
             new AutoSnapshotProfile(profile.ProcessName, saveDirectory),
             cancellationToken => _cloudSyncService.SyncAsync(
-                server, token, gameId, saveDirectory, SnapshotTrigger.GameExit, "Automatic snapshot after game exit", cancellationToken),
+                server, token, gameId, saveDirectory, SnapshotTrigger.GameExit, "游戏退出后自动快照", cancellationToken),
             CancellationToken.None);
     }
 
@@ -345,7 +345,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         try
         {
-            if (SelectedDevice is null) throw new InvalidOperationException("Select a device to revoke first");
+            if (SelectedDevice is null) throw new InvalidOperationException("请先选择要撤销的设备");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
             await _apiClient.RevokeDeviceAsync(server, token, SelectedDevice.DeviceId, CancellationToken.None);
