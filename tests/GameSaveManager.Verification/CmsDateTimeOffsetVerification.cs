@@ -1,0 +1,31 @@
+using System.Text.Json;
+using GameSaveManager.Application.Api;
+using GameSaveManager.Infrastructure.Api;
+
+internal static class CmsDateTimeOffsetVerification
+{
+    internal static void Verify()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = true
+        };
+        options.Converters.Add(new CmsDateTimeOffsetConverter());
+
+        CloudDevice? device = JsonSerializer.Deserialize<CloudDevice>(
+            "{\"deviceId\":\"device-1\",\"deviceName\":\"PC\",\"lastSeenTime\":\"2026-07-14 00:41:18\",\"active\":true,\"createTime\":1720888878000}",
+            options);
+        if (device?.LastSeenTime is null || device.CreateTime is null)
+        {
+            throw new InvalidOperationException("CMS 设备时间未能正确解析。");
+        }
+
+        CloudSnapshotSummary? snapshot = JsonSerializer.Deserialize<CloudSnapshotSummary>(
+            "{\"snapshotId\":\"snapshot-1\",\"parentSnapshotId\":null,\"deviceId\":\"device-1\",\"triggerType\":\"MANUAL\",\"description\":null,\"fileCount\":1,\"logicalSize\":12,\"changedFileCount\":1,\"createTime\":\"2026-07-14T00:41:18\"}",
+            options);
+        if (snapshot is null || snapshot.CreateTime.Year != 2026)
+        {
+            throw new InvalidOperationException("CMS 快照时间未能正确解析。");
+        }
+    }
+}

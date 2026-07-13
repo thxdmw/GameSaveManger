@@ -262,11 +262,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : await _apiClient.LoginAsync(server, Username, _password, deviceId, Environment.MachineName, CancellationToken.None);
             await _credentialStore.SaveAsync(CredentialTargets.ForDeviceToken(server), session.DeviceToken, CancellationToken.None);
             IsAuthenticated = true;
-            await ReloadGamesAsync(server, session.DeviceToken);
-            await ReloadDevicesAsync(server, session.DeviceToken);
-            await ReloadQuotaAsync(server, session.DeviceToken);
-            StatusText = $"认证成功，已加载 {Games.Count} 个云端游戏。";
-        }
+            try
+            {
+                await ReloadGamesAsync(server, session.DeviceToken);
+                await ReloadDevicesAsync(server, session.DeviceToken);
+                await ReloadQuotaAsync(server, session.DeviceToken);
+                StatusText = $"认证成功，已加载 {Games.Count} 个云端游戏。";
+            }
+            catch (Exception exception)
+            {
+                _appLogger.Error("authentication.refresh.failed", exception, "认证成功后的云端数据刷新失败");
+                StatusText = $"认证成功，但部分云端数据加载失败：{exception.Message}。可稍后在各页面刷新。";
+            }        }
         catch (Exception exception)
         {
             ShowError(register ? "注册失败" : "登录失败", exception);

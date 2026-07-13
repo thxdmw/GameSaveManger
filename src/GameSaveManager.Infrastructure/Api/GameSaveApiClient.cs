@@ -11,10 +11,17 @@ namespace GameSaveManager.Infrastructure.Api;
 /// <summary>基于 HttpClient 的 GameSave 服务端 API 实现。</summary>
 public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClient
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
+
+    private static JsonSerializerOptions CreateJsonOptions()
     {
-        PropertyNameCaseInsensitive = true
-    };
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = true
+        };
+        options.Converters.Add(new CmsDateTimeOffsetConverter());
+        return options;
+    }
 
     public Task<AuthSession> RegisterAsync(
         Uri server,
