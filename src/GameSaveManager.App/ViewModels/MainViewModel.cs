@@ -108,7 +108,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ToggleThemeCommand = new DelegateCommand(_ => ToggleTheme());
         FilteredGames = CollectionViewSource.GetDefaultView(Games);
         FilteredGames.Filter = MatchesGameSearch;
-        Games.CollectionChanged += (_, _) => FilteredGames.Refresh();
+        Games.CollectionChanged += (_, _) => { FilteredGames.Refresh(); PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasGames))); };
     }
 
     public ObservableCollection<CloudGame> Games { get; } = [];
@@ -116,6 +116,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<DiscoveredGame> DiscoveredGames { get; } = [];
     public ObservableCollection<CloudDevice> Devices { get; } = [];
     public ICollectionView FilteredGames { get; }
+    public bool HasGames => Games.Count > 0;
 
     public string ServerAddress { get => _serverAddress; set => SetField(ref _serverAddress, value); }
     public string Username { get => _username; set => SetField(ref _username, value); }
@@ -254,8 +255,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (game is not CloudGame selected) return;
         SelectedGame = selected;
-        CurrentPage = "同步中心";
-        StatusText = $"已选择{selected.Name}，请确认存档目录后同步。";
+        StatusText = $"已选择{selected.Name}。可在同步中心配置存档路径和同步。";
     }
 
     private bool MatchesGameSearch(object candidate)

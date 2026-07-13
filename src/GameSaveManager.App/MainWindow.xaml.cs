@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using GameSaveManager.App.ViewModels;
 
 namespace GameSaveManager.App;
@@ -14,6 +15,15 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContextChanged += MainWindow_OnDataContextChanged;
     }
+
+    private void TitleBar_OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+    }
+
+    private void MinimizeButton_OnClick(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void CloseButton_OnClick(object sender, RoutedEventArgs e) => Close();
 
     private void MainWindow_OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
