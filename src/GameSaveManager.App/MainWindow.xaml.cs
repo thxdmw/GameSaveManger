@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -11,6 +13,7 @@ namespace GameSaveManager.App;
 /// <summary>主窗口只承载窗口交互、托盘与 PasswordBox 的安全适配。</summary>
 public partial class MainWindow : Window
 {
+    private const int WmNcLeftButtonDown = 0x00A1;
     private readonly Forms.NotifyIcon _trayIcon;
     private MainViewModel? _subscribedViewModel;
     private bool _allowClose;
@@ -47,6 +50,19 @@ public partial class MainWindow : Window
     {
         if (e.ClickCount == 2) ToggleMaximize();
         else if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern nint SendMessage(nint hWnd, int message, nint wParam, nint lParam);
+
+    private void ResizeBorder_OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (WindowState == WindowState.Maximized || sender is not FrameworkElement { Tag: string tag } || !int.TryParse(tag, out int hitTest)) return;
+        ReleaseCapture();
+        SendMessage(new WindowInteropHelper(this).Handle, WmNcLeftButtonDown, hitTest, 0);
     }
 
     private void MinimizeButton_OnClick(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
