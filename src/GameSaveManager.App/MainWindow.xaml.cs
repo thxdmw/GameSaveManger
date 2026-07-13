@@ -25,7 +25,7 @@ public partial class MainWindow : Window
         Closing += MainWindow_OnClosing;
         _trayIcon = new Forms.NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application,
             Text = "GameSave Manager",
             Visible = false
         };

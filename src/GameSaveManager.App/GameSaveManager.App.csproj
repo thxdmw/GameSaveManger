@@ -7,6 +7,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>GameSaveManager</AssemblyName>
+    <ApplicationIcon>Assets\GameSaveManager_256.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\GameSaveManager.Application\GameSaveManager.Application.csproj" />
