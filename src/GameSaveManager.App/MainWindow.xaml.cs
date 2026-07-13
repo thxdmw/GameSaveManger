@@ -39,7 +39,10 @@ public partial class MainWindow : Window
 
     private void ViewModel_OnPasswordClearRequested(object? sender, EventArgs e)
     {
-        PasswordInput.Clear();
+        if (FindName("PasswordInput") is PasswordBox passwordInput)
+        {
+            passwordInput.Clear();
+        }
     }
     /// <summary>删除快照前由界面收集一次明确确认，业务删除仍由 ViewModel 命令执行。</summary>
     private void DeleteSnapshotButton_OnClick(object sender, RoutedEventArgs e)

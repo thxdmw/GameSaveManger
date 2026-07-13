@@ -41,6 +41,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _statusText = "请先注册或登录，然后选择云端游戏并配置本地存档目录。";
     private int _fileCount;
     private string _logicalSizeText = "0 B";
+    private string _currentPage = "首页";
+    private string _gameSearchText = string.Empty;
     private string _quotaUsageText = "尚未加载存储容量";
     private bool _retentionEnabled;
     private string _retentionCountText = "50";
@@ -92,6 +94,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CleanupRetentionCommand = new AsyncCommand(CleanupRetentionAsync);
         RevokeDeviceCommand = new AsyncCommand(RevokeDeviceAsync);
         KeepLocalConflictCommand = new AsyncCommand(KeepLocalConflictAsync);
+        NavigateCommand = new DelegateCommand(NavigateTo);
     }
 
     public ObservableCollection<CloudGame> Games { get; } = [];
@@ -107,6 +110,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string StatusText { get => _statusText; private set => SetField(ref _statusText, value); }
     public int FileCount { get => _fileCount; private set => SetField(ref _fileCount, value); }
     public string LogicalSizeText { get => _logicalSizeText; private set => SetField(ref _logicalSizeText, value); }
+    public string CurrentPage { get => _currentPage; private set => SetField(ref _currentPage, value); }
+    public string GameSearchText { get => _gameSearchText; set => SetField(ref _gameSearchText, value); }
     public string QuotaUsageText { get => _quotaUsageText; private set => SetField(ref _quotaUsageText, value); }
     public bool RetentionEnabled { get => _retentionEnabled; set => SetField(ref _retentionEnabled, value); }
     public string RetentionCountText { get => _retentionCountText; set => SetField(ref _retentionCountText, value); }
@@ -168,12 +173,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand CleanupRetentionCommand { get; }
     public ICommand RevokeDeviceCommand { get; }
     public ICommand KeepLocalConflictCommand { get; }
+    public ICommand NavigateCommand { get; }
 
     public event EventHandler? PasswordClearRequested;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>密码仅暂存于内存，并由 PasswordBox 调用此方法传入。</summary>
     public void SetPassword(string password) => _password = password;
+
+    /// <summary>切换导航页面；每个页面复用同一份同步与本地配置状态。</summary>
+    private void NavigateTo(object? page)
+    {
+        string target = page?.ToString() ?? "首页";
+        CurrentPage = target;
+        StatusText = target == "首页" ? "已返回同步概览。" : $"已切换到{target}。";
+    }
 
     private async Task AuthenticateAsync(bool register)
     {

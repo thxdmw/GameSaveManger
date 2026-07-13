@@ -1,241 +1,47 @@
 <Window x:Class="GameSaveManager.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="GameSave Manager V2"
-        Width="1080"
-        Height="820"
-        MinWidth="900"
-        MinHeight="650"
-        WindowStartupLocation="CenterScreen"
-        Background="#F5F6F8">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="32">
-            <StackPanel Margin="0,0,0,24">
-                <TextBlock FontSize="28" FontWeight="SemiBold" Text="GameSave Manager V2" />
-                <TextBlock Margin="0,8,0,0"
-                           FontSize="14"
-                           Foreground="#666666"
-                           Text="本地优先的游戏存档版本控制与多设备同步客户端" />
-            </StackPanel>
-
-            <Border Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
-                <StackPanel>
-                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="账号与服务端" />
-                    <Grid Margin="0,16,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="2*" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="8" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox Height="38" Padding="10,7" VerticalContentAlignment="Center"
-                                 Text="{Binding ServerAddress, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBox Grid.Column="2" Height="38" Padding="10,7" VerticalContentAlignment="Center"
-                                 Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" />
-                        <PasswordBox x:Name="PasswordInput" Grid.Column="4" Height="38" Padding="10,7"
-                                     VerticalContentAlignment="Center" PasswordChanged="PasswordBox_OnPasswordChanged" />
-                        <Button Grid.Column="6" MinWidth="82" Height="38" Command="{Binding RegisterCommand}" Content="注册" />
-                        <Button Grid.Column="8" MinWidth="82" Height="38" Command="{Binding LoginCommand}" Content="登录" />
-                    </Grid>
-                    <TextBlock Margin="0,8,0,0" FontSize="12" Foreground="#777777"
-                               Text="依次填写服务端地址、用户名和密码。设备 Token 只保存到 Windows Credential Manager。" />
+        Title="GameSave Manager" Width="1440" Height="900" MinWidth="1100" MinHeight="700"
+        WindowStartupLocation="CenterScreen" Background="#070C13" FontFamily="Segoe UI">
+    <Window.Resources>
+        <SolidColorBrush x:Key="Panel" Color="#0E1927" />
+        <SolidColorBrush x:Key="Text" Color="#F4F8FF" />
+        <SolidColorBrush x:Key="Muted" Color="#96A8C0" />
+        <SolidColorBrush x:Key="Blue" Color="#287DFF" />
+        <Style x:Key="PanelStyle" TargetType="Border"><Setter Property="Background" Value="{StaticResource Panel}"/><Setter Property="BorderBrush" Value="#20324A"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="14"/></Style>
+        <Style x:Key="ButtonStyle" TargetType="Button"><Setter Property="Height" Value="40"/><Setter Property="Padding" Value="16,0"/><Setter Property="Foreground" Value="White"/><Setter Property="Background" Value="#17263A"/><Setter Property="BorderBrush" Value="#2B405B"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="root" CornerRadius="8" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"><ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="root" Property="Background" Value="#25456C"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter TargetName="root" Property="Opacity" Value=".78"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
+        <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource ButtonStyle}"><Setter Property="Background" Value="#287DFF"/><Setter Property="BorderBrush" Value="#4894FF"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
+        <Style x:Key="Nav" TargetType="Button" BasedOn="{StaticResource ButtonStyle}"><Setter Property="Height" Value="48"/><Setter Property="Margin" Value="0,4"/><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Foreground" Value="#C5D1E2"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/></Style>
+        <Style x:Key="Input" TargetType="TextBox"><Setter Property="Height" Value="40"/><Setter Property="Padding" Value="12,0"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="Foreground" Value="White"/><Setter Property="CaretBrush" Value="White"/><Setter Property="Background" Value="#0A121D"/><Setter Property="BorderBrush" Value="#2A3B53"/><Setter Property="BorderThickness" Value="1"/></Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="250"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Border Background="#05090F" BorderBrush="#1D2A3D" BorderThickness="0,0,1,0">
+            <Grid Margin="22,26,18,24"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="28"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal"><Border Width="48" Height="48" CornerRadius="14" Background="#102C4B" BorderBrush="#287DFF" BorderThickness="1"><TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="25" Foreground="#58CBFF" Text="✦"/></Border><StackPanel Margin="12,0,0,0" VerticalAlignment="Center"><TextBlock FontSize="22" FontWeight="Bold" Foreground="{StaticResource Text}" Text="GameSave"/><TextBlock FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource Text}" Text="Manager"/></StackPanel></StackPanel>
+                <StackPanel Grid.Row="2">
+                    <Button Style="{StaticResource Nav}" Background="#123C70" BorderBrush="#287DFF" Command="{Binding NavigateCommand}" CommandParameter="首页"><StackPanel Orientation="Horizontal"><TextBlock Width="34" FontSize="20" Text="⌂"/><TextBlock VerticalAlignment="Center" Text="首页"/></StackPanel></Button>
+                    <Button Style="{StaticResource Nav}" Command="{Binding NavigateCommand}" CommandParameter="游戏库"><StackPanel Orientation="Horizontal"><TextBlock Width="34" FontSize="20" Text="⌘"/><TextBlock VerticalAlignment="Center" Text="游戏库"/></StackPanel></Button>
+                    <Button Style="{StaticResource Nav}" Command="{Binding NavigateCommand}" CommandParameter="时间线"><StackPanel Orientation="Horizontal"><TextBlock Width="34" FontSize="20" Text="◷"/><TextBlock VerticalAlignment="Center" Text="时间线"/></StackPanel></Button>
+                    <Button Style="{StaticResource Nav}" Command="{Binding NavigateCommand}" CommandParameter="同步中心"><StackPanel Orientation="Horizontal"><TextBlock Width="34" FontSize="20" Text="↻"/><TextBlock VerticalAlignment="Center" Text="同步中心"/></StackPanel></Button>
+                    <Button Style="{StaticResource Nav}" Command="{Binding NavigateCommand}" CommandParameter="设备"><StackPanel Orientation="Horizontal"><TextBlock Width="34" FontSize="20" Text="▣"/><TextBlock VerticalAlignment="Center" Text="设备"/></StackPanel></Button>
+                    <Button Style="{StaticResource Nav}" Command="{Binding NavigateCommand}" CommandParameter="设置"><StackPanel Orientation="Horizontal"><TextBlock Width="34" FontSize="20" Text="⚙"/><TextBlock VerticalAlignment="Center" Text="设置"/></StackPanel></Button>
+                    <Button Style="{StaticResource Nav}" Command="{Binding NavigateCommand}" CommandParameter="使用说明"><StackPanel Orientation="Horizontal"><TextBlock Width="34" FontSize="20" Text="?"/><TextBlock VerticalAlignment="Center" Text="使用说明"/></StackPanel></Button>
                 </StackPanel>
-            </Border>
-
-                        <Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
-                <StackPanel>
-                    <DockPanel>
-                        <TextBlock DockPanel.Dock="Left" FontSize="16" FontWeight="SemiBold" Text="设备与存储" />
-                        <Button DockPanel.Dock="Right" MinWidth="100" Height="32" Command="{Binding ReloadDevicesCommand}" Content="刷新设备" />
-                        <Button DockPanel.Dock="Right" Margin="0,0,8,0" MinWidth="100" Height="32" Command="{Binding ReloadQuotaCommand}" Content="刷新容量" />
-                    </DockPanel>
-                    <TextBlock Margin="0,10,0,0" Foreground="#555555" Text="{Binding QuotaUsageText}" />
-                    <ListBox Margin="0,12,0,0" MaxHeight="160" ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="180" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding DeviceName}" />
-                                    <TextBlock Grid.Column="1" HorizontalAlignment="Right"
-                                               Text="{Binding LastSeenTime, StringFormat={}{0:yyyy-MM-dd HH:mm}}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <DockPanel Margin="0,10,0,0">
-                        <TextBlock VerticalAlignment="Center" Foreground="#666666" Text="撤销后设备 Token 立即失效；当前设备不能在此处撤销。" />
-                        <Button DockPanel.Dock="Right" MinWidth="110" Height="34" Command="{Binding RevokeDeviceCommand}" Content="撤销设备" />
-                    </DockPanel>
-                </StackPanel>
-            </Border>
-<Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
-                <StackPanel>
-                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="游戏与本地存档" />
-                    <Grid Margin="0,16,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="2*" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="2*" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <ComboBox Height="38" Padding="8,5" ItemsSource="{Binding Games}"
-                                  SelectedItem="{Binding SelectedGame}" DisplayMemberPath="Name" />
-                        <TextBox Grid.Column="2" Height="38" Padding="10,7" VerticalContentAlignment="Center"
-                                 Text="{Binding NewGameName, UpdateSourceTrigger=PropertyChanged}" />
-                        <Button Grid.Column="4" MinWidth="130" Height="38" Command="{Binding CreateGameCommand}" Content="创建云端游戏" />
-                    <Grid Margin="0,12,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <ComboBox Height="38" Padding="8,5" ItemsSource="{Binding DiscoveredGames}"
-                                  SelectedItem="{Binding SelectedDiscoveredGame}" DisplayMemberPath="Name" />
-                        <Button Grid.Column="2" MinWidth="130" Height="38"
-                                Command="{Binding DiscoverGamesCommand}" Content="扫描本机游戏" />
-                    </Grid>
-                    <TextBlock Margin="0,8,0,0" FontSize="12" Foreground="#777777"
-                               Text="扫描 Steam、Epic 和 GOG 安装信息；选中后预填名称和进程名，存档目录始终需要您手动确认。" />
-                    </Grid>
-                    <Grid Margin="0,12,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="8" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox Height="38" Padding="10,7" VerticalContentAlignment="Center"
-                                 Text="{Binding SaveDirectory, UpdateSourceTrigger=PropertyChanged}" />
-                        <Button Grid.Column="2" MinWidth="130" Height="38" Command="{Binding BuildManifestCommand}" Content="构建 Manifest" />
-                        <Button Grid.Column="4" MinWidth="110" Height="38" Command="{Binding SyncCommand}" Content="立即同步" />
-                        <Button Grid.Column="4" Margin="0,46,0,0" MinWidth="110" Height="38" Command="{Binding LoadLocalProfileCommand}" Content="加载本机配置" />
-                    <Grid Margin="0,12,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="8" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox Height="38" Padding="10,7" VerticalContentAlignment="Center"
-                                 Text="{Binding AutoSnapshotProcessName, UpdateSourceTrigger=PropertyChanged}" />
-                        <Button Grid.Column="2" MinWidth="130" Height="38"
-                                Command="{Binding StartAutoSnapshotCommand}" Content="启用自动快照" />
-                        <Button Grid.Column="4" MinWidth="100" Height="38"
-                                Command="{Binding StopAutoSnapshotCommand}" Content="停止监控" />
-                    </Grid>
-                    <TextBlock Margin="0,8,0,0" FontSize="12" Foreground="#777777"
-                               Text="填写游戏进程名（例如 eldenring.exe）。存档目录发生变化且游戏进程退出后，系统会自动创建并同步快照。" />
-                    </Grid>
-                </StackPanel>
-            </Border>
-
-            <Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
-                <StackPanel>
-                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="快照保留策略" />
-                    <Grid Margin="0,14,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="18" />
-                            <ColumnDefinition Width="120" />
-                            <ColumnDefinition Width="18" />
-                            <ColumnDefinition Width="120" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="8" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="8" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <CheckBox VerticalAlignment="Center" IsChecked="{Binding RetentionEnabled}" Content="启用自动清理" />
-                        <TextBox Grid.Column="2" Height="34" Padding="8,5" Text="{Binding RetentionCountText, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBox Grid.Column="4" Height="34" Padding="8,5" Text="{Binding RetentionDaysText, UpdateSourceTrigger=PropertyChanged}" />
-                        <Button Grid.Column="6" MinWidth="100" Height="34" Command="{Binding ReloadRetentionCommand}" Content="加载策略" />
-                        <Button Grid.Column="8" MinWidth="100" Height="34" Command="{Binding SaveRetentionCommand}" Content="保存策略" />
-                        <Button Grid.Column="10" MinWidth="110" Height="34" Command="{Binding CleanupRetentionCommand}" Content="立即清理" />
-                    </Grid>
-                    <TextBlock Margin="155,6,0,0" FontSize="12" Foreground="#777777"
-                               Text="左侧输入最多保留快照数，右侧输入保留天数；0 天表示不按时间清理。当前 HEAD 始终保留。" />
-                </StackPanel>
-            </Border>
-            <Border Margin="0,20,0,0" Padding="20" Background="White" CornerRadius="8" BorderBrush="#DDDDDD" BorderThickness="1">
-                <StackPanel>
-                    <DockPanel>
-                        <TextBlock DockPanel.Dock="Left" FontSize="16" FontWeight="SemiBold" Text="快照时间线" />
-                        <Button DockPanel.Dock="Right" MinWidth="110" Height="32" Command="{Binding ReloadSnapshotsCommand}" Content="刷新时间线" />
-                    </DockPanel>
-                    <ListBox Margin="0,14,0,0" MinHeight="180" MaxHeight="330"
-                             ItemsSource="{Binding Snapshots}" SelectedItem="{Binding SelectedSnapshot}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="170" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="120" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding CreateTime, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" />
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock FontWeight="SemiBold" Text="{Binding Description}" />
-                                        <TextBlock Margin="0,3,0,0" FontSize="12" Foreground="#666666"
-                                                   Text="{Binding TriggerType}" />
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="2" HorizontalAlignment="Right"
-                                               Text="{Binding ChangedFileCount, StringFormat=变更 {0} 个文件}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <DockPanel Margin="0,12,0,0">
-                        <TextBlock VerticalAlignment="Center" Foreground="#666666"
-                                   Text="选择快照后可安全恢复；恢复前会下载、校验并保留当前存档的安全备份。" />
-                        <Button DockPanel.Dock="Right" MinWidth="150" Height="38" Command="{Binding RestoreCommand}" Content="恢复所选快照" />
-                        <Button DockPanel.Dock="Right" Margin="0,0,10,0" MinWidth="190" Height="38"
-                                Command="{Binding KeepLocalConflictCommand}" Content="冲突时保留本机版本" />
-                        <Button DockPanel.Dock="Right" Margin="0,0,10,0" MinWidth="160" Height="38"
-                                Click="DeleteSnapshotButton_OnClick" Content="删除历史快照" />
-                    </DockPanel>
-                </StackPanel>
-            </Border>
-
-            <Grid Margin="0,20,0,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="20" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Border Padding="20" Background="White" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="8">
-                    <StackPanel>
-                        <TextBlock FontSize="13" Text="文件数量" />
-                        <TextBlock Margin="0,8,0,0" FontSize="30" FontWeight="SemiBold" Text="{Binding FileCount}" />
-                    </StackPanel>
-                </Border>
-                <Border Grid.Column="2" Padding="20" Background="White" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="8">
-                    <StackPanel>
-                        <TextBlock FontSize="13" Text="逻辑存档大小" />
-                        <TextBlock Margin="0,8,0,0" FontSize="30" FontWeight="SemiBold" Text="{Binding LogicalSizeText}" />
-                    </StackPanel>
-                </Border>
+                <Border Grid.Row="3" Padding="14" Style="{StaticResource PanelStyle}"><StackPanel><TextBlock Foreground="{StaticResource Muted}" FontSize="12" Text="本地存储"/><TextBlock Margin="0,6,0,0" Foreground="White" FontWeight="SemiBold" Text="{Binding QuotaUsageText}" TextTrimming="CharacterEllipsis"/><ProgressBar Margin="0,10,0,0" Height="5" Value="42" Maximum="100" Foreground="#287DFF" Background="#26364B" BorderThickness="0"/></StackPanel></Border>
             </Grid>
-
-            <Border Margin="0,20,0,0" Padding="20" Background="White" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="8">
-                <StackPanel>
-                    <TextBlock FontSize="15" FontWeight="SemiBold" Text="状态" />
-                    <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Text="{Binding StatusText}" />
-                    <TextBlock Margin="0,20,0,0" Foreground="#666666" TextWrapping="Wrap"
-                               Text="同步流程：SQLite Hash Cache → 完整 Manifest → 缺失对象检查 → 流式上传 → 不可变快照 → HEAD CAS。远端 HEAD 领先时，客户端会阻止静默上传并引导您从时间线选择恢复版本。" />
-                </StackPanel>
-            </Border>
-        </StackPanel>
-    </ScrollViewer>
+        </Border>
+        <Grid Grid.Column="1"><Grid.RowDefinitions><RowDefinition Height="88"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <Border Padding="34,20" BorderBrush="#172536" BorderThickness="0,0,0,1"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="250"/><ColumnDefinition Width="16"/><ColumnDefinition Width="135"/><ColumnDefinition Width="20"/><ColumnDefinition Width="165"/></Grid.ColumnDefinitions><TextBlock VerticalAlignment="Center" Foreground="{StaticResource Muted}" Text="{Binding CurrentPage}" FontSize="15"/><TextBox Grid.Column="1" Style="{StaticResource Input}" Text="{Binding GameSearchText, UpdateSourceTrigger=PropertyChanged}" ToolTip="搜索游戏（后续支持）"/><Button Grid.Column="3" Style="{StaticResource Primary}" Command="{Binding NavigateCommand}" CommandParameter="游戏库" Content="＋ 添加游戏"/><Border Grid.Column="5" Height="40" Padding="13,0" CornerRadius="9" Style="{StaticResource PanelStyle}"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Ellipse Width="10" Height="10" Fill="#41D993" Margin="0,0,8,0"/><TextBlock Foreground="White" Text="已连接"/></StackPanel></Border></Grid></Border>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"><StackPanel Margin="34,26,34,32">
+                <Border Height="310" CornerRadius="18" BorderBrush="#284767" BorderThickness="1"><Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#112E4B"/><GradientStop Color="#132239" Offset=".54"/><GradientStop Color="#5E4936" Offset="1"/></LinearGradientBrush></Border.Background><Grid Margin="28"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="130"/></Grid.RowDefinitions><StackPanel><TextBlock Foreground="White" FontSize="36" FontWeight="Bold" Text="守护你的每一次冒险"/><TextBlock Margin="0,12,0,0" Foreground="#C1D0E1" FontSize="16" Text="自动备份 · 版本管理 · 跨设备同步"/><TextBlock Margin="0,5,0,0" Foreground="#9DB0C8" Text="让每一份存档，都安全无忧。"/></StackPanel><Border Grid.Row="1" Padding="14" Background="#B30A1421" BorderBrush="#465F7F" BorderThickness="1" CornerRadius="12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="140"/></Grid.ColumnDefinitions><Border Width="70" Height="94" Background="#29425F" CornerRadius="8"><TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="28" Foreground="#69CFFF" Text="✦"/></Border><StackPanel Grid.Column="1" Margin="14,0" VerticalAlignment="Center"><TextBlock Foreground="White" FontSize="20" FontWeight="SemiBold" Text="{Binding SelectedGame.Name, TargetNullValue=选择一款游戏开始}"/><TextBlock Margin="0,7,0,0" Foreground="#A3B5CB" Text="{Binding SelectedGame.Provider, TargetNullValue=本地优先 · 云端可选}"/><TextBlock Margin="0,8,0,0" Foreground="#41D993" FontWeight="SemiBold" Text="● 云端同步已就绪"/></StackPanel><Button Grid.Column="2" Style="{StaticResource Primary}" VerticalAlignment="Center" Command="{Binding SyncCommand}" Content="管理存档"/></Grid></Border></Grid></Border>
+                <DockPanel Margin="0,28,0,14"><TextBlock DockPanel.Dock="Left" Foreground="White" FontSize="20" FontWeight="SemiBold" Text="我的游戏"/><Button DockPanel.Dock="Right" Background="Transparent" BorderThickness="0" Foreground="#65ABFF" Command="{Binding NavigateCommand}" CommandParameter="游戏库" Content="查看全部  ›"/></DockPanel>
+                <ItemsControl ItemsSource="{Binding Games}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate><Border Width="190" Height="205" Margin="0,0,16,18" Style="{StaticResource PanelStyle}"><Grid><Grid.RowDefinitions><RowDefinition Height="110"/><RowDefinition Height="*"/></Grid.RowDefinitions><Border CornerRadius="13,13,0,0"><Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#24527F"/><GradientStop Color="#152236" Offset=".62"/><GradientStop Color="#533C58" Offset="1"/></LinearGradientBrush></Border.Background><TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#D9E9FF" FontSize="24" FontWeight="Bold" Text="{Binding Name}" TextTrimming="CharacterEllipsis"/></Border><StackPanel Grid.Row="1" Margin="13,10"><TextBlock Foreground="White" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis"/><TextBlock Margin="0,5,0,0" Foreground="#98A9C0" FontSize="12" Text="{Binding Provider}"/><TextBlock Margin="0,7,0,0" Foreground="#41D993" FontSize="12" Text="● 已同步"/></StackPanel></Grid></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                <Border Padding="18" Margin="0,0,0,24" Style="{StaticResource PanelStyle}"><DockPanel><StackPanel DockPanel.Dock="Left"><TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="还没有游戏？"/><TextBlock Margin="0,7,0,0" Foreground="{StaticResource Muted}" Text="先扫描本机 Steam、Epic、GOG 游戏，或手动添加游戏。"/></StackPanel><Button DockPanel.Dock="Right" Style="{StaticResource Primary}" Command="{Binding DiscoverGamesCommand}" Content="扫描本机游戏"/></DockPanel></Border>
+                <TextBlock Margin="0,0,0,14" Foreground="White" FontSize="20" FontWeight="SemiBold" Text="使用说明"/>
+                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Padding="20" Style="{StaticResource PanelStyle}"><StackPanel Orientation="Horizontal"><TextBlock FontSize="42" FontWeight="Bold" Foreground="#3988FF" Text="1"/><StackPanel Margin="18,0,0,0"><TextBlock Foreground="White" FontSize="17" FontWeight="SemiBold" Text="添加游戏"/><TextBlock Margin="0,7,0,0" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Text="扫描或手动添加要保护的游戏。"/></StackPanel></StackPanel></Border><TextBlock Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#3974B3" FontSize="28" Text="›"/><Border Grid.Column="2" Padding="20" Style="{StaticResource PanelStyle}"><StackPanel Orientation="Horizontal"><TextBlock FontSize="42" FontWeight="Bold" Foreground="#54CFCB" Text="2"/><StackPanel Margin="18,0,0,0"><TextBlock Foreground="White" FontSize="17" FontWeight="SemiBold" Text="配置存档路径"/><TextBlock Margin="0,7,0,0" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Text="确认游戏真实使用的存档目录。"/></StackPanel></StackPanel></Border><TextBlock Grid.Column="3" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#3974B3" FontSize="28" Text="›"/><Border Grid.Column="4" Padding="20" Style="{StaticResource PanelStyle}"><StackPanel Orientation="Horizontal"><TextBlock FontSize="42" FontWeight="Bold" Foreground="#887EFF" Text="3"/><StackPanel Margin="18,0,0,0"><TextBlock Foreground="White" FontSize="17" FontWeight="SemiBold" Text="自动同步"/><TextBlock Margin="0,7,0,0" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Text="游戏退出后自动创建安全快照。"/></StackPanel></StackPanel></Border></Grid>
+                <Border Margin="0,24,0,0" Padding="15" Style="{StaticResource PanelStyle}"><TextBlock Foreground="#AABBD0" TextWrapping="Wrap" Text="{Binding StatusText}"/></Border>
+            </StackPanel></ScrollViewer>
+        </Grid>
+    </Grid>
 </Window>
