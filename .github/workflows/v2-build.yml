@@ -1,0 +1,61 @@
+name: GameSave Manager V2 构建
+
+on:
+  pull_request:
+    paths:
+      - 'GameSaveManager.V2.sln'
+      - 'V2-ARCHITECTURE.md'
+      - 'docs/v2-*.md'
+      - 'src/GameSaveManager.App/**'
+      - 'src/GameSaveManager.Application/**'
+      - 'src/GameSaveManager.Domain/**'
+      - 'src/GameSaveManager.Infrastructure/**'
+      - 'tests/GameSaveManager.Verification/**'
+      - '.github/workflows/v2-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows .NET 10 构建
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 配置 .NET 10 SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 还原依赖
+        shell: pwsh
+        run: |
+          dotnet restore .\GameSaveManager.V2.sln *>&1 | Tee-Object -FilePath dotnet-restore.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 编译 V2
+        shell: pwsh
+        run: |
+          dotnet build .\GameSaveManager.V2.sln -c Debug --no-restore *>&1 | Tee-Object -FilePath dotnet-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 执行 V2 基础边界验证
+        shell: pwsh
+        run: |
+          dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj -c Debug --no-build *>&1 | Tee-Object -FilePath dotnet-verification.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 上传 .NET 构建日志
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gamesave-v2-dotnet-logs
+          path: |
+            dotnet-restore.log
+            dotnet-build.log
+            dotnet-verification.log
+          if-no-files-found: warn
+          retention-days: 7
