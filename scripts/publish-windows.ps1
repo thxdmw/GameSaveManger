@@ -4,6 +4,8 @@ param(
     [string] $Configuration = "Release",
     [ValidateSet("win-x64", "win-arm64")]
     [string] $Runtime = "win-x64",
+    [ValidateSet("SelfContained", "FrameworkDependent")]
+    [string] $DeploymentMode = "SelfContained",
     [string] $OutputDirectory
 )
 
@@ -12,14 +14,16 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repositoryRoot "src\GameSaveManager.App\GameSaveManager.App.csproj"
 if ([string]::IsNullOrWhiteSpace($OutputDirectory))
 {
-    $OutputDirectory = Join-Path $repositoryRoot "artifacts\publish\$Runtime"
+    $folderName = if ($DeploymentMode -eq "SelfContained") { $Runtime } else { "$Runtime-framework-dependent" }
+    $OutputDirectory = Join-Path $repositoryRoot "artifacts\publish\$folderName"
 }
 
-Write-Host "发布 GameSave Manager V2 到 $OutputDirectory"
+$selfContained = if ($DeploymentMode -eq "SelfContained") { "true" } else { "false" }
+Write-Host "Publishing GameSave Manager V2 with $DeploymentMode to $OutputDirectory"
 dotnet publish $project `
     --configuration $Configuration `
     --runtime $Runtime `
-    --self-contained true `
+    --self-contained $selfContained `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:DebugType=None `
@@ -28,5 +32,5 @@ dotnet publish $project `
 
 if ($LASTEXITCODE -ne 0)
 {
-    throw "dotnet publish 失败，退出码：$LASTEXITCODE"
+    throw "dotnet publish failed with exit code $LASTEXITCODE"
 }
