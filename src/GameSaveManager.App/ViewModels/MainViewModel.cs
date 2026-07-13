@@ -46,6 +46,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _currentPage = "首页";
     private string _gameSearchText = string.Empty;
     private bool _isAuthenticated;
+    private string _authenticatedUsername = string.Empty;
+    private bool _isAutoSyncEnabled;
     private bool _isLightTheme;
     private string _quotaUsageText = "尚未加载存储容量";
     private bool _retentionEnabled;
@@ -82,6 +84,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RegisterCommand = new AsyncCommand(() => AuthenticateAsync(true));
         LoginCommand = new AsyncCommand(() => AuthenticateAsync(false));
         CreateGameCommand = new AsyncCommand(CreateGameAsync);
+        DeleteGameCommand = new AsyncCommand(DeleteGameAsync);
+        LogoutCommand = new AsyncCommand(LogoutAsync);
+        AccountActionCommand = new AsyncCommand(AccountActionAsync);
         BuildManifestCommand = new AsyncCommand(BuildManifestAsync);
         SyncCommand = new AsyncCommand(SyncAsync);
         ReloadSnapshotsCommand = new AsyncCommand(ReloadSnapshotsFromUiAsync);
@@ -139,6 +144,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (!SetField(ref _isAuthenticated, value)) return;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ConnectionStatusText)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CloudReadinessText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AccountActionText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AccountSummaryText)));
         }
     }
     public bool IsLightTheme
@@ -150,7 +157,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThemeToggleText)));
         }
     }
-    public string ConnectionStatusText => IsAuthenticated ? "已连接" : "未登录";
+    public string AuthenticatedUsername { get => _authenticatedUsername; private set => SetField(ref _authenticatedUsername, value); }
+    public bool IsAutoSyncEnabled { get => _isAutoSyncEnabled; private set => SetField(ref _isAutoSyncEnabled, value); }
+    public string ConnectionStatusText => IsAuthenticated ? "已登录" : "未登录";
+    public string AccountActionText => IsAuthenticated ? "退出登录" : "登录";
+    public string AccountSummaryText => IsAuthenticated ? $"当前账号：{AuthenticatedUsername}" : "尚未登录";
     public string CloudReadinessText => IsAuthenticated ? "云端同步已就绪" : "登录后启用云端同步";
     public string ThemeToggleText => IsLightTheme ? "切换至深色主题" : "切换至浅色主题";
     public string RetentionCountText { get => _retentionCountText; set => SetField(ref _retentionCountText, value); }
@@ -196,6 +207,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand RegisterCommand { get; }
     public ICommand LoginCommand { get; }
     public ICommand CreateGameCommand { get; }
+    public ICommand DeleteGameCommand { get; }
+    public ICommand LogoutCommand { get; }
+    public ICommand AccountActionCommand { get; }
     public ICommand BuildManifestCommand { get; }
     public ICommand SyncCommand { get; }
     public ICommand ReloadSnapshotsCommand { get; }
@@ -261,6 +275,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ? await _apiClient.RegisterAsync(server, Username, _password, deviceId, Environment.MachineName, CancellationToken.None)
                 : await _apiClient.LoginAsync(server, Username, _password, deviceId, Environment.MachineName, CancellationToken.None);
             await _credentialStore.SaveAsync(CredentialTargets.ForDeviceToken(server), session.DeviceToken, CancellationToken.None);
+            AuthenticatedUsername = Username.Trim();
             IsAuthenticated = true;
             try
             {
@@ -313,7 +328,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         await _autoSnapshotMonitor.StartAsync(
             new AutoSnapshotProfile(profile.ProcessName, saveDirectory),
             cancellationToken => _cloudSyncService.SyncAsync(
-                server, token, gameId, saveDirectory, SnapshotTrigger.GameExit, "游戏退出后自动快照", cancellationToken),
+                server, token, gameId, saveDirectory, SnapshotTrigger.GameExit, "游戏退出后自动同步", cancellationToken),
             CancellationToken.None);
     }
 
@@ -468,11 +483,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             if (string.IsNullOrWhiteSpace(NewGameName)) throw new InvalidOperationException("请先输入游戏名称");
+            string normalizedName = NewGameName.Trim();
+            if (Games.Any(game => string.Equals(game.Name.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException("已添加同名游戏；同一账号下游戏名称不能重复。");
+            }
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
             string provider = SelectedDiscoveredGame?.Provider ?? "CUSTOM";
             string? providerGameId = SelectedDiscoveredGame?.ProviderGameId;
-            CloudGame game = await _apiClient.CreateGameAsync(server, token, NewGameName.Trim(), provider, providerGameId, CancellationToken.None);
+            CloudGame game = await _apiClient.CreateGameAsync(server, token, normalizedName, provider, providerGameId, CancellationToken.None);
             await ReloadGamesAsync(server, token);
             SelectedGame = Games.FirstOrDefault(item => item.GameId == game.GameId);
             await ReloadSnapshotsAsync(server, token);
@@ -484,6 +504,63 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception exception) { ShowError("创建游戏失败", exception); }
     }
 
+    /// <summary>删除云端游戏及全部云端快照，并移除这台电脑的对应同步配置。</summary>
+    private async Task DeleteGameAsync()
+    {
+        try
+        {
+            if (SelectedGame is null) throw new InvalidOperationException("请先选择要删除的游戏");
+            Uri server = ParseServerUri();
+            string token = await RequireDeviceTokenAsync(server);
+            string gameId = SelectedGame.GameId;
+            string gameName = SelectedGame.Name;
+            await _autoSnapshotMonitor.StopAsync();
+            IsAutoSyncEnabled = false;
+            await _apiClient.DeleteGameAsync(server, token, gameId, CancellationToken.None);
+            await _localGameProfileStore.DeleteAsync(GameSaveServerIdentity.CreateStableKey(server), gameId, CancellationToken.None);
+            Games.Remove(SelectedGame);
+            Snapshots.Clear();
+            SelectedSnapshot = null;
+            SelectedGame = Games.FirstOrDefault();
+            if (SelectedGame is not null)
+            {
+                await RestoreLocalProfileAsync(server, token);
+                await ReloadSnapshotsAsync(server, token);
+            }
+            await ReloadQuotaAsync(server, token);
+            StatusText = $"已删除游戏“{gameName}”及其全部云端存档。";
+        }
+        catch (Exception exception) { ShowError("删除游戏失败", exception); }
+    }
+
+    private async Task AccountActionAsync()
+    {
+        if (!IsAuthenticated)
+        {
+            NavigateTo("账户");
+            return;
+        }
+        await LogoutAsync();
+    }
+
+    private async Task LogoutAsync()
+    {
+        try
+        {
+            Uri server = ParseServerUri();
+            await _autoSnapshotMonitor.StopAsync();
+            await _credentialStore.DeleteAsync(CredentialTargets.ForDeviceToken(server), CancellationToken.None);
+            IsAutoSyncEnabled = false;
+            IsAuthenticated = false;
+            AuthenticatedUsername = string.Empty;
+            Games.Clear(); Snapshots.Clear(); Devices.Clear();
+            SelectedGame = null; SelectedSnapshot = null; SelectedDevice = null;
+            QuotaUsageText = "尚未加载存储容量";
+            NavigateTo("账户");
+            StatusText = "已退出登录；本机游戏存档文件不会被删除。";
+        }
+        catch (Exception exception) { ShowError("退出登录失败", exception); }
+    }
     private async Task BuildManifestAsync()
     {
         try
@@ -608,18 +685,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await _autoSnapshotMonitor.StartAsync(
                 new AutoSnapshotProfile(AutoSnapshotProcessName, saveDirectory),
                 cancellationToken => _cloudSyncService.SyncAsync(
-                    server, token, gameId, saveDirectory, SnapshotTrigger.GameExit, "游戏退出自动快照", cancellationToken),
+                    server, token, gameId, saveDirectory, SnapshotTrigger.GameExit, "游戏退出自动同步", cancellationToken),
                 CancellationToken.None);
+            IsAutoSyncEnabled = true;
             await SaveLocalProfileAsync(server, true);
-            StatusText = "自动快照已启用：目录变化只标记 dirty，游戏退出后才会同步。";
+            StatusText = "自动同步已启用：目录变化只标记为待同步，游戏退出后会自动比对并增量同步。";
         }
-        catch (Exception exception) { ShowError("启用自动快照失败", exception); }
+        catch (Exception exception) { ShowError("启用自动同步失败", exception); }
     }
 
     private async Task StopAutoSnapshotAsync()
     {
         await _autoSnapshotMonitor.StopAsync();
-        StatusText = "自动快照已停止。";
+        StatusText = "自动同步已停止。";
     }
 
     private async Task<string> RequireDeviceTokenAsync(Uri server)

@@ -6,4 +6,7 @@ public interface ILocalGameProfileStore
     Task<LocalGameProfile?> GetAsync(string serverKey, string gameId, CancellationToken cancellationToken);
 
     Task SaveAsync(LocalGameProfile profile, CancellationToken cancellationToken);
+
+    /// <summary>删除已从云端游戏库移除的本机同步配置。</summary>
+    Task DeleteAsync(string serverKey, string gameId, CancellationToken cancellationToken);
 }

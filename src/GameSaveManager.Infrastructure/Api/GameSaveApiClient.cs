@@ -145,6 +145,17 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             providerGameId
         }, cancellationToken);
 
+    public async Task DeleteGameAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        CancellationToken cancellationToken)
+    {
+        string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}";
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Delete, server, path, deviceToken);
+        await SendForSuccessAsync(request, cancellationToken);
+    }
+
     public async Task<CloudHead> GetHeadAsync(
         Uri server,
         string deviceToken,

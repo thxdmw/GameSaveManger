@@ -74,6 +74,13 @@ public interface IGameSaveApiClient
         string? providerGameId,
         CancellationToken cancellationToken);
 
+    /// <summary>删除云端游戏、全部快照，并释放不再被引用的内容对象。</summary>
+    Task DeleteGameAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        CancellationToken cancellationToken);
+
     Task<CloudHead> GetHeadAsync(
         Uri server,
         string deviceToken,

@@ -33,6 +33,17 @@ public sealed class SqliteLocalGameProfileStore(SqliteDatabase database) : ILoca
             reader.GetInt64(2) != 0);
     }
 
+    public async Task DeleteAsync(string serverKey, string gameId, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = database.CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM local_game_profile WHERE server_key = $serverKey AND game_id = $gameId;";
+        command.Parameters.AddWithValue("$serverKey", serverKey);
+        command.Parameters.AddWithValue("$gameId", gameId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task SaveAsync(LocalGameProfile profile, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = database.CreateConnection();
