@@ -1,6 +1,6 @@
 namespace GameSaveManager.Domain.Snapshots;
 
-/// <summary>客户端领域中的不可变存档快照；新版本通过 ParentSnapshotId 形成时间线。</summary>
+/// <summary>客户端领域中的不可变存档快照；后续快照通过 ParentSnapshotId 形成时间线。</summary>
 public sealed record GameSnapshot(
     string SnapshotId,
     string GameId,

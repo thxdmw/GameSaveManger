@@ -17,7 +17,7 @@ using GameSaveManager.Infrastructure.Security;
 
 namespace GameSaveManager.App;
 
-/// <summary>V2 客户端组合根；仅在启动阶段组装基础设施实现。</summary>
+/// <summary>客户端组合根；仅在启动阶段组装基础设施实现。</summary>
 public partial class App : System.Windows.Application
 {
     private HttpClient? _httpClient;
@@ -95,7 +95,7 @@ public partial class App : System.Windows.Application
         {
             _appLogger?.Error("application.startup_failed", exception, "客户端启动失败。");
             MessageBox.Show(
-                $"GameSave Manager V2 启动失败：{exception.Message}",
+                $"GameSave Manager 启动失败：{exception.Message}",
                 "启动失败",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);

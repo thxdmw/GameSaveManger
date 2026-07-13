@@ -1,4 +1,4 @@
-# GameSave Manager V2 架构说明
+# GameSave Manager 架构说明
 
 ## 项目边界
 
@@ -7,7 +7,7 @@
 - `GameSaveManager.Infrastructure`：Windows 文件系统、SHA-256、SQLite、HTTP API 和系统凭据实现。
 - `tests/GameSaveManager.Verification`：无额外测试框架依赖的基础边界验证程序，只用于 CI，不进入正式客户端发布物。
 
-V2 迁移期间旧版 WinForms 保持原样，正式客户端新代码全部位于 `src/GameSaveManager.*`。
+客户端代码位于 `src/GameSaveManager.*`，使用 .NET 10 与 WPF 构建。
 
 ## 快照原则
 
@@ -104,14 +104,14 @@ SQLite 当前保存：
 
 ## 注释与文档规范
 
-V2 新增 C# XML 注释和 V2 专用文档统一使用中文。类名、接口名、HTTP 字段、数据库字段和稳定业务错误码保留英文标识，因为它们属于代码/协议契约。
+项目 C# XML 注释和 项目文档统一使用中文。类名、接口名、HTTP 字段、数据库字段和稳定业务错误码保留英文标识，因为它们属于代码/协议契约。
 
 ## 自动构建与验证边界
 
-`.github/workflows/v2-build.yml` 使用 Windows Runner 和 .NET 10：
+`.github/workflows/build.yml` 使用 Windows Runner 和 .NET 10：
 
 1. 还原依赖。
-2. 编译 V2 Solution。
+2. 编译 解决方案。
 3. 运行 `GameSaveManager.Verification`。
 4. 无论成功失败都保存 restore/build/verification 日志 artifact。
 

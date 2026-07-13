@@ -1,6 +1,6 @@
 namespace GameSaveManager.Infrastructure.Persistence;
 
-/// <summary>统一管理 V2 本地数据目录，禁止继续把运行数据写到 EXE 安装目录。</summary>
+/// <summary>统一管理本地数据目录，禁止继续把运行数据写到 EXE 安装目录。</summary>
 public static class AppDataPaths
 {
     public static string RootDirectory { get; } = Path.Combine(

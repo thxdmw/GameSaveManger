@@ -50,7 +50,7 @@ await RunAsync("结构化日志会脱敏凭据", RetryAndLoggingVerification.Ver
 
 if (failures.Count > 0)
 {
-    Console.Error.WriteLine($"V2 验证失败，共 {failures.Count} 项：");
+    Console.Error.WriteLine($"验证失败，共 {failures.Count} 项：");
     foreach (string failure in failures)
     {
         Console.Error.WriteLine($"- {failure}");
@@ -59,7 +59,7 @@ if (failures.Count > 0)
     return;
 }
 
-Console.WriteLine("GameSave Manager V2 基础边界验证全部通过。");
+Console.WriteLine("GameSave Manager 基础边界验证全部通过。");
 
 void Run(string name, Action action)
 {

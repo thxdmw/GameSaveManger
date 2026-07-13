@@ -1,12 +1,12 @@
-# V2 构建说明
+# 构建说明
 
-V2 目标框架为 .NET 10，界面框架为 WPF，只支持 Windows 客户端。
+项目目标框架为 .NET 10，界面框架为 WPF，只支持 Windows 客户端。
 
 本地构建：
 
 ```powershell
-dotnet restore .\GameSaveManager.V2.sln
-dotnet build .\GameSaveManager.V2.sln -c Debug
+dotnet restore .\GameSaveManager.sln
+dotnet build .\GameSaveManager.sln -c Debug
 ```
 
 执行基础边界验证：
@@ -26,7 +26,7 @@ dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verifi
 
 ## 自动构建
 
-`.github/workflows/v2-build.yml` 会在 V2 Solution、正式 V2 项目、Verification 项目或工作流自身发生变化时触发 Windows 构建：
+`.github/workflows/build.yml` 会在 解决方案、正式项目、Verification 项目或工作流自身发生变化时触发 Windows 构建：
 
 ```text
 windows-latest
@@ -56,4 +56,4 @@ GitHub Actions 使用 GitHub 官方维护的 checkout/setup-dotnet/upload-artifa
 
 ## 注释规范
 
-V2 新增 C# XML 注释和专用文档统一使用中文。代码标识符、协议字段和稳定错误码继续使用英文，避免影响代码可读性和接口兼容性。
+项目 C# XML 注释和专用文档统一使用中文。代码标识符、协议字段和稳定错误码继续使用英文，避免影响代码可读性和接口兼容性。

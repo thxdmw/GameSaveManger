@@ -44,7 +44,7 @@
 ## 发布前检查
 
 ```powershell
-dotnet build .\GameSaveManager.V2.sln --no-restore
+dotnet build .\GameSaveManager.sln --no-restore
 dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj --no-build
 ```
 

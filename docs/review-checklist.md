@@ -1,4 +1,4 @@
-# GameSave Manager V2 评审检查清单
+# GameSave Manager 评审检查清单
 
 - [x] GitHub Actions `Windows .NET 10 构建` 通过。
 - [x] CI 执行 `GameSaveManager.Verification` 基础边界验证通过。
@@ -20,4 +20,4 @@
 - [ ] 上传同一 SHA-256 内容的多个路径时只上传一个缺失内容对象。
 - [ ] 客户端到 CMS + MySQL + MinIO 真实同步闭环完成集成验证。
 
-稳定协议字段和错误码使用英文标识；C# XML 注释和 V2 文档统一使用中文。
+稳定协议字段和错误码使用英文标识；C# XML 注释和 项目文档统一使用中文。

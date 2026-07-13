@@ -19,7 +19,7 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory))
 }
 
 $selfContained = if ($DeploymentMode -eq "SelfContained") { "true" } else { "false" }
-Write-Host "Publishing GameSave Manager V2 with $DeploymentMode to $OutputDirectory"
+Write-Host "Publishing GameSave Manager with $DeploymentMode to $OutputDirectory"
 dotnet publish $project `
     --configuration $Configuration `
     --runtime $Runtime `

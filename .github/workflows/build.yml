@@ -1,17 +1,17 @@
-name: GameSave Manager V2 构建
+name: GameSave Manager 构建
 
 on:
   pull_request:
     paths:
-      - 'GameSaveManager.V2.sln'
-      - 'V2-ARCHITECTURE.md'
-      - 'docs/v2-*.md'
+      - 'GameSaveManager.sln'
+      - 'ARCHITECTURE.md'
+      - 'docs/*.md'
       - 'src/GameSaveManager.App/**'
       - 'src/GameSaveManager.Application/**'
       - 'src/GameSaveManager.Domain/**'
       - 'src/GameSaveManager.Infrastructure/**'
       - 'tests/GameSaveManager.Verification/**'
-      - '.github/workflows/v2-build.yml'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 permissions:
@@ -33,16 +33,16 @@ jobs:
       - name: 还原依赖
         shell: pwsh
         run: |
-          dotnet restore .\GameSaveManager.V2.sln *>&1 | Tee-Object -FilePath dotnet-restore.log
+          dotnet restore .\GameSaveManager.sln *>&1 | Tee-Object -FilePath dotnet-restore.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: 编译 V2
+      - name: 编译项目
         shell: pwsh
         run: |
-          dotnet build .\GameSaveManager.V2.sln -c Debug --no-restore *>&1 | Tee-Object -FilePath dotnet-build.log
+          dotnet build .\GameSaveManager.sln -c Debug --no-restore *>&1 | Tee-Object -FilePath dotnet-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: 执行 V2 基础边界验证
+      - name: 执行基础边界验证
         shell: pwsh
         run: |
           dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj -c Debug --no-build *>&1 | Tee-Object -FilePath dotnet-verification.log
@@ -52,7 +52,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: gamesave-v2-dotnet-logs
+          name: gamesave-dotnet-logs
           path: |
             dotnet-restore.log
             dotnet-build.log

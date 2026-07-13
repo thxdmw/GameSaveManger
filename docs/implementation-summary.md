@@ -1,6 +1,6 @@
-# GameSave Manager V2 PR 摘要
+# GameSave Manager PR 摘要
 
-本 PR 在旧版 .NET Framework 4.8 + WinForms 项目旁新增 .NET 10 + WPF V2 客户端，旧代码保持不变。
+本项目采用 .NET 10 + WPF 构建 Windows 游戏存档管理客户端。
 
 当前已实现：
 
@@ -17,6 +17,6 @@
 - WPF 同步闭环验证界面。
 - Windows + .NET 10 GitHub Actions 自动构建。
 
-所有 V2 新增代码注释和项目文档统一使用中文；协议字段、类名、数据库字段和错误码保留稳定英文标识。
+所有 项目代码注释和项目文档统一使用中文；协议字段、类名、数据库字段和错误码保留稳定英文标识。
 
 当前 PR 保持 Draft。自动构建使用 Windows + .NET 10；自动编译通过后仍需完成客户端到 CMS 的真实同步闭环和双设备冲突集成验证。

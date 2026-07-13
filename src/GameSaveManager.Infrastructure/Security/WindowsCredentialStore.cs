@@ -104,7 +104,7 @@ public sealed class WindowsCredentialStore : ICredentialStore
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("GameSave Manager V2 当前只支持 Windows");
+            throw new PlatformNotSupportedException("GameSave Manager 当前仅支持 Windows");
         }
     }
 
