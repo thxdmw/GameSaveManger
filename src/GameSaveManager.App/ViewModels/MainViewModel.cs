@@ -6,6 +6,7 @@ using System.Windows.Input;
 using GameSaveManager.App.Common;
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Device;
+using GameSaveManager.Application.Diagnostics;
 using GameSaveManager.Application.Discovery;
 using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Monitoring;
@@ -29,6 +30,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly ILocalGameProfileStore _localGameProfileStore;
     private readonly ICredentialStore _credentialStore;
     private readonly IDeviceIdentityProvider _deviceIdentityProvider;
+    private readonly IAppLogger _appLogger;
 
     private string _serverAddress = "http://localhost:8080";
     private string _username = string.Empty;
@@ -57,7 +59,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IGameDiscoveryService gameDiscoveryService,
         ILocalGameProfileStore localGameProfileStore,
         ICredentialStore credentialStore,
-        IDeviceIdentityProvider deviceIdentityProvider)
+        IDeviceIdentityProvider deviceIdentityProvider,
+        IAppLogger appLogger)
     {
         _manifestBuilder = manifestBuilder;
         _apiClient = apiClient;
@@ -68,6 +71,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _localGameProfileStore = localGameProfileStore;
         _credentialStore = credentialStore;
         _deviceIdentityProvider = deviceIdentityProvider;
+        _appLogger = appLogger;
 
         RegisterCommand = new AsyncCommand(() => AuthenticateAsync(true));
         LoginCommand = new AsyncCommand(() => AuthenticateAsync(false));
@@ -546,6 +550,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ShowError(string operation, Exception exception)
     {
+        _appLogger.Error("operation.failed", exception, operation);
         StatusText = exception is GameSaveApiException apiException
             ? $"{operation} [{apiException.Code}]：{apiException.Message}"
             : $"{operation}：{exception.Message}";

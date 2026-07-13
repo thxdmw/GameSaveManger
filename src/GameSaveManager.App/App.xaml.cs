@@ -1,15 +1,17 @@
 using System.Net.Http;
 using System.Windows;
 using GameSaveManager.App.ViewModels;
-using GameSaveManager.Application.Monitoring;
+using GameSaveManager.Application.Diagnostics;
 using GameSaveManager.Application.Discovery;
+using GameSaveManager.Application.Monitoring;
 using GameSaveManager.Application.Restores;
 using GameSaveManager.Application.Snapshots;
 using GameSaveManager.Application.Sync;
 using GameSaveManager.Infrastructure.Api;
+using GameSaveManager.Infrastructure.Diagnostics;
+using GameSaveManager.Infrastructure.Discovery;
 using GameSaveManager.Infrastructure.FileSystem;
 using GameSaveManager.Infrastructure.Monitoring;
-using GameSaveManager.Infrastructure.Discovery;
 using GameSaveManager.Infrastructure.Persistence;
 using GameSaveManager.Infrastructure.Security;
 
@@ -20,12 +22,25 @@ public partial class App : System.Windows.Application
 {
     private HttpClient? _httpClient;
     private IAutoSnapshotMonitor? _autoSnapshotMonitor;
+    private IAppLogger? _appLogger;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         try
         {
+            _appLogger = new JsonFileLogger();
+            _appLogger.Information("application.starting", "客户端正在启动。");
+            DispatcherUnhandledException += (_, args) =>
+                _appLogger.Error("application.unhandled_ui_exception", args.Exception, "未处理的界面线程异常。");
+            AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            {
+                if (args.ExceptionObject is Exception exception)
+                {
+                    _appLogger.Error("application.unhandled_exception", exception, "未处理的进程异常。");
+                }
+            };
+
             var database = new SqliteDatabase();
             await database.InitializeAsync(CancellationToken.None);
             var fileHashService = new FileHashService();
@@ -34,7 +49,10 @@ public partial class App : System.Windows.Application
                 fileHashService,
                 new SqliteFileHashCache(database));
 
-            _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+            _httpClient = new HttpClient(new SafeRetryHandler(new HttpClientHandler()))
+            {
+                Timeout = TimeSpan.FromMinutes(30)
+            };
             var apiClient = new GameSaveApiClient(_httpClient);
             var syncService = new CloudSyncService(
                 manifestBuilder,
@@ -68,12 +86,14 @@ public partial class App : System.Windows.Application
                     new WindowsGameDiscoveryService(),
                     new SqliteLocalGameProfileStore(database),
                     new WindowsCredentialStore(),
-                    new SqliteDeviceIdentityProvider(database))
+                    new SqliteDeviceIdentityProvider(database),
+                    _appLogger)
             };
             window.Show();
         }
         catch (Exception exception)
         {
+            _appLogger?.Error("application.startup_failed", exception, "客户端启动失败。");
             MessageBox.Show(
                 $"GameSave Manager V2 启动失败：{exception.Message}",
                 "启动失败",
@@ -90,6 +110,7 @@ public partial class App : System.Windows.Application
             await _autoSnapshotMonitor.DisposeAsync();
         }
         _httpClient?.Dispose();
+        _appLogger?.Information("application.stopped", "客户端已退出。");
         base.OnExit(e);
     }
 }

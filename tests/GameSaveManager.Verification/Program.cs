@@ -2,6 +2,8 @@ using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Sync;
 using GameSaveManager.Infrastructure.Persistence;
+using GameSaveManager.Infrastructure.Api;
+using GameSaveManager.Infrastructure.Diagnostics;
 using Microsoft.Data.Sqlite;
 
 var failures = new List<string>();
@@ -42,6 +44,8 @@ Run("服务端基础路径大小写必须保持隔离", () =>
 
 await RunAsync("旧 sync_state 表迁移并按服务端隔离 HEAD", VerifySyncStateMigrationAsync);
 await RunAsync("本机游戏配置按服务端隔离", VerifyLocalGameProfileAsync);
+await RunAsync("安全重试只重试 GET 请求", RetryAndLoggingVerification.VerifySafeRetryHandlerAsync);
+await RunAsync("结构化日志会脱敏凭据", RetryAndLoggingVerification.VerifyJsonFileLoggerAsync);
 
 if (failures.Count > 0)
 {
