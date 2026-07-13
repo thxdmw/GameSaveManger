@@ -5,7 +5,7 @@ using GameSaveManager.Application.Api;
 
 namespace GameSaveManager.App.Views;
 
-public partial class LibraryView : UserControl
+public partial class LibraryView : System.Windows.Controls.UserControl
 {
     public LibraryView() => InitializeComponent();
 

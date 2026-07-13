@@ -6,7 +6,7 @@ using GameSaveManager.App.ViewModels;
 namespace GameSaveManager.App.Views;
 
 /// <summary>账户页只负责 PasswordBox 与 ViewModel 的安全适配。</summary>
-public partial class AccountView : UserControl
+public partial class AccountView : System.Windows.Controls.UserControl
 {
     private MainViewModel? _viewModel;
 

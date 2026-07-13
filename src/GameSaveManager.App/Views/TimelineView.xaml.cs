@@ -4,7 +4,7 @@ using GameSaveManager.App.ViewModels;
 
 namespace GameSaveManager.App.Views;
 
-public partial class TimelineView : UserControl
+public partial class TimelineView : System.Windows.Controls.UserControl
 {
     public TimelineView() => InitializeComponent();
 

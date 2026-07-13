@@ -1,3 +1,3 @@
 using System.Windows.Controls;
 namespace GameSaveManager.App.Views;
-public partial class HelpView : UserControl { public HelpView() => InitializeComponent(); }
+public partial class HelpView : System.Windows.Controls.UserControl { public HelpView() => InitializeComponent(); }

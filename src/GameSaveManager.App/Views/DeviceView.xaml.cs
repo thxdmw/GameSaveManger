@@ -4,7 +4,7 @@ using GameSaveManager.App.ViewModels;
 
 namespace GameSaveManager.App.Views;
 
-public partial class DeviceView : UserControl
+public partial class DeviceView : System.Windows.Controls.UserControl
 {
     public DeviceView() => InitializeComponent();
 
