@@ -104,7 +104,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RevokeDeviceCommand = new AsyncCommand(RevokeDeviceAsync);
         KeepLocalConflictCommand = new AsyncCommand(KeepLocalConflictAsync);
         NavigateCommand = new DelegateCommand(NavigateTo);
-        SelectGameCommand = new DelegateCommand(SelectGame);
+        SelectGameCommand = new AsyncCommand(SelectGameAsync);
         ToggleThemeCommand = new DelegateCommand(_ => ToggleTheme());
         FilteredGames = CollectionViewSource.GetDefaultView(Games);
         FilteredGames.Filter = MatchesGameSearch;
@@ -251,11 +251,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ThemeManager.Apply(IsLightTheme);
         StatusText = IsLightTheme ? "已启用浅色主题。" : "已启用深色主题。";
     }
-    private void SelectGame(object? game)
+    /// <summary>首页/游戏库选择游戏时只切换当前展示，并加载该游戏自己的时间线。</summary>
+    private async Task SelectGameAsync(object? game)
     {
         if (game is not CloudGame selected) return;
         SelectedGame = selected;
-        StatusText = $"已选择{selected.Name}。可在同步中心配置存档路径和同步。";
+        try
+        {
+            Uri server = ParseServerUri();
+            await ReloadSnapshotsAsync(server, await RequireDeviceTokenAsync(server));
+            StatusText = $"已选择{selected.Name}。可在同步中心配置存档路径和同步。";
+        }
+        catch (Exception exception) { ShowError("加载游戏快照失败", exception); }
     }
 
     private bool MatchesGameSearch(object candidate)
