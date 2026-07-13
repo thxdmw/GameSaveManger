@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using System.Windows.Data;
 using GameSaveManager.App.Common;
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Device;
@@ -95,12 +96,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RevokeDeviceCommand = new AsyncCommand(RevokeDeviceAsync);
         KeepLocalConflictCommand = new AsyncCommand(KeepLocalConflictAsync);
         NavigateCommand = new DelegateCommand(NavigateTo);
+        SelectGameCommand = new DelegateCommand(SelectGame);
+        FilteredGames = CollectionViewSource.GetDefaultView(Games);
+        FilteredGames.Filter = MatchesGameSearch;
+        Games.CollectionChanged += (_, _) => FilteredGames.Refresh();
     }
 
     public ObservableCollection<CloudGame> Games { get; } = [];
     public ObservableCollection<CloudSnapshotSummary> Snapshots { get; } = [];
     public ObservableCollection<DiscoveredGame> DiscoveredGames { get; } = [];
     public ObservableCollection<CloudDevice> Devices { get; } = [];
+    public ICollectionView FilteredGames { get; }
 
     public string ServerAddress { get => _serverAddress; set => SetField(ref _serverAddress, value); }
     public string Username { get => _username; set => SetField(ref _username, value); }
@@ -111,7 +117,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public int FileCount { get => _fileCount; private set => SetField(ref _fileCount, value); }
     public string LogicalSizeText { get => _logicalSizeText; private set => SetField(ref _logicalSizeText, value); }
     public string CurrentPage { get => _currentPage; private set => SetField(ref _currentPage, value); }
-    public string GameSearchText { get => _gameSearchText; set => SetField(ref _gameSearchText, value); }
+    public string GameSearchText
+    {
+        get => _gameSearchText;
+        set
+        {
+            if (SetField(ref _gameSearchText, value)) FilteredGames.Refresh();
+        }
+    }
     public string QuotaUsageText { get => _quotaUsageText; private set => SetField(ref _quotaUsageText, value); }
     public bool RetentionEnabled { get => _retentionEnabled; set => SetField(ref _retentionEnabled, value); }
     public string RetentionCountText { get => _retentionCountText; set => SetField(ref _retentionCountText, value); }
@@ -174,6 +187,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand RevokeDeviceCommand { get; }
     public ICommand KeepLocalConflictCommand { get; }
     public ICommand NavigateCommand { get; }
+    public ICommand SelectGameCommand { get; }
 
     public event EventHandler? PasswordClearRequested;
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -189,6 +203,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StatusText = target == "首页" ? "已返回同步概览。" : $"已切换到{target}。";
     }
 
+    private void SelectGame(object? game)
+    {
+        if (game is not CloudGame selected) return;
+        SelectedGame = selected;
+        CurrentPage = "同步中心";
+        StatusText = $"已选择{selected.Name}，请确认存档目录后同步。";
+    }
+
+    private bool MatchesGameSearch(object candidate)
+    {
+        if (candidate is not CloudGame game) return false;
+        return string.IsNullOrWhiteSpace(GameSearchText)
+            || game.Name.Contains(GameSearchText, StringComparison.OrdinalIgnoreCase)
+            || game.Provider.Contains(GameSearchText, StringComparison.OrdinalIgnoreCase);
+    }
     private async Task AuthenticateAsync(bool register)
     {
         try
