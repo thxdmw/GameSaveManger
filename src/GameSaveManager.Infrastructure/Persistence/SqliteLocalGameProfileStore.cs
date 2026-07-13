@@ -33,6 +33,21 @@ public sealed class SqliteLocalGameProfileStore(SqliteDatabase database) : ILoca
             reader.GetInt64(2) != 0);
     }
 
+    public async Task<IReadOnlyList<LocalGameProfile>> ListAsync(string serverKey, CancellationToken cancellationToken)
+    {
+        var profiles = new List<LocalGameProfile>();
+        await using SqliteConnection connection = database.CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT game_id, save_directory, process_name, auto_snapshot_enabled FROM local_game_profile WHERE server_key = $serverKey;";
+        command.Parameters.AddWithValue("$serverKey", serverKey);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            profiles.Add(new LocalGameProfile(serverKey, reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3) != 0));
+        }
+        return profiles;
+    }
     public async Task DeleteAsync(string serverKey, string gameId, CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = database.CreateConnection();

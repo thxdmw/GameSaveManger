@@ -7,6 +7,9 @@ public interface ILocalGameProfileStore
 
     Task SaveAsync(LocalGameProfile profile, CancellationToken cancellationToken);
 
+    /// <summary>读取指定服务端下所有本机游戏配置，用于启动时恢复自动同步。</summary>
+    Task<IReadOnlyList<LocalGameProfile>> ListAsync(string serverKey, CancellationToken cancellationToken);
+
     /// <summary>删除已从云端游戏库移除的本机同步配置。</summary>
     Task DeleteAsync(string serverKey, string gameId, CancellationToken cancellationToken);
 }

@@ -14,6 +14,7 @@ using GameSaveManager.Infrastructure.FileSystem;
 using GameSaveManager.Infrastructure.Monitoring;
 using GameSaveManager.Infrastructure.Persistence;
 using GameSaveManager.Infrastructure.Security;
+using GameSaveManager.Infrastructure.Startup;
 
 namespace GameSaveManager.App;
 
@@ -21,7 +22,7 @@ namespace GameSaveManager.App;
 public partial class App : System.Windows.Application
 {
     private HttpClient? _httpClient;
-    private IAutoSnapshotMonitor? _autoSnapshotMonitor;
+    private IAutoSyncCoordinator? _autoSyncCoordinator;
     private IAppLogger? _appLogger;
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -62,7 +63,7 @@ public partial class App : System.Windows.Application
                 apiClient,
                 new ContentObjectCache(fileHashService),
                 fileHashService);
-            _autoSnapshotMonitor = new WindowsAutoSnapshotMonitor();
+            _autoSyncCoordinator = new MultiGameAutoSyncCoordinator();
 
             IReadOnlyList<string> recoveryMessages = await restoreService.RecoverInterruptedRestoresAsync(
                 CancellationToken.None);
@@ -82,14 +83,18 @@ public partial class App : System.Windows.Application
                     apiClient,
                     syncService,
                     restoreService,
-                    _autoSnapshotMonitor,
+                    _autoSyncCoordinator,
+                    new SnapshotExportService(apiClient, new ContentObjectCache(fileHashService), fileHashService),
                     new WindowsGameDiscoveryService(),
+                    new WindowsSavePathSuggestionService(),
                     new SqliteLocalGameProfileStore(database),
                     new WindowsCredentialStore(),
                     new SqliteDeviceIdentityProvider(database),
-                    _appLogger)
+                    _appLogger,
+                    new WindowsAutoStartService())
             };
             window.Show();
+            if (window.DataContext is MainViewModel viewModel) await viewModel.InitializeAsync();
         }
         catch (Exception exception)
         {
@@ -105,9 +110,9 @@ public partial class App : System.Windows.Application
 
     protected override async void OnExit(ExitEventArgs e)
     {
-        if (_autoSnapshotMonitor is not null)
+        if (_autoSyncCoordinator is not null)
         {
-            await _autoSnapshotMonitor.DisposeAsync();
+            await _autoSyncCoordinator.DisposeAsync();
         }
         _httpClient?.Dispose();
         _appLogger?.Information("application.stopped", "客户端已退出。");

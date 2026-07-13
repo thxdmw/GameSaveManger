@@ -21,8 +21,10 @@ public sealed class CloudSyncService(
         SnapshotTrigger trigger,
         string? description,
         CancellationToken cancellationToken,
-        bool keepLocalOnConflict = false)
+        bool keepLocalOnConflict = false,
+        IProgress<CloudSyncProgress>? progress = null)
     {
+        progress?.Report(new CloudSyncProgress("准备", 0, 0, "正在比较本机与云端版本…"));
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
         LocalSyncState? localState = await localSyncStateStore.GetAsync(
             serverKey,
@@ -42,6 +44,7 @@ public sealed class CloudSyncService(
         }
 
         // 用户显式选择“保留本机版本”时，以当前云端 HEAD 为父快照提交；旧云端版本保留在时间线中。
+        progress?.Report(new CloudSyncProgress("扫描", 0, 0, "正在扫描存档并计算内容 Hash…"));
         IReadOnlyList<SnapshotFile> manifest =
             await manifestBuilder.BuildAsync(saveDirectory, cancellationToken);
 
@@ -49,12 +52,14 @@ public sealed class CloudSyncService(
             .Select(file => new ContentObjectDescriptor(file.Sha256, file.Size))
             .Distinct()
             .ToArray();
+        progress?.Report(new CloudSyncProgress("比对", 0, objectDescriptors.Count, "正在检查云端缺失内容…"));
         IReadOnlyList<ContentObjectDescriptor> missing = await apiClient.CheckMissingAsync(
             server, deviceToken, objectDescriptors, cancellationToken);
 
         Dictionary<ContentObjectDescriptor, SnapshotFile> sourceFiles = manifest
             .GroupBy(file => new ContentObjectDescriptor(file.Sha256, file.Size))
             .ToDictionary(group => group.Key, group => group.First());
+        int uploaded = 0;
         foreach (ContentObjectDescriptor descriptor in missing)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -66,8 +71,11 @@ public sealed class CloudSyncService(
             string fullPath = ResolveSourcePath(saveDirectory, source.RelativePath);
             await apiClient.UploadObjectAsync(
                 server, deviceToken, fullPath, descriptor, cancellationToken);
+            uploaded++;
+            progress?.Report(new CloudSyncProgress("上传", uploaded, missing.Count, $"正在上传缺失内容（{uploaded}/{missing.Count}）…"));
         }
 
+        progress?.Report(new CloudSyncProgress("提交", missing.Count, missing.Count, "正在提交不可变快照…"));
         CloudSnapshotResult committed = await apiClient.CommitSnapshotAsync(
             server,
             deviceToken,
@@ -82,6 +90,7 @@ public sealed class CloudSyncService(
             new LocalSyncState(serverKey, gameId, committed.SnapshotId, committed.HeadVersion),
             cancellationToken);
 
+        progress?.Report(new CloudSyncProgress("完成", missing.Count, missing.Count, "同步完成。"));
         string message = committed.Created
             ? $"同步成功：上传 {missing.Count} 个新内容对象，创建快照 {committed.SnapshotId}。"
             : $"同步完成：存档内容没有变化，继续使用快照 {committed.SnapshotId}，未创建重复版本。";
