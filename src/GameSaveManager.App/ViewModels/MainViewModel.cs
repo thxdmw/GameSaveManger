@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using System.Windows.Data;
 using GameSaveManager.App.Common;
+using GameSaveManager.App.Theming;
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Device;
 using GameSaveManager.Application.Diagnostics;
@@ -44,6 +45,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _logicalSizeText = "0 B";
     private string _currentPage = "首页";
     private string _gameSearchText = string.Empty;
+    private bool _isAuthenticated;
+    private bool _isLightTheme;
     private string _quotaUsageText = "尚未加载存储容量";
     private bool _retentionEnabled;
     private string _retentionCountText = "50";
@@ -97,6 +100,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         KeepLocalConflictCommand = new AsyncCommand(KeepLocalConflictAsync);
         NavigateCommand = new DelegateCommand(NavigateTo);
         SelectGameCommand = new DelegateCommand(SelectGame);
+        ToggleThemeCommand = new DelegateCommand(_ => ToggleTheme());
         FilteredGames = CollectionViewSource.GetDefaultView(Games);
         FilteredGames.Filter = MatchesGameSearch;
         Games.CollectionChanged += (_, _) => FilteredGames.Refresh();
@@ -127,6 +131,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
     public string QuotaUsageText { get => _quotaUsageText; private set => SetField(ref _quotaUsageText, value); }
     public bool RetentionEnabled { get => _retentionEnabled; set => SetField(ref _retentionEnabled, value); }
+    public bool IsAuthenticated
+    {
+        get => _isAuthenticated;
+        private set
+        {
+            if (!SetField(ref _isAuthenticated, value)) return;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ConnectionStatusText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CloudReadinessText)));
+        }
+    }
+    public bool IsLightTheme
+    {
+        get => _isLightTheme;
+        private set
+        {
+            if (!SetField(ref _isLightTheme, value)) return;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThemeToggleText)));
+        }
+    }
+    public string ConnectionStatusText => IsAuthenticated ? "已连接" : "未登录";
+    public string CloudReadinessText => IsAuthenticated ? "云端同步已就绪" : "登录后启用云端同步";
+    public string ThemeToggleText => IsLightTheme ? "切换至深色主题" : "切换至浅色主题";
     public string RetentionCountText { get => _retentionCountText; set => SetField(ref _retentionCountText, value); }
     public string RetentionDaysText { get => _retentionDaysText; set => SetField(ref _retentionDaysText, value); }
 
@@ -188,6 +214,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand KeepLocalConflictCommand { get; }
     public ICommand NavigateCommand { get; }
     public ICommand SelectGameCommand { get; }
+    public ICommand ToggleThemeCommand { get; }
 
     public event EventHandler? PasswordClearRequested;
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -203,6 +230,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StatusText = target == "首页" ? "已返回同步概览。" : $"已切换到{target}。";
     }
 
+    private void ToggleTheme()
+    {
+        IsLightTheme = !IsLightTheme;
+        ThemeManager.Apply(IsLightTheme);
+        StatusText = IsLightTheme ? "已启用浅色主题。" : "已启用深色主题。";
+    }
     private void SelectGame(object? game)
     {
         if (game is not CloudGame selected) return;
@@ -228,6 +261,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ? await _apiClient.RegisterAsync(server, Username, _password, deviceId, Environment.MachineName, CancellationToken.None)
                 : await _apiClient.LoginAsync(server, Username, _password, deviceId, Environment.MachineName, CancellationToken.None);
             await _credentialStore.SaveAsync(CredentialTargets.ForDeviceToken(server), session.DeviceToken, CancellationToken.None);
+            IsAuthenticated = true;
             await ReloadGamesAsync(server, session.DeviceToken);
             await ReloadDevicesAsync(server, session.DeviceToken);
             await ReloadQuotaAsync(server, session.DeviceToken);
