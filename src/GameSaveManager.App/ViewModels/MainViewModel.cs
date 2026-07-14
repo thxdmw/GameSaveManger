@@ -573,9 +573,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SyncSummaryText = result.Status == CloudSyncStatus.Success
             ? $"本次同步：{result.FileCount} 个文件，{FormatBytes(result.LogicalSize)}；上传 {result.UploadedObjectCount} 个内容对象；耗时 {result.Duration.TotalSeconds:0.0} 秒。"
             : $"同步未提交：检测到版本冲突；耗时 {result.Duration.TotalSeconds:0.0} 秒。可恢复云端版本或选择保留本机版本。";
-        SyncSummaryText = result.Status == CloudSyncStatus.Success
-            ? $"本次同步：{result.FileCount} 个文件，{FormatBytes(result.LogicalSize)}；上传 {result.UploadedObjectCount} 个内容对象；耗时 {result.Duration.TotalSeconds:0.0} 秒。"
-            : $"同步未提交：检测到版本冲突；耗时 {result.Duration.TotalSeconds:0.0} 秒。可恢复云端版本或选择保留本机版本。";
         SyncProgressText = result.Status == CloudSyncStatus.Success ? "同步完成" : "需要处理版本冲突";
         if (result.Status == CloudSyncStatus.RemoteAhead) CurrentPage = "时间线";
         if (result.Status == CloudSyncStatus.Success) SyncProgressValue = 100;

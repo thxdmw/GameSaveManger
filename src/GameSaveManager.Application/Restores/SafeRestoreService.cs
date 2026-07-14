@@ -54,16 +54,20 @@ public sealed class SafeRestoreService(
         string journalPath = Path.Combine(transactionDirectory, "journal.json");
         Directory.CreateDirectory(transactionDirectory);
 
+        // 安全备份路径是确定值：无条件写入 journal，即使当前目标目录不存在。
+        // 若下载期间目标目录被外部重新创建、随后被移动为安全备份，崩溃恢复也能凭此路径找回原始存档。
         var journal = new RestoreJournal(
             transactionId,
             RestoreJournalState.Prepared,
             target,
             staging,
-            Directory.Exists(target) ? safetyBackup : null,
+            safetyBackup,
             manifest.SnapshotId,
             DateTimeOffset.UtcNow);
         await WriteJournalAsync(journalPath, journal, cancellationToken);
 
+        // 仅当真正把原目录移动为安全备份后才赋值，用于回传界面提示实际备份位置。
+        string? actualSafetyBackup = null;
         try
         {
             await BuildAndVerifyStagingAsync(
@@ -73,6 +77,7 @@ public sealed class SafeRestoreService(
             if (Directory.Exists(target))
             {
                 Directory.Move(target, safetyBackup);
+                actualSafetyBackup = safetyBackup;
                 journal = journal with
                 {
                     State = RestoreJournalState.OriginalMoved,
@@ -103,7 +108,7 @@ public sealed class SafeRestoreService(
 
             // 完成后仅删除事务日志；原目录的安全备份刻意保留，避免恢复后立即失去回滚点。
             Directory.Delete(transactionDirectory, recursive: true);
-            return new RestoreResult(manifest.SnapshotId, target, journal.SafetyBackupDirectory);
+            return new RestoreResult(manifest.SnapshotId, target, actualSafetyBackup);
         }
         catch
         {
