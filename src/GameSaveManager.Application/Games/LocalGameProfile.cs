@@ -6,4 +6,5 @@ public sealed record LocalGameProfile(
     string GameId,
     string SaveDirectory,
     string ProcessName,
+    string? ExecutablePath,
     bool AutoSnapshotEnabled);

@@ -15,7 +15,7 @@ public sealed class SqliteLocalGameProfileStore(SqliteDatabase database) : ILoca
         await connection.OpenAsync(cancellationToken);
         await using SqliteCommand command = connection.CreateCommand();
         command.CommandText = """
-            SELECT save_directory, process_name, auto_snapshot_enabled
+            SELECT save_directory, process_name, executable_path, auto_snapshot_enabled
             FROM local_game_profile
             WHERE server_key = $serverKey AND game_id = $gameId
             LIMIT 1;
@@ -30,7 +30,8 @@ public sealed class SqliteLocalGameProfileStore(SqliteDatabase database) : ILoca
             gameId,
             reader.GetString(0),
             reader.GetString(1),
-            reader.GetInt64(2) != 0);
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.GetInt64(3) != 0);
     }
 
     public async Task<IReadOnlyList<LocalGameProfile>> ListAsync(string serverKey, CancellationToken cancellationToken)
@@ -39,12 +40,12 @@ public sealed class SqliteLocalGameProfileStore(SqliteDatabase database) : ILoca
         await using SqliteConnection connection = database.CreateConnection();
         await connection.OpenAsync(cancellationToken);
         await using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "SELECT game_id, save_directory, process_name, auto_snapshot_enabled FROM local_game_profile WHERE server_key = $serverKey;";
+        command.CommandText = "SELECT game_id, save_directory, process_name, executable_path, auto_snapshot_enabled FROM local_game_profile WHERE server_key = $serverKey;";
         command.Parameters.AddWithValue("$serverKey", serverKey);
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            profiles.Add(new LocalGameProfile(serverKey, reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3) != 0));
+            profiles.Add(new LocalGameProfile(serverKey, reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetInt64(4) != 0));
         }
         return profiles;
     }
@@ -66,11 +67,12 @@ public sealed class SqliteLocalGameProfileStore(SqliteDatabase database) : ILoca
         await using SqliteCommand command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO local_game_profile(
-                server_key, game_id, save_directory, process_name, auto_snapshot_enabled, update_time_utc)
-            VALUES($serverKey, $gameId, $saveDirectory, $processName, $enabled, $updatedAt)
+                server_key, game_id, save_directory, process_name, executable_path, auto_snapshot_enabled, update_time_utc)
+            VALUES($serverKey, $gameId, $saveDirectory, $processName, $executablePath, $enabled, $updatedAt)
             ON CONFLICT(server_key, game_id) DO UPDATE SET
                 save_directory = excluded.save_directory,
                 process_name = excluded.process_name,
+                executable_path = excluded.executable_path,
                 auto_snapshot_enabled = excluded.auto_snapshot_enabled,
                 update_time_utc = excluded.update_time_utc;
             """;
@@ -78,6 +80,7 @@ public sealed class SqliteLocalGameProfileStore(SqliteDatabase database) : ILoca
         command.Parameters.AddWithValue("$gameId", profile.GameId);
         command.Parameters.AddWithValue("$saveDirectory", profile.SaveDirectory);
         command.Parameters.AddWithValue("$processName", profile.ProcessName);
+        command.Parameters.AddWithValue("$executablePath", (object?)profile.ExecutablePath ?? DBNull.Value);
         command.Parameters.AddWithValue("$enabled", profile.AutoSnapshotEnabled ? 1 : 0);
         command.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         await command.ExecuteNonQueryAsync(cancellationToken);

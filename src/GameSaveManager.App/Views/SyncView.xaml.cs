@@ -23,7 +23,7 @@ public partial class SyncView : UserControl
         }
     }
 
-    private void ChooseProcessExecutableButton_OnClick(object sender, RoutedEventArgs e)
+    private async void ChooseProcessExecutableButton_OnClick(object sender, RoutedEventArgs e)
     {
         using var dialog = new Forms.OpenFileDialog
         {
@@ -34,7 +34,7 @@ public partial class SyncView : UserControl
         };
         if (dialog.ShowDialog() == Forms.DialogResult.OK && DataContext is MainViewModel viewModel)
         {
-            viewModel.AutoSnapshotProcessName = System.IO.Path.GetFileName(dialog.FileName);
+            await viewModel.SetAutoSnapshotExecutablePathAsync(dialog.FileName);
         }
     }
 }

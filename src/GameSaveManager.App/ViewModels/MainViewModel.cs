@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using System.Windows.Data;
+using System.Windows.Threading;
 using GameSaveManager.App.Common;
 using GameSaveManager.App.Theming;
 using GameSaveManager.Application.Api;
@@ -46,6 +48,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _newGameName = string.Empty;
     private string _saveDirectory = string.Empty;
     private string _autoSnapshotProcessName = string.Empty;
+    private string _autoSnapshotExecutablePath = string.Empty;
+    private int _runtimeStatusVersion;
+    private readonly Dictionary<string, LocalGameProfile> _localGameProfiles = new(StringComparer.Ordinal);
+    private readonly DispatcherTimer _runtimeStatusTimer;
     private string _statusText = "请先注册或登录，然后选择云端游戏并配置本地存档目录。";
     private int _fileCount;
     private string _logicalSizeText = "0 B";
@@ -100,6 +106,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _appLogger = appLogger;
         _autoStartService = autoStartService;
         _autoStartEnabled = autoStartService.IsEnabled();
+        _runtimeStatusTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
+        _runtimeStatusTimer.Tick += (_, _) => RefreshGameRuntimeStatus();
+        _runtimeStatusTimer.Start();
 
         RegisterCommand = new AsyncCommand(() => AuthenticateAsync(true));
         LoginCommand = new AsyncCommand(() => AuthenticateAsync(false));
@@ -130,6 +139,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         KeepLocalConflictCommand = new AsyncCommand(KeepLocalConflictAsync);
         NavigateCommand = new DelegateCommand(NavigateTo);
         SelectGameCommand = new AsyncCommand(SelectGameAsync);
+        LaunchGameCommand = new AsyncCommand(LaunchGameAsync);
         ToggleThemeCommand = new DelegateCommand(_ => ToggleTheme());
         ToggleAutoStartCommand = new AsyncCommand(ToggleAutoStartAsync);
         FilteredGames = CollectionViewSource.GetDefaultView(Games);
@@ -150,6 +160,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string NewGameName { get => _newGameName; set => SetField(ref _newGameName, value); }
     public string SaveDirectory { get => _saveDirectory; set => SetField(ref _saveDirectory, value); }
     public string AutoSnapshotProcessName { get => _autoSnapshotProcessName; set => SetField(ref _autoSnapshotProcessName, value); }
+    public string AutoSnapshotExecutablePath { get => _autoSnapshotExecutablePath; private set => SetField(ref _autoSnapshotExecutablePath, value); }
+    public int RuntimeStatusVersion { get => _runtimeStatusVersion; private set => SetField(ref _runtimeStatusVersion, value); }
     public string StatusText { get => _statusText; private set => SetField(ref _statusText, value); }
     public int FileCount { get => _fileCount; private set => SetField(ref _fileCount, value); }
     public string LogicalSizeText { get => _logicalSizeText; private set => SetField(ref _logicalSizeText, value); }
@@ -211,6 +223,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 SaveDirectory = string.Empty;
                 AutoSnapshotProcessName = string.Empty;
+                AutoSnapshotExecutablePath = string.Empty;
                 SaveDirectorySuggestions.Clear();
                 Snapshots.Clear();
                 SelectedSnapshot = null;
@@ -280,6 +293,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand KeepLocalConflictCommand { get; }
     public ICommand NavigateCommand { get; }
     public ICommand SelectGameCommand { get; }
+    public ICommand LaunchGameCommand { get; }
     public ICommand ToggleThemeCommand { get; }
     public ICommand ToggleAutoStartCommand { get; }
 
@@ -430,8 +444,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         LocalGameProfile? profile = await _localGameProfileStore.GetAsync(serverKey, SelectedGame.GameId, CancellationToken.None);
         if (profile is null) return;
 
+        _localGameProfiles[profile.GameId] = profile;
         SaveDirectory = profile.SaveDirectory;
         AutoSnapshotProcessName = profile.ProcessName;
+        AutoSnapshotExecutablePath = profile.ExecutablePath ?? string.Empty;
+        RefreshGameRuntimeStatus();
         if (profile.AutoSnapshotEnabled)
         {
             await EnableAutomaticSyncAsync(server, token, SelectedGame.GameId, profile);
@@ -445,11 +462,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
         IReadOnlyList<LocalGameProfile> profiles = await _localGameProfileStore.ListAsync(serverKey, CancellationToken.None);
+        _localGameProfiles.Clear();
         foreach (LocalGameProfile profile in profiles)
         {
+            _localGameProfiles[profile.GameId] = profile;
             if (!profile.AutoSnapshotEnabled || !Games.Any(game => game.GameId == profile.GameId)) continue;
             await EnableAutomaticSyncAsync(server, token, profile.GameId, profile);
         }
+        RefreshGameRuntimeStatus();
     }
 
     private async Task EnableAutomaticSyncAsync(Uri server, string token, string gameId, LocalGameProfile profile)
@@ -543,17 +563,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (result.Status == CloudSyncStatus.RemoteAhead) CurrentPage = "时间线";
         if (result.Status == CloudSyncStatus.Success) SyncProgressValue = 100;
     }
-    private Task SaveLocalProfileAsync(Uri server, bool autoSnapshotEnabled)
+    private async Task SaveLocalProfileAsync(Uri server, bool autoSnapshotEnabled)
     {
-        if (SelectedGame is null) return Task.CompletedTask;
-        return _localGameProfileStore.SaveAsync(
-            new LocalGameProfile(
-                GameSaveServerIdentity.CreateStableKey(server),
-                SelectedGame.GameId,
-                SaveDirectory,
-                AutoSnapshotProcessName,
-                autoSnapshotEnabled),
-            CancellationToken.None);
+        if (SelectedGame is null) return;
+        LocalGameProfile profile = new(
+            GameSaveServerIdentity.CreateStableKey(server),
+            SelectedGame.GameId,
+            SaveDirectory,
+            AutoSnapshotProcessName,
+            AutoSnapshotExecutablePath,
+            autoSnapshotEnabled);
+        await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
+        _localGameProfiles[profile.GameId] = profile;
+        RefreshGameRuntimeStatus();
     }
     private async Task ReloadRetentionAsync()
     {
@@ -935,6 +957,63 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception exception) { ShowError("删除历史快照失败", exception); }
     }
 
+    public async Task SetAutoSnapshotExecutablePathAsync(string executablePath)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath)) return;
+        AutoSnapshotExecutablePath = executablePath;
+        AutoSnapshotProcessName = Path.GetFileName(executablePath);
+        if (SelectedGame is not null) await SaveLocalProfileAsync(ParseServerUri(), IsAutoSyncEnabled);
+    }
+
+    public string GetGameRuntimeStatusText(CloudGame game)
+    {
+        if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile) ||
+            string.IsNullOrWhiteSpace(profile.ExecutablePath) || !File.Exists(profile.ExecutablePath))
+            return "未配置 EXE";
+        return IsGameRunning(profile) ? "运行中" : "未启动";
+    }
+
+    private async Task LaunchGameAsync(object? parameter)
+    {
+        if (parameter is not CloudGame game) return;
+        if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile) ||
+            string.IsNullOrWhiteSpace(profile.ExecutablePath) || !File.Exists(profile.ExecutablePath))
+        {
+            SelectedGame = game;
+            CurrentPage = "同步中心";
+            StatusText = "请先在同步中心选择该游戏的 EXE 文件，再从游戏卡片启动。";
+            return;
+        }
+
+        try
+        {
+            SelectedGame = game;
+            SaveDirectory = profile.SaveDirectory;
+            AutoSnapshotProcessName = profile.ProcessName;
+            AutoSnapshotExecutablePath = profile.ExecutablePath;
+            Process.Start(new ProcessStartInfo(profile.ExecutablePath) { UseShellExecute = true });
+            StatusText = $"已启动 {game.Name}，运行状态会自动刷新。";
+            await Task.Delay(300);
+            RefreshGameRuntimeStatus();
+        }
+        catch (Exception exception)
+        {
+            ShowError("启动游戏失败", exception);
+        }
+    }
+
+    private static bool IsGameRunning(LocalGameProfile profile)
+    {
+        string processName = Path.GetFileNameWithoutExtension(profile.ProcessName);
+        if (string.IsNullOrWhiteSpace(processName)) return false;
+        foreach (Process process in Process.GetProcessesByName(processName))
+        {
+            using (process) return true;
+        }
+        return false;
+    }
+
+    private void RefreshGameRuntimeStatus() => RuntimeStatusVersion++;
     private async Task StartAutoSnapshotAsync()
     {
         try
@@ -947,7 +1026,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
             LocalGameProfile profile = new(GameSaveServerIdentity.CreateStableKey(server), SelectedGame.GameId,
-                SaveDirectory, AutoSnapshotProcessName, true);
+                SaveDirectory, AutoSnapshotProcessName, AutoSnapshotExecutablePath, true);
             await SaveLocalProfileAsync(server, true);
             await EnableAutomaticSyncAsync(server, token, SelectedGame.GameId, profile);
             IsAutoSyncEnabled = true;

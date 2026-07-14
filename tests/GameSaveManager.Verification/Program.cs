@@ -45,6 +45,7 @@ Run("服务端基础路径大小写必须保持隔离", () =>
 await RunAsync("旧 sync_state 表迁移并按服务端隔离 HEAD", VerifySyncStateMigrationAsync);
 await RunAsync("SQLite schema 版本迁移可重复执行", SqliteSchemaVerification.VerifySchemaVersionAsync);
 await RunAsync("本机游戏配置按服务端隔离", VerifyLocalGameProfileAsync);
+await RunAsync("旧本机游戏配置可迁移 EXE 路径字段", VerifyLocalGameProfileMigrationAsync);
 await RunAsync("安全重试只重试 GET 请求", RetryAndLoggingVerification.VerifySafeRetryHandlerAsync);
 await RunAsync("结构化日志会脱敏凭据", RetryAndLoggingVerification.VerifyJsonFileLoggerAsync);
 Run("CMS 无时区日期与时间戳可以兼容解析", CmsDateTimeOffsetVerification.Verify);
@@ -99,12 +100,56 @@ async Task VerifyLocalGameProfileAsync()
         var database = new SqliteDatabase(databasePath);
         await database.InitializeAsync(CancellationToken.None);
         var store = new SqliteLocalGameProfileStore(database);
-        await store.SaveAsync(new LocalGameProfile("server-a", "same-game", "D:\\Saves\\A", "game-a.exe", true), CancellationToken.None);
-        await store.SaveAsync(new LocalGameProfile("server-b", "same-game", "E:\\Saves\\B", "game-b.exe", false), CancellationToken.None);
+        await store.SaveAsync(new LocalGameProfile("server-a", "same-game", "D:\\Saves\\A", "game-a.exe", "D:\\Games\\A\\game-a.exe", true), CancellationToken.None);
+        await store.SaveAsync(new LocalGameProfile("server-b", "same-game", "E:\\Saves\\B", "game-b.exe", null, false), CancellationToken.None);
         LocalGameProfile? serverA = await store.GetAsync("server-a", "same-game", CancellationToken.None);
         LocalGameProfile? serverB = await store.GetAsync("server-b", "same-game", CancellationToken.None);
-        Check(serverA is { SaveDirectory: "D:\\Saves\\A", ProcessName: "game-a.exe", AutoSnapshotEnabled: true }, "server-a local profile read failed");
-        Check(serverB is { SaveDirectory: "E:\\Saves\\B", ProcessName: "game-b.exe", AutoSnapshotEnabled: false }, "server-b local profile read failed");
+        Check(serverA is { SaveDirectory: "D:\\Saves\\A", ProcessName: "game-a.exe", ExecutablePath: "D:\\Games\\A\\game-a.exe", AutoSnapshotEnabled: true }, "server-a local profile read failed");
+        Check(serverB is { SaveDirectory: "E:\\Saves\\B", ProcessName: "game-b.exe", ExecutablePath: null, AutoSnapshotEnabled: false }, "server-b local profile read failed");
+    }
+    finally
+    {
+        TryDelete(databasePath);
+        TryDelete(databasePath + "-wal");
+        TryDelete(databasePath + "-shm");
+        try { Directory.Delete(tempDirectory, recursive: true); } catch (IOException) { }
+    }
+}
+async Task VerifyLocalGameProfileMigrationAsync()
+{
+    string tempDirectory = Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(tempDirectory);
+    string databasePath = Path.Combine(tempDirectory, "profiles-migration.db");
+    try
+    {
+        await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE local_game_profile (
+                    server_key TEXT NOT NULL,
+                    game_id TEXT NOT NULL,
+                    save_directory TEXT NOT NULL,
+                    process_name TEXT NOT NULL,
+                    auto_snapshot_enabled INTEGER NOT NULL,
+                    update_time_utc INTEGER NOT NULL,
+                    PRIMARY KEY(server_key, game_id)
+                );
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var database = new SqliteDatabase(databasePath);
+        await database.InitializeAsync(CancellationToken.None);
+        await using SqliteConnection verificationConnection = database.CreateConnection();
+        await verificationConnection.OpenAsync();
+        await using SqliteCommand verificationCommand = verificationConnection.CreateCommand();
+        verificationCommand.CommandText = "PRAGMA table_info(local_game_profile);";
+        await using SqliteDataReader reader = await verificationCommand.ExecuteReaderAsync();
+        bool migrated = false;
+        while (await reader.ReadAsync()) migrated |= string.Equals(reader.GetString(1), "executable_path", StringComparison.OrdinalIgnoreCase);
+        Check(migrated, "旧本机游戏配置未添加 executable_path 字段");
     }
     finally
     {

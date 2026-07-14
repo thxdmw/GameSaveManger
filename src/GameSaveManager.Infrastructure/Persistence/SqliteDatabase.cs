@@ -208,11 +208,34 @@ public sealed class SqliteDatabase
                 game_id TEXT NOT NULL,
                 save_directory TEXT NOT NULL,
                 process_name TEXT NOT NULL,
+                executable_path TEXT NULL,
                 auto_snapshot_enabled INTEGER NOT NULL,
                 update_time_utc INTEGER NOT NULL,
                 PRIMARY KEY(server_key, game_id)
             );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        bool hasExecutablePath = false;
+        await using (SqliteCommand columnCommand = connection.CreateCommand())
+        {
+            columnCommand.Transaction = transaction;
+            columnCommand.CommandText = "PRAGMA table_info(local_game_profile);";
+            await using SqliteDataReader reader = await columnCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(reader.GetString(1), "executable_path", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasExecutablePath = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasExecutablePath) return;
+        await using SqliteCommand migrationCommand = connection.CreateCommand();
+        migrationCommand.Transaction = transaction;
+        migrationCommand.CommandText = "ALTER TABLE local_game_profile ADD COLUMN executable_path TEXT NULL;";
+        await migrationCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 }
