@@ -57,6 +57,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isSyncing;
     private string _syncProgressText = "等待同步";
     private double _syncProgressValue;
+    private string _syncSummaryText = "暂无同步记录";
     private string _restorePreviewText = "选择快照后可预览将恢复的文件数量与大小。";
     private bool _isLightTheme;
     private bool _autoStartEnabled;
@@ -191,6 +192,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IsSyncing { get => _isSyncing; private set => SetField(ref _isSyncing, value); }
     public string SyncProgressText { get => _syncProgressText; private set => SetField(ref _syncProgressText, value); }
     public double SyncProgressValue { get => _syncProgressValue; private set => SetField(ref _syncProgressValue, value); }
+    public string SyncSummaryText { get => _syncSummaryText; private set => SetField(ref _syncSummaryText, value); }
     public string RestorePreviewText { get => _restorePreviewText; private set => SetField(ref _restorePreviewText, value); }
     public string ConnectionStatusText => IsAuthenticated ? "已登录" : "未登录";
     public string AccountActionText => IsAuthenticated ? "退出登录" : "登录";
@@ -526,6 +528,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StatusText = result.Status == CloudSyncStatus.RemoteAhead
             ? result.Message + " 请从时间线恢复云端快照，或明确选择保留本机版本。"
             : result.Message;
+        SyncSummaryText = result.Status == CloudSyncStatus.Success
+            ? $"本次同步：{result.FileCount} 个文件，{FormatBytes(result.LogicalSize)}；上传 {result.UploadedObjectCount} 个内容对象；耗时 {result.Duration.TotalSeconds:0.0} 秒。"
+            : $"同步未提交：检测到版本冲突；耗时 {result.Duration.TotalSeconds:0.0} 秒。可恢复云端版本或选择保留本机版本。";
+        SyncSummaryText = result.Status == CloudSyncStatus.Success
+            ? $"本次同步：{result.FileCount} 个文件，{FormatBytes(result.LogicalSize)}；上传 {result.UploadedObjectCount} 个内容对象；耗时 {result.Duration.TotalSeconds:0.0} 秒。"
+            : $"同步未提交：检测到版本冲突；耗时 {result.Duration.TotalSeconds:0.0} 秒。可恢复云端版本或选择保留本机版本。";
         SyncProgressText = result.Status == CloudSyncStatus.Success ? "同步完成" : "需要处理版本冲突";
         if (result.Status == CloudSyncStatus.Success) SyncProgressValue = 100;
     }

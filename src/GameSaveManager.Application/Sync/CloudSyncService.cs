@@ -1,6 +1,7 @@
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Snapshots;
 using GameSaveManager.Domain.Snapshots;
+using System.Diagnostics;
 
 namespace GameSaveManager.Application.Sync;
 
@@ -24,6 +25,7 @@ public sealed class CloudSyncService(
         bool keepLocalOnConflict = false,
         IProgress<CloudSyncProgress>? progress = null)
     {
+        long startedAt = Stopwatch.GetTimestamp();
         progress?.Report(new CloudSyncProgress("准备", 0, 0, "正在比较本机与云端版本…"));
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
         LocalSyncState? localState = await localSyncStateStore.GetAsync(
@@ -40,7 +42,8 @@ public sealed class CloudSyncService(
                 null,
                 0,
                 0,
-                0);
+                0,
+                Stopwatch.GetElapsedTime(startedAt));
         }
 
         // 用户显式选择“保留本机版本”时，以当前云端 HEAD 为父快照提交；旧云端版本保留在时间线中。
@@ -100,7 +103,8 @@ public sealed class CloudSyncService(
             committed.SnapshotId,
             missing.Count,
             committed.FileCount,
-            committed.LogicalSize);
+            committed.LogicalSize,
+            Stopwatch.GetElapsedTime(startedAt));
     }
 
     private static bool HeadsMatch(LocalSyncState? localState, CloudHead remoteHead)

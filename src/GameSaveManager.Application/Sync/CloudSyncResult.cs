@@ -7,7 +7,8 @@ public sealed record CloudSyncResult(
     string? SnapshotId,
     int UploadedObjectCount,
     int FileCount,
-    long LogicalSize);
+    long LogicalSize,
+    TimeSpan Duration);
 
 public enum CloudSyncStatus
 {
