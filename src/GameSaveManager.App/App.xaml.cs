@@ -55,14 +55,16 @@ public partial class App : System.Windows.Application
                 Timeout = TimeSpan.FromMinutes(30)
             };
             var apiClient = new GameSaveApiClient(_httpClient);
+            var syncStateStore = new SqliteSyncStateStore(database);
             var syncService = new CloudSyncService(
                 manifestBuilder,
                 apiClient,
-                new SqliteSyncStateStore(database));
+                syncStateStore);
             var restoreService = new SafeRestoreService(
                 apiClient,
                 new ContentObjectCache(fileHashService),
-                fileHashService);
+                fileHashService,
+                syncStateStore);
             _autoSyncCoordinator = new MultiGameAutoSyncCoordinator();
 
             IReadOnlyList<string> recoveryMessages = await restoreService.RecoverInterruptedRestoresAsync(

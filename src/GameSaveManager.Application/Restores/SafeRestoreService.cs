@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Files;
+using GameSaveManager.Application.Sync;
 
 namespace GameSaveManager.Application.Restores;
 
@@ -11,7 +12,8 @@ namespace GameSaveManager.Application.Restores;
 public sealed class SafeRestoreService(
     IGameSaveApiClient apiClient,
     ContentObjectCache objectCache,
-    IFileHashService fileHashService)
+    IFileHashService fileHashService,
+    ILocalSyncStateStore localSyncStateStore)
 {
     private static readonly JsonSerializerOptions JournalJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -34,6 +36,7 @@ public sealed class SafeRestoreService(
         CloudSnapshotManifest manifest = await apiClient.GetSnapshotAsync(
             server, deviceToken, gameId, snapshotId, cancellationToken);
         ValidateManifest(manifest);
+        CloudHead remoteHead = await apiClient.GetHeadAsync(server, deviceToken, gameId, cancellationToken);
 
         string target = Path.GetFullPath(saveDirectory);
         if (File.Exists(target))
@@ -93,6 +96,10 @@ public sealed class SafeRestoreService(
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             await WriteJournalAsync(journalPath, journal, CancellationToken.None);
+
+            await localSyncStateStore.SaveAsync(
+                new LocalSyncState(GameSaveServerIdentity.CreateStableKey(server), gameId, remoteHead.HeadSnapshotId, remoteHead.Version),
+                CancellationToken.None);
 
             // 完成后仅删除事务日志；原目录的安全备份刻意保留，避免恢复后立即失去回滚点。
             Directory.Delete(transactionDirectory, recursive: true);

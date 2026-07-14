@@ -27,8 +27,9 @@ internal static class SmokeViewModelFactory
             fileHashService,
             new SqliteFileHashCache(database));
         var apiClient = new GameSaveApiClient(new HttpClient());
-        var syncService = new CloudSyncService(manifestBuilder, apiClient, new SqliteSyncStateStore(database));
-        var restoreService = new SafeRestoreService(apiClient, new ContentObjectCache(fileHashService), fileHashService);
+        var syncStateStore = new SqliteSyncStateStore(database);
+        var syncService = new CloudSyncService(manifestBuilder, apiClient, syncStateStore);
+        var restoreService = new SafeRestoreService(apiClient, new ContentObjectCache(fileHashService), fileHashService, syncStateStore);
 
         return new MainViewModel(
             manifestBuilder,
