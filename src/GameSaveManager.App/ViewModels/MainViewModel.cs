@@ -188,7 +188,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AccountSummaryText)));
         }
     }
-    public bool AutoStartEnabled { get => _autoStartEnabled; private set => SetField(ref _autoStartEnabled, value); }
+    public bool AutoStartEnabled
+    {
+        get => _autoStartEnabled;
+        private set
+        {
+            if (SetField(ref _autoStartEnabled, value)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutoStartSelectionIndex)));
+        }
+    }
+    public int AutoStartSelectionIndex => AutoStartEnabled ? 1 : 0;
+    public int ThemeSelectionIndex => IsLightTheme ? 1 : 0;
     public string AutoStartText => AutoStartEnabled ? "已启用开机启动" : "启用开机启动";
     public bool IsLightTheme
     {
@@ -197,6 +206,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (!SetField(ref _isLightTheme, value)) return;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThemeToggleText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThemeSelectionIndex)));
         }
     }
     public string AuthenticatedUsername { get => _authenticatedUsername; private set => SetField(ref _authenticatedUsername, value); }
