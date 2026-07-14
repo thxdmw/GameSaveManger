@@ -93,7 +93,8 @@ public partial class App : System.Windows.Application
                     new WindowsCredentialStore(),
                     new SqliteDeviceIdentityProvider(database),
                     _appLogger,
-                    new WindowsAutoStartService())
+                    new WindowsAutoStartService(),
+                    new TextFileServerAddressStore())
             };
             window.Show();
             if (window.DataContext is MainViewModel viewModel) await viewModel.InitializeAsync();

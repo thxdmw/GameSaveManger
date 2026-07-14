@@ -16,6 +16,7 @@ using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Monitoring;
 using GameSaveManager.Application.Restores;
 using GameSaveManager.Application.Security;
+using GameSaveManager.Application.Settings;
 using GameSaveManager.Application.Snapshots;
 using GameSaveManager.Application.Sync;
 using GameSaveManager.Application.Startup;
@@ -41,6 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IDeviceIdentityProvider _deviceIdentityProvider;
     private readonly IAppLogger _appLogger;
     private readonly IAutoStartService _autoStartService;
+    private readonly IServerAddressStore _serverAddressStore;
 
     private string _serverAddress = "http://localhost:8080";
     private string _username = string.Empty;
@@ -90,7 +92,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ICredentialStore credentialStore,
         IDeviceIdentityProvider deviceIdentityProvider,
         IAppLogger appLogger,
-        IAutoStartService autoStartService)
+        IAutoStartService autoStartService,
+        IServerAddressStore serverAddressStore)
     {
         _manifestBuilder = manifestBuilder;
         _apiClient = apiClient;
@@ -105,6 +108,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _deviceIdentityProvider = deviceIdentityProvider;
         _appLogger = appLogger;
         _autoStartService = autoStartService;
+        _serverAddressStore = serverAddressStore;
         _autoStartEnabled = autoStartService.IsEnabled();
         _runtimeStatusTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
         _runtimeStatusTimer.Tick += (_, _) => RefreshGameRuntimeStatus();
@@ -319,6 +323,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         try
         {
+            string? savedServerAddress = await _serverAddressStore.ReadAsync(CancellationToken.None);
+            if (!string.IsNullOrWhiteSpace(savedServerAddress)) ServerAddress = savedServerAddress;
             Uri server = ParseServerUri();
             string? token = await _credentialStore.ReadAsync(CredentialTargets.ForDeviceToken(server), CancellationToken.None);
             if (string.IsNullOrWhiteSpace(token)) return;
@@ -407,6 +413,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : await _apiClient.LoginAsync(server, Username, _password, deviceId, Environment.MachineName, CancellationToken.None);
             await _credentialStore.SaveAsync(CredentialTargets.ForDeviceToken(server), session.DeviceToken, CancellationToken.None);
             await _credentialStore.SaveAsync(CredentialTargets.ForAccountName(server), Username.Trim(), CancellationToken.None);
+            await _serverAddressStore.SaveAsync(server.AbsoluteUri.TrimEnd('/'), CancellationToken.None);
             AuthenticatedUsername = Username.Trim();
             IsAuthenticated = true;
             try

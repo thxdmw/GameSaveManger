@@ -44,7 +44,8 @@ internal static class SmokeViewModelFactory
             new WindowsCredentialStore(),
             new SqliteDeviceIdentityProvider(database),
             new NullLogger(),
-            new DisabledAutoStartService());
+            new DisabledAutoStartService(),
+            new TextFileServerAddressStore(Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", "smoke-server-address.txt")));
     }
 
     private sealed class NullLogger : IAppLogger
