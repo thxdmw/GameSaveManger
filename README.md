@@ -271,3 +271,10 @@ GameSaveManager.Verification
 ## 后续任务
 
 未完成的验证、发布基础设施和工程优化统一维护在 [TODO.md](TODO.md)。
+## UI Smoke Test
+
+The verification project runs on Windows without Docker or a backend service. It loads the WPF application resources, creates the main window and all pages on an STA UI thread, and fails when WPF reports a binding error.
+
+```powershell
+dotnet run --project tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj
+```
