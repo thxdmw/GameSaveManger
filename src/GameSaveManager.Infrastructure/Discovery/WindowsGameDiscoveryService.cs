@@ -24,13 +24,21 @@ public sealed class WindowsGameDiscoveryService : IGameDiscoveryService
             DiscoverEpic(games, cancellationToken);
             DiscoverGog(games, cancellationToken);
             return (IReadOnlyList<DiscoveredGame>)games
-                .GroupBy(game => $"{game.Provider}:{game.ProviderGameId}:{game.InstallDirectory}", StringComparer.OrdinalIgnoreCase)
+                .GroupBy(game => NormalizeInstallDirectory(game), StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First())
                 .OrderBy(game => game.Name, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
         }, cancellationToken);
     }
 
+    private static string NormalizeInstallDirectory(DiscoveredGame game)
+    {
+        if (string.IsNullOrWhiteSpace(game.InstallDirectory))
+        {
+            return $"{game.Provider}:{game.ProviderGameId}";
+        }
+        return Path.GetFullPath(game.InstallDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
     private static void DiscoverSteam(List<DiscoveredGame> games, CancellationToken cancellationToken)
     {
         var libraries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

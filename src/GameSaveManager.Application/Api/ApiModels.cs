@@ -50,11 +50,23 @@ public sealed record CloudSnapshotSummary(
     int FileCount,
     long LogicalSize,
     int ChangedFileCount,
-    DateTimeOffset CreateTime);
+    DateTimeOffset CreateTime)
+{
+    public string TriggerDisplayText => SnapshotTriggerNames.ToDisplayName(TriggerType);
+}
 
 /// <summary>统一的快照触发类型字符串转换。</summary>
 public static class SnapshotTriggerNames
 {
+    public static string ToDisplayName(string triggerType) => triggerType switch
+    {
+        "MANUAL" => "手动同步",
+        "GAME_EXIT" => "自动同步（游戏退出）",
+        "BEFORE_RESTORE" => "恢复前安全快照",
+        "IMPORT" => "导入快照",
+        _ => triggerType
+    };
+
     public static string ToApiValue(SnapshotTrigger trigger) => trigger switch
     {
         SnapshotTrigger.Manual => "MANUAL",
