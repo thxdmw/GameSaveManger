@@ -1027,7 +1027,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return false;
     }
 
-    private void RefreshGameRuntimeStatus() => RuntimeStatusVersion++;
+    // 运行状态刷新时先枚举一次全部进程并缓存进程名集合；读写均在 UI 线程，引用整体替换避免读到半更新集合。
+    private HashSet<string> _runningProcessNames = new(StringComparer.OrdinalIgnoreCase);
+
+    private void RefreshGameRuntimeStatus()
+    {
+        _runningProcessNames = SnapshotRunningProcessNames();
+        RuntimeStatusVersion++;
+    }
+
+    private static HashSet<string> SnapshotRunningProcessNames()
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Process process in Process.GetProcesses())
+        {
+            try { names.Add(process.ProcessName); }
+            catch { /* 个别进程可能拒绝访问其名称，跳过即可 */ }
+            finally { process.Dispose(); }
+        }
+        return names;
+    }
     private async Task StartAutoSnapshotAsync()
     {
         try
