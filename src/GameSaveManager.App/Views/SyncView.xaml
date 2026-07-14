@@ -43,10 +43,11 @@
                     <TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="自动同步"/>
                     <TextBlock Margin="0,8,0,14" Foreground="{DynamicResource Muted}" Text="每个已启用游戏都会独立监听。目录变化只标记为待同步，游戏进程退出后才会完整扫描并排队同步。"/>
                     <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="150"/><ColumnDefinition Width="10"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="110"/><ColumnDefinition Width="14"/><ColumnDefinition Width="150"/><ColumnDefinition Width="10"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
                         <TextBox Style="{StaticResource Input}" Text="{Binding AutoSnapshotProcessName, UpdateSourceTrigger=PropertyChanged}" ToolTip="游戏进程名，例如 eldenring.exe"/>
-                        <Button Grid.Column="2" Style="{StaticResource Primary}" Command="{Binding StartAutoSnapshotCommand}" Content="启用当前游戏"/>
-                        <Button Grid.Column="4" Style="{StaticResource ButtonStyle}" Command="{Binding StopAutoSnapshotCommand}" Content="停止当前游戏"/>
+                        <Button Grid.Column="2" Style="{StaticResource ButtonStyle}" Click="ChooseProcessExecutableButton_OnClick" Content="选择 EXE"/>
+                        <Button Grid.Column="4" Style="{StaticResource Primary}" Command="{Binding StartAutoSnapshotCommand}" Content="启用当前游戏"/>
+                        <Button Grid.Column="6" Style="{StaticResource ButtonStyle}" Command="{Binding StopAutoSnapshotCommand}" Content="停止当前游戏"/>
                     </Grid>
                 </StackPanel>
             </Border>
