@@ -49,6 +49,7 @@ public sealed partial class JsonFileLogger : IAppLogger
                 Sanitize(message),
                 exception?.GetType().FullName,
                 exception is null ? null : Sanitize(exception.Message),
+                exception is null ? null : Sanitize(exception.ToString()),
                 Environment.ProcessId);
             string line = JsonSerializer.Serialize(entry) + Environment.NewLine;
             string path = Path.Combine(_logDirectory, $"gamesave-{DateTime.UtcNow:yyyyMMdd}.jsonl");
@@ -105,5 +106,6 @@ public sealed partial class JsonFileLogger : IAppLogger
         string Message,
         string? ExceptionType,
         string? ExceptionMessage,
+        string? ExceptionDetails,
         int ProcessId);
 }

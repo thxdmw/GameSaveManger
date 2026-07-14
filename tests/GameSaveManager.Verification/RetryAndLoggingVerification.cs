@@ -29,13 +29,17 @@ internal static class RetryAndLoggingVerification
             var logger = new JsonFileLogger(directory);
             logger.Error(
                 "verification.log",
-                new InvalidOperationException("password=plain-text"),
+                CreateLoggedException(),
                 "Bearer device-token password=plain-text");
             string path = Directory.EnumerateFiles(directory, "gamesave-*.jsonl").Single();
             string content = await File.ReadAllTextAsync(path);
             Ensure(!content.Contains("device-token", StringComparison.Ordinal), "日志不得写入 Bearer Token。");
             Ensure(!content.Contains("plain-text", StringComparison.Ordinal), "日志不得写入密码值。");
             Ensure(content.Contains("Bearer ***", StringComparison.Ordinal), "日志应保留脱敏后的 Bearer 标记。");
+            Ensure(!content.Contains("plain-token", StringComparison.Ordinal), "Device token must be sanitized.");
+            Ensure(content.Contains("InvalidOperationException", StringComparison.Ordinal), "Exception type must be recorded.");
+            Ensure(content.Contains("ArgumentException", StringComparison.Ordinal), "Inner exception details must be recorded.");
+            Ensure(content.Contains("RetryAndLoggingVerification", StringComparison.Ordinal), "Exception stack trace must be recorded.");
         }
         finally
         {
@@ -43,6 +47,24 @@ internal static class RetryAndLoggingVerification
         }
     }
 
+    private static Exception CreateLoggedException()
+    {
+        try
+        {
+            throw new ArgumentException("deviceToken=plain-token");
+        }
+        catch (Exception innerException)
+        {
+            try
+            {
+                throw new InvalidOperationException("password=plain-text", innerException);
+            }
+            catch (Exception exception)
+            {
+                return exception;
+            }
+        }
+    }
     private static void Ensure(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
