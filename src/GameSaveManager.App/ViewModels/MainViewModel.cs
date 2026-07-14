@@ -209,6 +209,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _selectedGame, value))
             {
+                SaveDirectory = string.Empty;
+                AutoSnapshotProcessName = string.Empty;
+                SaveDirectorySuggestions.Clear();
                 Snapshots.Clear();
                 SelectedSnapshot = null;
             }
@@ -354,7 +357,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Uri server = ParseServerUri();
-            await ReloadSnapshotsAsync(server, await RequireDeviceTokenAsync(server));
+            string token = await RequireDeviceTokenAsync(server);
+            await RestoreLocalProfileAsync(server, token);
+            await ReloadSnapshotsAsync(server, token);
             StatusText = $"已选择{selected.Name}。可在同步中心配置存档路径和同步。";
         }
         catch (Exception exception) { ShowError("加载游戏快照失败", exception); }
