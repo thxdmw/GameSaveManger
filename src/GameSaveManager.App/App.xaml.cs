@@ -82,6 +82,7 @@ public partial class App : System.Windows.Application
             {
                 DataContext = new MainViewModel(
                     manifestBuilder,
+                    new SaveDirectoryPreviewService(new SaveDirectoryScanner()),
                     apiClient,
                     syncService,
                     restoreService,

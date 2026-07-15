@@ -58,24 +58,153 @@ public sealed class SafeRestoreService(
 
         CloudSnapshotManifest manifest = await apiClient.GetSnapshotAsync(server, deviceToken, gameId, snapshotId, cancellationToken);
         ValidateManifest(manifest);
+        SnapshotPathFormat pathFormat = DetectPathFormat(manifest.Files, roots);
         CloudHead remoteHead = await apiClient.GetHeadAsync(server, deviceToken, gameId, cancellationToken);
-        var results = new List<RestoreResult>();
-        foreach (SaveRootRule root in roots)
+        if (pathFormat == SnapshotPathFormat.LegacySingleRoot)
         {
-            string prefix = root.RootId + "/";
-            IReadOnlyList<CloudSnapshotFile> files = manifest.Files
-                .Where(file => file.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                .Select(file => file with { RelativePath = file.RelativePath[prefix.Length..] })
-                .ToArray();
-            if (files.Count == 0) continue;
-            CloudSnapshotManifest scopedManifest = manifest with { Files = files };
-            results.Add(await RestoreOneAsync(server, deviceToken, scopedManifest, remoteHead, root.Path, cancellationToken));
+            SaveRootRule root = roots.Single(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase));
+            RestoreResult result = await RestoreOneAsync(server, deviceToken, manifest, remoteHead, root.Path, cancellationToken);
+            await SaveRestoreStateAsync(server, gameId, remoteHead, cancellationToken);
+            return [result];
         }
-        if (results.Count == 0) throw new InvalidDataException("快照不包含已配置存档根目录的文件。");
+        IReadOnlyList<RestoreResult> results = await RestoreNamespacedRootsAsync(server, deviceToken, gameId, manifest, roots, cancellationToken);
         await SaveRestoreStateAsync(server, gameId, remoteHead, cancellationToken);
         return results;
     }
 
+    private async Task<IReadOnlyList<RestoreResult>> RestoreNamespacedRootsAsync(
+        Uri server, string deviceToken, string gameId, CloudSnapshotManifest manifest,
+        IReadOnlyList<SaveRootRule> roots, CancellationToken cancellationToken)
+    {
+        ValidateRootDirectories(roots);
+        string transactionId = Guid.NewGuid().ToString("N");
+        string transactionDirectory = Path.Combine(RestoreRoot, transactionId);
+        Directory.CreateDirectory(transactionDirectory);
+        var plans = new List<RestoreRootPlan>();
+        foreach (SaveRootRule root in roots)
+        {
+            string prefix = root.RootId + "/";
+            IReadOnlyList<CloudSnapshotFile> files = manifest.Files.Where(file => file.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .Select(file => file with { RelativePath = file.RelativePath[prefix.Length..] }).ToArray();
+            if (files.Count == 0) continue;
+            string target = Path.GetFullPath(root.Path);
+            if (File.Exists(target)) throw new IOException($"存档目录路径被同名文件占用: {target}");
+            string parent = Path.GetDirectoryName(target) ?? throw new IOException("存档目录必须具有父目录");
+            Directory.CreateDirectory(parent);
+            plans.Add(new RestoreRootPlan(root.RootId, target,
+                Path.Combine(parent, $".{Path.GetFileName(target)}.gamesave-staging-{transactionId}"),
+                Path.Combine(parent, $".{Path.GetFileName(target)}.gamesave-safety-{transactionId}"),
+                manifest with { Files = files }));
+        }
+        if (plans.Count == 0) throw new InvalidDataException("快照不包含已配置存档根目录的文件。");
+        string journalPath = Path.Combine(transactionDirectory, "multi-root-journal.json");
+        DateTimeOffset createdAt = DateTimeOffset.UtcNow;
+        await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Prepared, createdAt), cancellationToken);
+        try
+        {
+            foreach (RestoreRootPlan plan in plans)
+            {
+                await BuildAndVerifyStagingAsync(server, deviceToken, plan.Manifest, plan.StagingDirectory, cancellationToken);
+                plan.State = RestoreRootState.StagingBuilt;
+            }
+            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.StagingBuilt, createdAt), CancellationToken.None);
+
+            foreach (RestoreRootPlan plan in plans)
+            {
+                if (Directory.Exists(plan.TargetDirectory))
+                {
+                    Directory.Move(plan.TargetDirectory, plan.SafetyBackupDirectory);
+                    plan.OriginalMoved = true;
+                }
+                plan.State = RestoreRootState.OriginalMoved;
+            }
+            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.OriginalsMoved, createdAt), CancellationToken.None);
+
+            foreach (RestoreRootPlan plan in plans)
+            {
+                Directory.Move(plan.StagingDirectory, plan.TargetDirectory);
+                plan.Applied = true;
+                plan.State = RestoreRootState.Applied;
+            }
+            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.TargetsApplied, createdAt), CancellationToken.None);
+
+            foreach (RestoreRootPlan plan in plans)
+            {
+                await VerifyDirectoryAsync(plan.TargetDirectory, plan.Manifest.Files, CancellationToken.None);
+                plan.State = RestoreRootState.Verified;
+            }
+            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Verified, createdAt), CancellationToken.None);
+            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Completed, createdAt), CancellationToken.None);
+            Directory.Delete(transactionDirectory, recursive: true);
+            return plans.Select(plan => new RestoreResult(manifest.SnapshotId, plan.TargetDirectory, plan.OriginalMoved ? plan.SafetyBackupDirectory : null)).ToArray();
+        }
+        catch
+        {
+            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RollingBack, createdAt), CancellationToken.None);
+            await RollbackPlansAsync(plans);
+            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RolledBack, createdAt), CancellationToken.None);
+            throw;
+        }
+    }
+
+    private static void ValidateRootDirectories(IReadOnlyList<SaveRootRule> roots)
+    {
+        string[] paths = roots.Select(root => Path.GetFullPath(root.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).ToArray();
+        for (int left = 0; left < paths.Length; left++)
+        for (int right = left + 1; right < paths.Length; right++)
+        {
+            if (string.Equals(paths[left], paths[right], StringComparison.OrdinalIgnoreCase)
+                || paths[left].StartsWith(paths[right] + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || paths[right].StartsWith(paths[left] + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("存档根目录不能重叠或互为父子目录。");
+        }
+    }
+
+    private static async Task RollbackPlansAsync(IEnumerable<RestoreRootPlan> plans)
+    {
+        foreach (RestoreRootPlan plan in plans.Reverse())
+        {
+            if (plan.Applied && Directory.Exists(plan.TargetDirectory)) Directory.Delete(plan.TargetDirectory, recursive: true);
+            if (plan.OriginalMoved && Directory.Exists(plan.SafetyBackupDirectory) && !Directory.Exists(plan.TargetDirectory))
+                Directory.Move(plan.SafetyBackupDirectory, plan.TargetDirectory);
+            if (Directory.Exists(plan.StagingDirectory)) Directory.Delete(plan.StagingDirectory, recursive: true);
+        }
+        await Task.CompletedTask;
+    }
+
+    private static MultiRootRestoreJournal CreateMultiJournal(string transactionId, string gameId, string snapshotId, IReadOnlyList<RestoreRootPlan> plans, MultiRootRestoreState state, DateTimeOffset createdAt) =>
+        new(transactionId, gameId, snapshotId, state, plans.Select(plan => new RestoreRootJournalItem(plan.RootId, plan.TargetDirectory, plan.StagingDirectory, plan.SafetyBackupDirectory, plan.State)).ToArray(), createdAt, DateTimeOffset.UtcNow);
+
+    private static async Task WriteMultiJournalAsync(string path, MultiRootRestoreJournal journal, CancellationToken cancellationToken)
+    {
+        string temporary = path + ".tmp";
+        await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(journal, JournalJsonOptions), cancellationToken);
+        File.Move(temporary, path, overwrite: true);
+    }
+
+    private sealed class RestoreRootPlan(string rootId, string targetDirectory, string stagingDirectory, string safetyBackupDirectory, CloudSnapshotManifest manifest)
+    {
+        public string RootId { get; } = rootId;
+        public string TargetDirectory { get; } = targetDirectory;
+        public string StagingDirectory { get; } = stagingDirectory;
+        public string SafetyBackupDirectory { get; } = safetyBackupDirectory;
+        public CloudSnapshotManifest Manifest { get; } = manifest;
+        public RestoreRootState State { get; set; } = RestoreRootState.Prepared;
+        public bool OriginalMoved { get; set; }
+        public bool Applied { get; set; }
+    }
+    private static SnapshotPathFormat DetectPathFormat(IReadOnlyList<CloudSnapshotFile> files, IReadOnlyList<SaveRootRule> roots)
+    {
+        if (files.Count == 0) throw new InvalidDataException("快照不包含文件。");
+        string[] prefixes = roots.Select(root => root.RootId + "/").ToArray();
+        bool[] namespaced = files.Select(file => prefixes.Any(prefix => file.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))).ToArray();
+        if (namespaced.All(value => value)) return SnapshotPathFormat.NamespacedRoots;
+        if (namespaced.Any(value => value)) throw new InvalidDataException("快照同时包含旧版单目录路径和新版多根目录路径，拒绝恢复。");
+        SaveRootRule[] fileRoots = roots.Where(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (fileRoots.Length != 1) throw new InvalidDataException("该快照使用旧版单目录格式，但当前配置了多个存档目录。请只保留主存档目录后恢复，或手动导出快照。");
+        if (!fileRoots[0].UserConfirmed) throw new InvalidOperationException("旧版快照只能恢复到已确认的主存档目录。");
+        return SnapshotPathFormat.LegacySingleRoot;
+    }
     private async Task<RestoreResult> RestoreOneAsync(
         Uri server,
         string deviceToken,
@@ -154,6 +283,14 @@ public sealed class SafeRestoreService(
         }
 
         var messages = new List<string>();
+        foreach (string journalPath in Directory.EnumerateFiles(RestoreRoot, "multi-root-journal.json", SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            MultiRootRestoreJournal? journal = await ReadMultiJournalAsync(journalPath, cancellationToken);
+            if (journal is null || journal.State == MultiRootRestoreState.Completed) continue;
+            await RecoverMultiRootJournalAsync(journal, cancellationToken);
+            messages.Add($"已整体回滚未完成的多目录存档恢复: {journal.SnapshotId}");
+        }
         foreach (string journalPath in Directory.EnumerateFiles(RestoreRoot, "journal.json", SearchOption.AllDirectories))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -179,6 +316,26 @@ public sealed class SafeRestoreService(
         return messages;
     }
 
+    private static async Task<MultiRootRestoreJournal?> ReadMultiJournalAsync(string path, CancellationToken cancellationToken)
+    {
+        try { return JsonSerializer.Deserialize<MultiRootRestoreJournal>(await File.ReadAllTextAsync(path, cancellationToken), JournalJsonOptions); }
+        catch (JsonException) { return null; }
+    }
+
+    private static async Task RecoverMultiRootJournalAsync(MultiRootRestoreJournal journal, CancellationToken cancellationToken)
+    {
+        foreach (RestoreRootJournalItem root in journal.Roots.Reverse())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (root.State is RestoreRootState.Applied or RestoreRootState.Verified && Directory.Exists(root.TargetDirectory))
+                Directory.Delete(root.TargetDirectory, recursive: true);
+            if (root.State is RestoreRootState.OriginalMoved or RestoreRootState.Applied or RestoreRootState.Verified
+                && Directory.Exists(root.SafetyBackupDirectory) && !Directory.Exists(root.TargetDirectory))
+                Directory.Move(root.SafetyBackupDirectory, root.TargetDirectory);
+            if (Directory.Exists(root.StagingDirectory)) Directory.Delete(root.StagingDirectory, recursive: true);
+        }
+        await Task.CompletedTask;
+    }
     private async Task BuildAndVerifyStagingAsync(
         Uri server,
         string deviceToken,

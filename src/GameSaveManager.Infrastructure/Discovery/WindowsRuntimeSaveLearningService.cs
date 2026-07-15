@@ -1,9 +1,12 @@
-using GameSaveManager.Application.Discovery;
+﻿using GameSaveManager.Application.Discovery;
 
 namespace GameSaveManager.Infrastructure.Discovery;
 
-public sealed class WindowsRuntimeSaveLearningService : IRuntimeSaveLearningService
+/// <summary>仅采集受限范围内的路径、大小与修改时间，不读取文件内容。</summary>
+public sealed class WindowsRuntimeSaveLearningService(RuntimeLearningOptions? options = null) : IRuntimeSaveLearningService
 {
+    private readonly RuntimeLearningOptions _options = options ?? new RuntimeLearningOptions();
+
     public Task<IReadOnlyList<FileMetadataSnapshot>> CaptureBeforeAsync(GameIdentity game, CancellationToken cancellationToken) =>
         Task.Run(() => Capture(GetRoots(game), cancellationToken), cancellationToken);
 
@@ -23,22 +26,40 @@ public sealed class WindowsRuntimeSaveLearningService : IRuntimeSaveLearningServ
         return (IReadOnlyList<SaveLocationCandidate>)candidates;
     }, cancellationToken);
 
-    private static IReadOnlyList<FileMetadataSnapshot> Capture(IEnumerable<string> roots, CancellationToken cancellationToken)
+    private IReadOnlyList<FileMetadataSnapshot> Capture(IEnumerable<string> roots, CancellationToken cancellationToken)
     {
         var files = new List<FileMetadataSnapshot>();
+        var excluded = new HashSet<string>(_options.EffectiveExcludedDirectoryNames, StringComparer.OrdinalIgnoreCase);
         foreach (string root in roots.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            try
+            int rootCount = 0;
+            var pending = new Queue<(string Path, int Depth)>();
+            pending.Enqueue((root, 0));
+            while (pending.Count > 0 && rootCount < _options.MaxFilesPerRoot && files.Count < _options.MaxTotalFiles)
             {
-                foreach (string path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                cancellationToken.ThrowIfCancellationRequested();
+                (string directory, int depth) = pending.Dequeue();
+                try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    try { var info = new FileInfo(path); files.Add(new FileMetadataSnapshot(path, info.Length, info.LastWriteTimeUtc)); }
-                    catch (UnauthorizedAccessException) { }
+                    var enumeration = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint, ReturnSpecialDirectories = false };
+                    foreach (string path in Directory.EnumerateFiles(directory, "*", enumeration))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (rootCount >= _options.MaxFilesPerRoot || files.Count >= _options.MaxTotalFiles) break;
+                        var info = new FileInfo(path);
+                        files.Add(new FileMetadataSnapshot(path, info.Length, info.LastWriteTimeUtc));
+                        rootCount++;
+                    }
+                    if (depth >= _options.MaxDepth) continue;
+                    foreach (string child in Directory.EnumerateDirectories(directory, "*", enumeration))
+                    {
+                        if (!excluded.Contains(Path.GetFileName(child))) pending.Enqueue((child, depth + 1));
+                    }
                 }
+                catch (UnauthorizedAccessException) { }
+                catch (IOException) { }
             }
-            catch (UnauthorizedAccessException) { }
-            catch (IOException) { }
+            if (files.Count >= _options.MaxTotalFiles) break;
         }
         return files;
     }

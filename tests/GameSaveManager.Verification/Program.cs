@@ -2,6 +2,8 @@ using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Discovery;
 using GameSaveManager.Application.Sync;
+using GameSaveManager.Application.Snapshots;
+using GameSaveManager.Infrastructure.FileSystem;
 using GameSaveManager.Infrastructure.Persistence;
 using GameSaveManager.Infrastructure.Api;
 using GameSaveManager.Infrastructure.Diagnostics;
@@ -50,6 +52,7 @@ await RunAsync("SQLite schema 版本迁移可重复执行", SqliteSchemaVerifica
 await RunAsync("本机游戏配置按服务端隔离", VerifyLocalGameProfileAsync);
 await RunAsync("旧本机游戏配置可迁移 EXE 路径字段", VerifyLocalGameProfileSchemaResetAsync);
 await RunAsync("HKCU 注册表存档可安全往返", VerifyRegistrySnapshotAsync);
+await RunAsync("Glob 与注册表 JSON 会进入多根 Manifest", VerifyGlobAndRegistryManifestAsync);
 await RunAsync("安全重试只重试 GET 请求", RetryAndLoggingVerification.VerifySafeRetryHandlerAsync);
 await RunAsync("结构化日志会脱敏凭据", RetryAndLoggingVerification.VerifyJsonFileLoggerAsync);
 Run("CMS 无时区日期与时间戳可以兼容解析", CmsDateTimeOffsetVerification.Verify);
@@ -162,6 +165,30 @@ async Task VerifyLocalGameProfileSchemaResetAsync()
         TryDelete(databasePath + "-shm");
         try { Directory.Delete(tempDirectory, recursive: true); } catch (IOException) { }
     }
+}
+async Task VerifyGlobAndRegistryManifestAsync()
+{
+    string root = Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", Guid.NewGuid().ToString("N"));
+    string registry = Path.Combine(root, "registry");
+    Directory.CreateDirectory(Path.Combine(registry, "nested"));
+    await File.WriteAllTextAsync(Path.Combine(registry, "registry1.json"), "{}");
+    await File.WriteAllTextAsync(Path.Combine(registry, "nested", "registry2.json"), "{}");
+    string db = Path.Combine(root, "hashes.db");
+    try
+    {
+        var scanner = new SaveDirectoryScanner();
+        SaveRootRule topOnly = new("registry", registry, ["*.json"], [], SaveLocationSource.Manual, 100, true);
+        SaveRootRule recursive = new("registry", registry, ["**/*.json"], [], SaveLocationSource.Manual, 100, true);
+        Check((await scanner.ScanAsync(topOnly, CancellationToken.None)).Count == 1, "*.json 应只匹配根目录 JSON");
+        Check((await scanner.ScanAsync(recursive, CancellationToken.None)).Count == 2, "**/*.json 应匹配根目录与子目录 JSON");
+        var database = new SqliteDatabase(db);
+        await database.InitializeAsync(CancellationToken.None);
+        var builder = new SaveManifestBuilder(scanner, new FileHashService(), new SqliteFileHashCache(database));
+        IReadOnlyList<GameSaveManager.Domain.Snapshots.SnapshotFile> manifest = await builder.BuildAsync([new SaveRootRule("registry", registry, ["*.json", "**/*.json"], [], SaveLocationSource.Manual, 100, true)], CancellationToken.None);
+        Check(manifest.Any(file => file.RelativePath == "registry/registry1.json"), "注册表根目录 JSON 未进入 Manifest");
+        Check(manifest.Any(file => file.RelativePath == "registry/nested/registry2.json"), "注册表子目录 JSON 未进入 Manifest");
+    }
+    finally { try { Directory.Delete(root, recursive: true); } catch (IOException) { } }
 }
 async Task VerifyRegistrySnapshotAsync()
 {

@@ -17,5 +17,12 @@
     <ProjectReference Include="..\GameSaveManager.Domain\GameSaveManager.Domain.csproj" />
     <ProjectReference Include="..\GameSaveManager.Application\GameSaveManager.Application.csproj" />
   </ItemGroup>
-  <ItemGroup><None Include="Discovery\Assets\ludusavi-manifest.yaml" CopyToOutputDirectory="PreserveNewest" /><None Include="Discovery\Assets\NOTICE-Ludusavi-manifest.txt" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+    <ItemGroup>
+    <None Include="Discovery\Assets\ludusavi-manifest.yaml">
+      <Link>Assets\ludusavi-manifest.yaml</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <None Include="Discovery\Assets\NOTICE-Ludusavi-manifest.txt">
+      <Link>Assets\NOTICE-Ludusavi-manifest.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
 </Project>

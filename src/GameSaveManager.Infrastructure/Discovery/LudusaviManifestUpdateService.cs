@@ -13,6 +13,7 @@ public sealed class LudusaviManifestUpdateService(HttpClient client) : IManifest
     private static readonly string DirectoryPath = Path.Combine(AppDataPaths.RootDirectory, "manifest");
     private static readonly string ManifestPath = Path.Combine(DirectoryPath, "ludusavi-manifest.yaml");
     private static readonly string MetadataPath = Path.Combine(DirectoryPath, "metadata.json");
+    private const long MaximumManifestBytes = 64L * 1024 * 1024;
 
     public async Task<ManifestUpdateStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
@@ -29,18 +30,39 @@ public sealed class LudusaviManifestUpdateService(HttpClient client) : IManifest
         using HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotModified) return old.ToStatus();
         response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is > MaximumManifestBytes) throw new InvalidDataException("下载的 Ludusavi Manifest 超过大小上限。");
         string temporary = ManifestPath + ".tmp";
-        await using (Stream input = await response.Content.ReadAsStreamAsync(cancellationToken))
-        await using (FileStream output = new(temporary, FileMode.Create, FileAccess.Write, FileShare.None)) await input.CopyToAsync(output, cancellationToken);
-        string hash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(temporary, cancellationToken))).ToLowerInvariant();
-        File.Move(temporary, ManifestPath, true);
-        var current = new Metadata(hash[..12], DateTimeOffset.UtcNow, response.Headers.ETag?.Tag, hash);
-        await File.WriteAllTextAsync(MetadataPath + ".tmp", JsonSerializer.Serialize(current), cancellationToken);
-        File.Move(MetadataPath + ".tmp", MetadataPath, true);
-        LudusaviManifestDetector.Invalidate();
-        return current.ToStatus();
+        string metadataTemporary = MetadataPath + ".tmp";
+        try
+        {
+            await using Stream input = await response.Content.ReadAsStreamAsync(cancellationToken);
+            await using (FileStream output = new(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                byte[] buffer = new byte[81920];
+                long total = 0;
+                int read;
+                while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+                {
+                    total += read;
+                    if (total > MaximumManifestBytes) throw new InvalidDataException("下载的 Ludusavi Manifest 超过大小上限。");
+                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                }
+            }
+            LudusaviManifestDetector.ValidateManifestFile(temporary);
+            string hash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(temporary, cancellationToken))).ToLowerInvariant();
+            var current = new Metadata(hash[..12], DateTimeOffset.UtcNow, response.Headers.ETag?.Tag, hash);
+            await File.WriteAllTextAsync(metadataTemporary, JsonSerializer.Serialize(current), cancellationToken);
+            File.Move(temporary, ManifestPath, true);
+            File.Move(metadataTemporary, MetadataPath, true);
+            LudusaviManifestDetector.Invalidate();
+            return current.ToStatus();
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+            if (File.Exists(metadataTemporary)) File.Delete(metadataTemporary);
+        }
     }
-
     private static async Task<Metadata> ReadMetadataAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(MetadataPath)) return new Metadata("内置版本", null, null, null);

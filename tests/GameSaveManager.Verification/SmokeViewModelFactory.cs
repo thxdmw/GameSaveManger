@@ -33,6 +33,7 @@ internal static class SmokeViewModelFactory
 
         return new MainViewModel(
             manifestBuilder,
+            new SaveDirectoryPreviewService(new SaveDirectoryScanner()),
             apiClient,
             syncService,
             restoreService,

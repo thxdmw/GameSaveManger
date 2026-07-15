@@ -1,8 +1,9 @@
+using System.Diagnostics;
 using GameSaveManager.Application.Discovery;
 
 namespace GameSaveManager.Infrastructure.Discovery;
 
-/// <summary>??????? Windows 正在比较游戏运行前后的文件变化…??????</summary>
+/// <summary>并行运行多种 Windows 存档检测器，并在单个检测器失败时隔离错误。</summary>
 public sealed class WindowsSaveLocationDetector : ISaveLocationDetector
 {
     private static readonly string[] InstallNames = ["save", "saves", "SaveData", "Saved", "Saved\\SaveGames", "userdata", "user", "profile", "profiles", "data\\save", "data\\saves"];
@@ -13,10 +14,10 @@ public sealed class WindowsSaveLocationDetector : ISaveLocationDetector
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(game.Name);
         progress?.Report(new SaveDetectionProgress("开始", "正在查找存档候选目录…", 0, 4));
-        Task<IReadOnlyList<SaveLocationCandidate>> manifest = Task.Run(() => LudusaviManifestDetector.Detect(game, cancellationToken), cancellationToken);
-        Task<IReadOnlyList<SaveLocationCandidate>> install = Task.Run(() => DetectInstallDirectory(game, cancellationToken), cancellationToken);
-        Task<IReadOnlyList<SaveLocationCandidate>> common = Task.Run(() => DetectCommonDirectories(game, cancellationToken), cancellationToken);
-        Task<IReadOnlyList<SaveLocationCandidate>> steam = Task.Run(() => DetectSteamUserdata(game, cancellationToken), cancellationToken);
+        Task<IReadOnlyList<SaveLocationCandidate>> manifest = RunDetectorAsync("ludusavi", () => LudusaviManifestDetector.Detect(game, cancellationToken), cancellationToken);
+        Task<IReadOnlyList<SaveLocationCandidate>> install = RunDetectorAsync("install", () => DetectInstallDirectory(game, cancellationToken), cancellationToken);
+        Task<IReadOnlyList<SaveLocationCandidate>> common = RunDetectorAsync("common", () => DetectCommonDirectories(game, cancellationToken), cancellationToken);
+        Task<IReadOnlyList<SaveLocationCandidate>> steam = RunDetectorAsync("steam-userdata", () => DetectSteamUserdata(game, cancellationToken), cancellationToken);
         IReadOnlyList<SaveLocationCandidate>[] groups = await Task.WhenAll(manifest, install, common, steam);
         progress?.Report(new SaveDetectionProgress("合并", "正在整理候选目录…", 3, 4));
         IReadOnlyList<SaveLocationCandidate> result = groups.SelectMany(group => group)
@@ -27,6 +28,16 @@ public sealed class WindowsSaveLocationDetector : ISaveLocationDetector
         return result;
     }
 
+    private static async Task<IReadOnlyList<SaveLocationCandidate>> RunDetectorAsync(string detector, Func<IReadOnlyList<SaveLocationCandidate>> action, CancellationToken cancellationToken)
+    {
+        try { return await Task.Run(action, cancellationToken); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception exception)
+        {
+            Trace.TraceWarning($"存档检测器 {detector} 失败：{exception.GetType().Name}。\n{exception.Message}");
+            return [];
+        }
+    }
     private static IReadOnlyList<SaveLocationCandidate> DetectInstallDirectory(GameIdentity game, CancellationToken cancellationToken)
     {
         var results = new List<SaveLocationCandidate>();
@@ -53,8 +64,8 @@ public sealed class WindowsSaveLocationDetector : ISaveLocationDetector
                 if (candidate is not null) results.Add(candidate);
             }
         }
-        catch (UnauthorizedAccessException) { }
-        catch (IOException) { }
+        catch (UnauthorizedAccessException exception) { Trace.TraceWarning($"安装目录检测被拒绝：{exception.Message}"); }
+        catch (IOException exception) { Trace.TraceWarning($"安装目录检测失败：{exception.Message}"); }
         return results;
     }
 

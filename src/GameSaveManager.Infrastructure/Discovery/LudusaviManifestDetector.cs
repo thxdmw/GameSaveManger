@@ -28,6 +28,18 @@ internal static class LudusaviManifestDetector
         return candidates;
     }
 
+    internal static void ValidateManifestFile(string path)
+    {
+        var stream = new YamlStream();
+        using var reader = new StreamReader(path);
+        stream.Load(reader);
+        if (stream.Documents.FirstOrDefault()?.RootNode is not YamlMappingNode root || root.Children.Count == 0)
+            throw new InvalidDataException("Ludusavi Manifest 根节点必须包含游戏映射。");
+        int usableEntries = root.Children.Count(pair => pair.Key is YamlScalarNode { Value: { Length: > 0 } }
+            && pair.Value is YamlMappingNode data
+            && (data.Children.ContainsKey(new YamlScalarNode("files")) || data.Children.ContainsKey(new YamlScalarNode("steam")) || data.Children.ContainsKey(new YamlScalarNode("gog"))));
+        if (usableEntries < 10) throw new InvalidDataException("Ludusavi Manifest 有效游戏条目数量不足。");
+    }
     internal static void Invalidate() => _index = new Lazy<ManifestIndex>(LoadIndex, LazyThreadSafetyMode.ExecutionAndPublication);
 
     private static ManifestIndex LoadIndex()
