@@ -148,12 +148,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         LogoutCommand = new AsyncCommand(LogoutAsync);
         AccountActionCommand = new AsyncCommand(AccountActionAsync);
         BuildManifestCommand = new AsyncCommand(BuildManifestAsync);
-        SyncCommand = new AsyncCommand(SyncAsync);
-        RetrySyncCommand = new AsyncCommand(SyncAsync);
+        SyncCommand = new AsyncCommand(SyncAsync, CanSynchronize);
+        RetrySyncCommand = new AsyncCommand(SyncAsync, CanSynchronize);
         CancelSyncCommand = new DelegateCommand(_ => _syncCancellation?.Cancel());
         ReloadSnapshotsCommand = new AsyncCommand(ReloadSnapshotsFromUiAsync);
         DeleteSnapshotCommand = new AsyncCommand(DeleteSnapshotAsync);
-        RestoreCommand = new AsyncCommand(RestoreAsync);
+        RestoreCommand = new AsyncCommand(RestoreAsync, CanRestore);
         LoadRestorePreviewCommand = new AsyncCommand(LoadRestorePreviewAsync);
         ExportSnapshotCommand = new AsyncCommand(ExportSnapshotAsync);
         StartAutoSnapshotCommand = new AsyncCommand(StartAutoSnapshotAsync);
@@ -162,8 +162,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SuggestSaveDirectoriesCommand = new AsyncCommand(SuggestSaveDirectoriesAsync);
         ConfirmSaveDirectoryCommand = new AsyncCommand(ConfirmSaveDirectoryAsync);
         PreviewSaveDirectoryCommand = new AsyncCommand(PreviewSaveDirectoryAsync);
-        StartSaveLearningCommand = new AsyncCommand(StartSaveLearningAsync);
-        CompleteSaveLearningCommand = new AsyncCommand(CompleteSaveLearningAsync);
+        StartSaveLearningCommand = new AsyncCommand(StartSaveLearningAsync, CanStartSaveLearning);
+        CompleteSaveLearningCommand = new AsyncCommand(CompleteSaveLearningAsync, () => _learningBefore is not null && !(_learningCancellation?.IsCancellationRequested ?? false));
         CancelSaveLearningCommand = new DelegateCommand(_ => CancelSaveLearning());
         LoadLocalProfileCommand = new AsyncCommand(LoadLocalProfileFromUiAsync);
         ReloadDevicesCommand = new AsyncCommand(ReloadDevicesAsync);
@@ -1283,8 +1283,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string GetGameProtectionStatusText(CloudGame game)
     {
         if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile)) return "未配置存档";
-        if (!profile.UserConfirmed) return "存档待确认";
-        if (!Directory.Exists(profile.SaveDirectory)) return "存档目录失效";
+        if (!profile.UserConfirmed || profile.EffectiveSaveRoots.Any(root => !root.UserConfirmed)) return "存档待确认";
+        if (profile.EffectiveSaveRoots.Where(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase)).Any(root => !Directory.Exists(root.Path))) return "存档目录失效";
         return profile.AutoSnapshotEnabled ? "已保护 · 自动同步" : "已保护 · 手动同步";
     }
     public string GetGameRuntimeStatusText(CloudGame game)
@@ -1468,11 +1468,37 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return $"{value:0.##} {units[unit]}";
     }
 
+    private bool CanSynchronize() =>
+        IsAuthenticated && SelectedGame is not null && HasConfirmedExistingFileRoots();
+
+    private bool CanRestore() =>
+        CanSynchronize() && SelectedSnapshot is not null;
+
+    private bool CanStartSaveLearning()
+    {
+        GameIdentity game = GetCurrentGameIdentity();
+        return !string.IsNullOrWhiteSpace(game.ExecutablePath) && File.Exists(game.ExecutablePath);
+    }
+
+    private bool HasConfirmedExistingFileRoots()
+    {
+        if (!IsSaveDirectoryConfirmed || string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory)) return false;
+        return AdditionalSaveRoots.All(root => root.UserConfirmed && Directory.Exists(root.Path));
+    }
+
+    private void RaiseCommandStates()
+    {
+        foreach (ICommand command in new ICommand[] { SyncCommand, RetrySyncCommand, RestoreCommand, StartSaveLearningCommand, CompleteSaveLearningCommand })
+        {
+            if (command is AsyncCommand asyncCommand) asyncCommand.RaiseCanExecuteChanged();
+        }
+    }
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        RaiseCommandStates();
         return true;
     }
 }
