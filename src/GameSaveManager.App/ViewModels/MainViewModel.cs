@@ -200,7 +200,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string ServerAddress { get => _serverAddress; set => SetField(ref _serverAddress, value); }
     public string Username { get => _username; set => SetField(ref _username, value); }
     public string NewGameName { get => _newGameName; set => SetField(ref _newGameName, value); }
-    public string SaveDirectory { get => _saveDirectory; set { if (SetField(ref _saveDirectory, value)) IsSaveDirectoryConfirmed = false; } }
+    public string SaveDirectory { get => _saveDirectory; set { if (SetField(ref _saveDirectory, value)) { IsSaveDirectoryConfirmed = false; _previewedSaveDirectory = null; SaveDirectoryPreviewText = "目录已变化，请重新预览。"; } } }
     public string AdditionalSaveRootPath { get => _additionalSaveRootPath; set => SetField(ref _additionalSaveRootPath, value); }
     public string RegistrySaveKeyPath { get => _registrySaveKeyPath; set => SetField(ref _registrySaveKeyPath, value); }
     public bool IsSaveDirectoryConfirmed { get => _isSaveDirectoryConfirmed; private set { if (SetField(ref _isSaveDirectoryConfirmed, value)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SaveDirectoryConfirmationText))); } }
@@ -718,7 +718,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return roots;
     }
 
-    private Task AddAdditionalSaveRootAsync()
+    private async Task AddAdditionalSaveRootAsync()
     {
         if (string.IsNullOrWhiteSpace(AdditionalSaveRootPath) || !Directory.Exists(AdditionalSaveRootPath))
             throw new InvalidOperationException("请填写存在的附加存档目录。");
@@ -732,7 +732,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         AdditionalSaveRoots.Add(new SaveRootRule(rootId, path, [], [], SaveLocationSource.Manual, 100, true));
         AdditionalSaveRootPath = string.Empty;
         StatusText = $"已添加附加存档目录：{path}。下次同步会一并上传。";
-        return Task.CompletedTask;
+        if (IsAuthenticated && SelectedGame is not null) { Uri server = ParseServerUri(); await RefreshAutomaticSyncConfigurationAsync(server, await RequireDeviceTokenAsync(server), await SaveLocalProfileAsync(server, IsAutoSyncEnabled)); }
     }
 
     private Task AddRegistrySaveRuleAsync()
@@ -742,7 +742,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             throw new InvalidOperationException("注册表存档仅支持 HKCU\\ 或 HKEY_CURRENT_USER\\ 路径。");
         if (RegistrySaveRules.Any(rule => string.Equals(rule.KeyPath, keyPath, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("该注册表路径已经在同步列表中。");
-        RegistrySaveRules.Add(new RegistrySaveRule($"registry{RegistrySaveRules.Count + 1}", keyPath, true));
+        int index = 1; string ruleId; do ruleId = $"registry{index++}"; while (RegistrySaveRules.Any(rule => string.Equals(rule.RuleId, ruleId, StringComparison.OrdinalIgnoreCase)));
+        RegistrySaveRules.Add(new RegistrySaveRule(ruleId, keyPath, true));
         RegistrySaveKeyPath = string.Empty;
         StatusText = "已添加注册表存档路径；同步前会导出为受控 JSON。";
         return Task.CompletedTask;
@@ -756,17 +757,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StatusText = "已移除注册表存档路径；保存或同步后会更新本机配置。";
         return Task.CompletedTask;
     }
-    private Task RemoveAdditionalSaveRootAsync()
+    private async Task RemoveAdditionalSaveRootAsync()
     {
         if (SelectedAdditionalSaveRoot is null) throw new InvalidOperationException("请先选择要移除的附加存档目录。");
         AdditionalSaveRoots.Remove(SelectedAdditionalSaveRoot);
         SelectedAdditionalSaveRoot = null;
         StatusText = "已移除附加存档目录；保存或同步后会更新本机配置。";
-        return Task.CompletedTask;
+        if (IsAuthenticated && SelectedGame is not null) { Uri server = ParseServerUri(); await RefreshAutomaticSyncConfigurationAsync(server, await RequireDeviceTokenAsync(server), await SaveLocalProfileAsync(server, IsAutoSyncEnabled)); }
     }
-    private async Task SaveLocalProfileAsync(Uri server, bool autoSnapshotEnabled)
+    private async Task<LocalGameProfile> SaveLocalProfileAsync(Uri server, bool autoSnapshotEnabled)
     {
-        if (SelectedGame is null) return;
+        if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
         await PrepareRegistrySnapshotsAsync(server, SelectedGame.GameId);
         GameIdentity identity = GetCurrentGameIdentity();
         LocalGameProfile profile = new(
@@ -779,6 +780,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
         _localGameProfiles[profile.GameId] = profile;
         RefreshGameRuntimeStatus();
+        return profile;
+    }
+    private async Task RefreshAutomaticSyncConfigurationAsync(Uri server, string token, LocalGameProfile profile)
+    {
+        await _autoSyncCoordinator.DisableAsync(profile.GameId);
+        if (profile.AutoSnapshotEnabled) await EnableAutomaticSyncAsync(server, token, profile.GameId, profile);
     }
     private async Task ReloadRetentionAsync()
     {
@@ -1404,12 +1411,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
             if (!IsSaveDirectoryConfirmed) throw new InvalidOperationException("请先确认存档目录后再启用自动同步");
-            GameIdentity identity = GetCurrentGameIdentity();
-            LocalGameProfile profile = new(GameSaveServerIdentity.CreateStableKey(server), SelectedGame.GameId,
-                identity.Provider, identity.ProviderGameId, identity.InstallDirectory, SaveDirectory, AutoSnapshotProcessName,
-                AutoSnapshotExecutablePath, SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual,
-                SelectedSaveLocationCandidate?.Confidence ?? 100, true, true);
-            await SaveLocalProfileAsync(server, true);
+            LocalGameProfile profile = await SaveLocalProfileAsync(server, true);
             await EnableAutomaticSyncAsync(server, token, SelectedGame.GameId, profile);
             IsAutoSyncEnabled = true;
             StatusText = "自动同步已启用：每个已启用的游戏都会独立监听，游戏退出后排队增量同步。";
