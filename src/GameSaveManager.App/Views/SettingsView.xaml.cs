@@ -6,6 +6,7 @@ namespace GameSaveManager.App.Views;
 public partial class SettingsView : System.Windows.Controls.UserControl
 {
     public SettingsView() => InitializeComponent();
+    private void ShowThirdPartyNotice_OnClick(object sender, System.Windows.RoutedEventArgs e) => new ThirdPartyNoticeWindow { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
 
     private void ThemeSelection_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
