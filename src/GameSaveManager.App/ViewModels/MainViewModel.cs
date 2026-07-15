@@ -1348,7 +1348,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
         if (string.IsNullOrWhiteSpace(game.ExecutablePath) || !File.Exists(game.ExecutablePath)) throw new InvalidOperationException("未找到可启动的游戏 EXE。");
-        Process.Start(new ProcessStartInfo(game.ExecutablePath) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(game.ExecutablePath)! });
+        string executablePath = Path.GetFullPath(game.ExecutablePath);
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = executablePath,
+            WorkingDirectory = Path.GetDirectoryName(executablePath)!,
+            UseShellExecute = false,
+            LoadUserProfile = true
+        });
     }
     private async Task LaunchGameAsync(object? parameter)
     {
