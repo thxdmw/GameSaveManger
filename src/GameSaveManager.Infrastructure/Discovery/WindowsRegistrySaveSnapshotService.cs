@@ -1,13 +1,14 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
 using GameSaveManager.Application.Games;
+using GameSaveManager.Application.Restores;
 using Microsoft.Win32;
 
 namespace GameSaveManager.Infrastructure.Discovery;
 
 /// <summary>仅处理明确配置的 HKCU 键，将其转换为可随普通快照同步的 JSON 文件。</summary>
 [SupportedOSPlatform("windows")]
-public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotService
+public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotService, IRegistryRestoreTransaction
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -32,14 +33,51 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
         if (rules.Count == 0) return;
         string safetyDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(directory))!, $"registry-safety-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}");
         await ExportAsync(safetyDirectory, rules, cancellationToken);
+        await ImportDocumentsAsync(directory, rules, cancellationToken);
+    }
+
+    public async Task<RegistryRestorePreparation> PrepareAsync(
+        string snapshotDirectory,
+        IReadOnlyList<RegistrySaveRule> rules,
+        string transactionDirectory,
+        CancellationToken cancellationToken)
+    {
+        if (rules.Count == 0)
+            return new RegistryRestorePreparation(string.Empty, snapshotDirectory, [], RegistryRestoreState.NotRequired);
+        if (rules.Any(rule => !rule.UserConfirmed)
+            || rules.Select(rule => rule.RuleId).Distinct(StringComparer.OrdinalIgnoreCase).Count() != rules.Count)
+            throw new InvalidOperationException("注册表恢复规则必须已确认且 RuleId 唯一。");
+
+        foreach (RegistrySaveRule rule in rules)
+        {
+            _ = GetCurrentUserSubKey(rule);
+            await ReadAndValidateDocumentAsync(snapshotDirectory, rule, cancellationToken);
+        }
+
+        string safetyDirectory = Path.Combine(transactionDirectory, "registry-safety");
+        await ExportAsync(safetyDirectory, rules, cancellationToken);
+        return new RegistryRestorePreparation(safetyDirectory, snapshotDirectory, rules.ToArray(), RegistryRestoreState.Prepared);
+    }
+
+    public async Task ApplyAsync(RegistryRestorePreparation preparation, CancellationToken cancellationToken)
+    {
+        if (preparation.State != RegistryRestoreState.Prepared)
+            throw new InvalidOperationException("注册表恢复尚未完成准备阶段。");
+        await ImportDocumentsAsync(preparation.SnapshotDirectory, preparation.Rules, cancellationToken);
+    }
+
+    public Task RollbackAsync(RegistryRestorePreparation preparation, CancellationToken cancellationToken)
+    {
+        if (preparation.State == RegistryRestoreState.NotRequired) return Task.CompletedTask;
+        return ImportDocumentsAsync(preparation.SafetyDirectory, preparation.Rules, cancellationToken);
+    }
+
+    private async Task ImportDocumentsAsync(string directory, IReadOnlyList<RegistrySaveRule> rules, CancellationToken cancellationToken)
+    {
         foreach (RegistrySaveRule rule in rules)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string documentPath = GetDocumentPath(directory, rule);
-            if (!File.Exists(documentPath)) throw new InvalidDataException($"缺少注册表存档文件: {rule.RuleId}");
-            RegistryDocument? document = JsonSerializer.Deserialize<RegistryDocument>(await File.ReadAllTextAsync(documentPath, cancellationToken));
-            if (document is null || !string.Equals(document.KeyPath, rule.KeyPath, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException($"注册表存档文件与配置规则不匹配: {rule.RuleId}");
+            RegistryDocument document = await ReadAndValidateDocumentAsync(directory, rule, cancellationToken);
             string subKey = GetCurrentUserSubKey(rule);
             Registry.CurrentUser.DeleteSubKeyTree(subKey, throwOnMissingSubKey: false);
             using RegistryKey target = Registry.CurrentUser.CreateSubKey(subKey, writable: true)
@@ -48,6 +86,15 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
         }
     }
 
+    private static async Task<RegistryDocument> ReadAndValidateDocumentAsync(string directory, RegistrySaveRule rule, CancellationToken cancellationToken)
+    {
+        string documentPath = GetDocumentPath(directory, rule);
+        if (!File.Exists(documentPath)) throw new InvalidDataException($"缺少注册表存档文件: {rule.RuleId}");
+        RegistryDocument? document = JsonSerializer.Deserialize<RegistryDocument>(await File.ReadAllTextAsync(documentPath, cancellationToken));
+        if (document is null || !string.Equals(document.KeyPath, rule.KeyPath, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"注册表存档文件与配置规则不匹配: {rule.RuleId}");
+        return document;
+    }
     private static RegistryNode ReadNode(RegistryKey key, CancellationToken cancellationToken) =>
         new(key.GetValueNames().Select(name =>
         {

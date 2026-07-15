@@ -3,6 +3,7 @@ using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Discovery;
 using GameSaveManager.Application.Sync;
 using GameSaveManager.Application.Snapshots;
+using GameSaveManager.Application.Restores;
 using GameSaveManager.Infrastructure.FileSystem;
 using GameSaveManager.Infrastructure.Persistence;
 using GameSaveManager.Infrastructure.Api;
@@ -206,7 +207,16 @@ async Task VerifyRegistrySnapshotAsync()
         using (RegistryKey key = Registry.CurrentUser.OpenSubKey(relativeKey, writable: true)!) key.SetValue("value", "after");
         await service.ImportAsync(directory, rules, CancellationToken.None);
         using RegistryKey restored = Registry.CurrentUser.OpenSubKey(relativeKey, writable: false) ?? throw new InvalidOperationException("注册表键未恢复");
-        Check(string.Equals(restored.GetValue("value")?.ToString(), "before", StringComparison.Ordinal), "注册表值未恢复为快照内容");
+        Check(string.Equals(restored.GetValue("value")?.ToString(), "before", StringComparison.Ordinal), "注册表值未恢复为快照内容");        using (RegistryKey key = Registry.CurrentUser.OpenSubKey(relativeKey, writable: true)!) key.SetValue("value", "safety");
+        string transactionDirectory = Path.Combine(directory, "transaction");
+        var transaction = (IRegistryRestoreTransaction)service;
+        RegistryRestorePreparation preparation = await transaction.PrepareAsync(directory, rules, transactionDirectory, CancellationToken.None);
+        await transaction.ApplyAsync(preparation, CancellationToken.None);
+        using (RegistryKey applied = Registry.CurrentUser.OpenSubKey(relativeKey, writable: false)!)
+            Check(string.Equals(applied.GetValue("value")?.ToString(), "before", StringComparison.Ordinal), "注册表事务未应用快照内容");
+        await transaction.RollbackAsync(preparation, CancellationToken.None);
+        using (RegistryKey rolledBack = Registry.CurrentUser.OpenSubKey(relativeKey, writable: false)!)
+            Check(string.Equals(rolledBack.GetValue("value")?.ToString(), "safety", StringComparison.Ordinal), "注册表事务未恢复安全备份");
     }
     finally
     {

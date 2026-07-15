@@ -1201,8 +1201,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 StatusText = "正在下载、校验并安全恢复快照…";
                 results = await _safeRestoreService.RestoreAsync(
-                    server, token, SelectedGame.GameId, SelectedSnapshot.SnapshotId, GetConfiguredSaveRoots(server, SelectedGame.GameId), CancellationToken.None);
-                if (RegistrySaveRules.Count > 0) await _registrySaveSnapshotService.ImportAsync(GetRegistryCacheDirectory(server, SelectedGame.GameId), RegistrySaveRules, CancellationToken.None);
+                    server, token, SelectedGame.GameId, SelectedSnapshot.SnapshotId, GetConfiguredSaveRoots(server, SelectedGame.GameId), RegistrySaveRules.ToArray(), CancellationToken.None);
             }
             finally
             {

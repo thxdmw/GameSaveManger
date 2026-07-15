@@ -1,3 +1,5 @@
+using GameSaveManager.Application.Games;
+
 namespace GameSaveManager.Application.Restores;
 
 /// <summary>恢复事务的持久化状态；任何目录移动前都会先写入日志。</summary>
@@ -30,4 +32,4 @@ public sealed record RestoreResult(
 public enum MultiRootRestoreState { Prepared, BuildingStaging, StagingBuilt, MovingOriginals, OriginalsMoved, ApplyingTargets, TargetsApplied, Verifying, Verified, Completed, RollingBack, RolledBack, Failed }
 public enum RestoreRootState { Prepared, StagingBuilding, StagingBuilt, MovingOriginal, OriginalMoved, ApplyingTarget, Applied, Verifying, Verified, RollingBack, RolledBack, Failed }
 public sealed record RestoreRootJournalItem(string RootId, string TargetDirectory, string StagingDirectory, string SafetyBackupDirectory, RestoreRootState State, bool OriginalExisted, bool OriginalMoved, bool TargetApplied);
-public sealed record MultiRootRestoreJournal(string TransactionId, string GameId, string SnapshotId, MultiRootRestoreState State, IReadOnlyList<RestoreRootJournalItem> Roots, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+public sealed record MultiRootRestoreJournal(string TransactionId, string GameId, string SnapshotId, MultiRootRestoreState State, IReadOnlyList<RestoreRootJournalItem> Roots, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, RegistryRestoreState RegistryState = RegistryRestoreState.NotRequired, string? RegistrySafetyDirectory = null, IReadOnlyList<RegistrySaveRule>? RegistryRules = null);

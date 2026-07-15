@@ -29,7 +29,8 @@ internal static class SmokeViewModelFactory
         var apiClient = new GameSaveApiClient(new HttpClient());
         var syncStateStore = new SqliteSyncStateStore(database);
         var syncService = new CloudSyncService(manifestBuilder, apiClient, syncStateStore);
-        var restoreService = new SafeRestoreService(apiClient, new ContentObjectCache(fileHashService), fileHashService, syncStateStore);
+        var registrySaveSnapshotService = new WindowsRegistrySaveSnapshotService();
+        var restoreService = new SafeRestoreService(apiClient, new ContentObjectCache(fileHashService), fileHashService, syncStateStore, registrySaveSnapshotService);
 
         return new MainViewModel(
             manifestBuilder,
@@ -50,7 +51,7 @@ internal static class SmokeViewModelFactory
             new DisabledAutoStartService(),
             new TextFileServerAddressStore(Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", "smoke-server-address.txt")),
             new LudusaviManifestUpdateService(new HttpClient()),
-            new WindowsRegistrySaveSnapshotService());
+            registrySaveSnapshotService);
     }
 
     private sealed class NullLogger : IAppLogger

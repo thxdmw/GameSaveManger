@@ -14,7 +14,8 @@ public sealed class SafeRestoreService(
     IGameSaveApiClient apiClient,
     ContentObjectCache objectCache,
     IFileHashService fileHashService,
-    ILocalSyncStateStore localSyncStateStore)
+    ILocalSyncStateStore localSyncStateStore,
+    IRegistryRestoreTransaction? registryRestoreTransaction = null)
 {
     private static readonly JsonSerializerOptions JournalJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -43,12 +44,22 @@ public sealed class SafeRestoreService(
     }
 
     /// <summary>按存档根标识拆分云端文件，分别恢复到每个已确认的本地目录。</summary>
+    public Task<IReadOnlyList<RestoreResult>> RestoreAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        string snapshotId,
+        IReadOnlyList<SaveRootRule> roots,
+        CancellationToken cancellationToken) =>
+        RestoreAsync(server, deviceToken, gameId, snapshotId, roots, [], cancellationToken);
+
     public async Task<IReadOnlyList<RestoreResult>> RestoreAsync(
         Uri server,
         string deviceToken,
         string gameId,
         string snapshotId,
         IReadOnlyList<SaveRootRule> roots,
+        IReadOnlyList<RegistrySaveRule> registryRules,
         CancellationToken cancellationToken)
     {
         if (roots is null || roots.Count == 0) throw new InvalidOperationException("至少需要一个存档根目录。");
@@ -62,19 +73,20 @@ public sealed class SafeRestoreService(
         CloudHead remoteHead = await apiClient.GetHeadAsync(server, deviceToken, gameId, cancellationToken);
         if (pathFormat == SnapshotPathFormat.LegacySingleRoot)
         {
+            if (registryRules.Count > 0) throw new InvalidDataException("旧版单根快照不包含注册表数据，拒绝混合恢复。");
             SaveRootRule root = roots.Single(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase));
             RestoreResult result = await RestoreOneAsync(server, deviceToken, manifest, remoteHead, root.Path, cancellationToken);
             await SaveRestoreStateAsync(server, gameId, remoteHead, cancellationToken);
             return [result];
         }
-        IReadOnlyList<RestoreResult> results = await RestoreNamespacedRootsAsync(server, deviceToken, gameId, manifest, roots, cancellationToken);
+        IReadOnlyList<RestoreResult> results = await RestoreNamespacedRootsAsync(server, deviceToken, gameId, manifest, roots, registryRules, cancellationToken);
         await SaveRestoreStateAsync(server, gameId, remoteHead, cancellationToken);
         return results;
     }
 
     private async Task<IReadOnlyList<RestoreResult>> RestoreNamespacedRootsAsync(
         Uri server, string deviceToken, string gameId, CloudSnapshotManifest manifest,
-        IReadOnlyList<SaveRootRule> roots, CancellationToken cancellationToken)
+        IReadOnlyList<SaveRootRule> roots, IReadOnlyList<RegistrySaveRule> registryRules, CancellationToken cancellationToken)
     {
         ValidateRootDirectories(roots);
         string transactionId = Guid.NewGuid().ToString("N");
@@ -103,6 +115,9 @@ public sealed class SafeRestoreService(
 
         string journalPath = Path.Combine(transactionDirectory, "multi-root-journal.json");
         DateTimeOffset createdAt = DateTimeOffset.UtcNow;
+        RegistryRestorePreparation? registryPreparation = null;
+        RestoreRootPlan? registryPlan = null;
+        bool registryApplyStarted = false;
         await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Prepared, createdAt, cancellationToken);
         try
         {
@@ -115,40 +130,64 @@ public sealed class SafeRestoreService(
                 await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.StagingBuilt, createdAt, cancellationToken);
             }
 
+            if (registryRules.Count > 0)
+            {
+                IRegistryRestoreTransaction transaction = registryRestoreTransaction
+                    ?? throw new InvalidOperationException("当前环境未提供注册表恢复事务服务。");
+                registryPlan = plans.SingleOrDefault(plan => string.Equals(plan.RootId, "registry", StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidDataException("快照不包含注册表数据，拒绝恢复已配置的注册表规则。");
+                registryPreparation = await transaction.PrepareAsync(
+                    registryPlan.StagingDirectory, registryRules, transactionDirectory, CancellationToken.None);
+            }
+
             foreach (RestoreRootPlan plan in plans)
             {
                 plan.OriginalExisted = Directory.Exists(plan.TargetDirectory);
                 if (plan.OriginalExisted)
                 {
                     plan.State = RestoreRootState.MovingOriginal;
-                    await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.MovingOriginals, createdAt, CancellationToken.None);
+                    await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.MovingOriginals, createdAt, CancellationToken.None, registryPreparation);
                     Directory.Move(plan.TargetDirectory, plan.SafetyBackupDirectory);
                     plan.OriginalMoved = true;
                 }
                 plan.State = RestoreRootState.OriginalMoved;
-                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.OriginalsMoved, createdAt, CancellationToken.None);
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.OriginalsMoved, createdAt, CancellationToken.None, registryPreparation);
             }
 
             foreach (RestoreRootPlan plan in plans)
             {
                 plan.State = RestoreRootState.ApplyingTarget;
-                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.ApplyingTargets, createdAt, CancellationToken.None);
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.ApplyingTargets, createdAt, CancellationToken.None, registryPreparation);
                 Directory.Move(plan.StagingDirectory, plan.TargetDirectory);
                 plan.Applied = true;
                 plan.State = RestoreRootState.Applied;
-                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.TargetsApplied, createdAt, CancellationToken.None);
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.TargetsApplied, createdAt, CancellationToken.None, registryPreparation);
             }
 
             foreach (RestoreRootPlan plan in plans)
             {
                 plan.State = RestoreRootState.Verifying;
-                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Verifying, createdAt, CancellationToken.None);
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Verifying, createdAt, CancellationToken.None, registryPreparation);
                 await VerifyDirectoryAsync(plan.TargetDirectory, plan.Manifest.Files, CancellationToken.None);
                 plan.State = RestoreRootState.Verified;
-                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Verified, createdAt, CancellationToken.None);
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Verified, createdAt, CancellationToken.None, registryPreparation);
             }
 
-            await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Completed, createdAt, CancellationToken.None);
+            if (registryPreparation is not null && registryPlan is not null)
+            {
+                registryPreparation = registryPreparation with
+                {
+                    SnapshotDirectory = registryPlan.TargetDirectory,
+                    State = RegistryRestoreState.Applying
+                };
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Verified, createdAt, CancellationToken.None, registryPreparation);
+                registryApplyStarted = true;
+                await registryRestoreTransaction!.ApplyAsync(registryPreparation with { State = RegistryRestoreState.Prepared }, CancellationToken.None);
+                registryPreparation = registryPreparation with { State = RegistryRestoreState.Applied };
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Verified, createdAt, CancellationToken.None, registryPreparation);
+            }
+
+            await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Completed, createdAt, CancellationToken.None, registryPreparation);
             Directory.Delete(transactionDirectory, recursive: true);
             return plans.Select(plan => new RestoreResult(manifest.SnapshotId, plan.TargetDirectory, plan.OriginalMoved ? plan.SafetyBackupDirectory : null)).ToArray();
         }
@@ -156,17 +195,31 @@ public sealed class SafeRestoreService(
         {
             try
             {
+                Exception? registryRollbackFailure = null;
+                if (registryApplyStarted && registryPreparation is not null)
+                {
+                    registryPreparation = registryPreparation with { State = RegistryRestoreState.RollingBack };
+                    await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RollingBack, createdAt, CancellationToken.None, registryPreparation);
+                    try
+                    {
+                        await registryRestoreTransaction!.RollbackAsync(registryPreparation, CancellationToken.None);
+                        registryPreparation = registryPreparation with { State = RegistryRestoreState.RolledBack };
+                    }
+                    catch (Exception exception) { registryRollbackFailure = exception; }
+                }
                 foreach (RestoreRootPlan plan in plans)
                 {
                     plan.State = RestoreRootState.RollingBack;
-                    await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RollingBack, createdAt, CancellationToken.None);
+                    await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RollingBack, createdAt, CancellationToken.None, registryPreparation);
                 }
-                await RollbackPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, createdAt);
-                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RolledBack, createdAt, CancellationToken.None);
+                await RollbackPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, createdAt, registryPreparation);
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RolledBack, createdAt, CancellationToken.None, registryPreparation);
+                if (registryRollbackFailure is not null)
+                    throw new InvalidOperationException("注册表回滚失败，已保留恢复 Journal 供人工处理。", registryRollbackFailure);
             }
             catch
             {
-                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Failed, createdAt, CancellationToken.None);
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Failed, createdAt, CancellationToken.None, registryPreparation);
             }
             throw;
         }
@@ -190,12 +243,13 @@ public sealed class SafeRestoreService(
         string gameId,
         string snapshotId,
         IReadOnlyList<RestoreRootPlan> plans,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        RegistryRestorePreparation? registryPreparation)
     {
         foreach (RestoreRootPlan plan in plans.Reverse())
         {
             plan.State = RestoreRootState.RollingBack;
-            await PersistPlansAsync(journalPath, transactionId, gameId, snapshotId, plans, MultiRootRestoreState.RollingBack, createdAt, CancellationToken.None);
+            await PersistPlansAsync(journalPath, transactionId, gameId, snapshotId, plans, MultiRootRestoreState.RollingBack, createdAt, CancellationToken.None, registryPreparation);
             if (plan.Applied && Directory.Exists(plan.TargetDirectory))
             {
                 Directory.Delete(plan.TargetDirectory, recursive: true);
@@ -209,11 +263,11 @@ public sealed class SafeRestoreService(
                 Directory.Delete(plan.StagingDirectory, recursive: true);
             }
             plan.State = RestoreRootState.RolledBack;
-            await PersistPlansAsync(journalPath, transactionId, gameId, snapshotId, plans, MultiRootRestoreState.RollingBack, createdAt, CancellationToken.None);
+            await PersistPlansAsync(journalPath, transactionId, gameId, snapshotId, plans, MultiRootRestoreState.RollingBack, createdAt, CancellationToken.None, registryPreparation);
         }
     }
-    private static MultiRootRestoreJournal CreateMultiJournal(string transactionId, string gameId, string snapshotId, IReadOnlyList<RestoreRootPlan> plans, MultiRootRestoreState state, DateTimeOffset createdAt) =>
-        new(transactionId, gameId, snapshotId, state, plans.Select(plan => new RestoreRootJournalItem(plan.RootId, plan.TargetDirectory, plan.StagingDirectory, plan.SafetyBackupDirectory, plan.State, plan.OriginalExisted, plan.OriginalMoved, plan.Applied)).ToArray(), createdAt, DateTimeOffset.UtcNow);
+    private static MultiRootRestoreJournal CreateMultiJournal(string transactionId, string gameId, string snapshotId, IReadOnlyList<RestoreRootPlan> plans, MultiRootRestoreState state, DateTimeOffset createdAt, RegistryRestorePreparation? registryPreparation = null) =>
+        new(transactionId, gameId, snapshotId, state, plans.Select(plan => new RestoreRootJournalItem(plan.RootId, plan.TargetDirectory, plan.StagingDirectory, plan.SafetyBackupDirectory, plan.State, plan.OriginalExisted, plan.OriginalMoved, plan.Applied)).ToArray(), createdAt, DateTimeOffset.UtcNow, registryPreparation?.State ?? RegistryRestoreState.NotRequired, registryPreparation?.SafetyDirectory, registryPreparation?.Rules);
 
     private static async Task WriteMultiJournalAsync(string path, MultiRootRestoreJournal journal, CancellationToken cancellationToken)
     {
@@ -236,8 +290,8 @@ public sealed class SafeRestoreService(
         }
     }
 
-    private static Task PersistPlansAsync(string path, string transactionId, string gameId, string snapshotId, IReadOnlyList<RestoreRootPlan> plans, MultiRootRestoreState state, DateTimeOffset createdAt, CancellationToken cancellationToken) =>
-        WriteMultiJournalAsync(path, CreateMultiJournal(transactionId, gameId, snapshotId, plans, state, createdAt), cancellationToken);
+    private static Task PersistPlansAsync(string path, string transactionId, string gameId, string snapshotId, IReadOnlyList<RestoreRootPlan> plans, MultiRootRestoreState state, DateTimeOffset createdAt, CancellationToken cancellationToken, RegistryRestorePreparation? registryPreparation = null) =>
+        WriteMultiJournalAsync(path, CreateMultiJournal(transactionId, gameId, snapshotId, plans, state, createdAt, registryPreparation), cancellationToken);
     private sealed class RestoreRootPlan(string rootId, string targetDirectory, string stagingDirectory, string safetyBackupDirectory, CloudSnapshotManifest manifest)
     {
         public string RootId { get; } = rootId;
@@ -384,7 +438,7 @@ public sealed class SafeRestoreService(
         catch (JsonException) { return null; }
     }
 
-    private static async Task<MultiRootRestoreJournal> RecoverMultiRootJournalAsync(
+    private async Task<MultiRootRestoreJournal> RecoverMultiRootJournalAsync(
         string journalPath,
         MultiRootRestoreJournal journal,
         CancellationToken cancellationToken)
@@ -440,6 +494,41 @@ public sealed class SafeRestoreService(
             roots[index] = root with { State = recovered ? RestoreRootState.RolledBack : RestoreRootState.Failed };
             journal = journal with { State = MultiRootRestoreState.RollingBack, Roots = roots, UpdatedAt = DateTimeOffset.UtcNow };
             await WriteMultiJournalAsync(journalPath, journal, CancellationToken.None);
+        }
+
+        if (journal.RegistryState is RegistryRestoreState.Prepared or RegistryRestoreState.Applying or RegistryRestoreState.Applied or RegistryRestoreState.RollingBack)
+        {
+            IReadOnlyList<RegistrySaveRule> rules = journal.RegistryRules ?? [];
+            if (journal.RegistryState == RegistryRestoreState.Prepared)
+            {
+                journal = journal with { RegistryState = RegistryRestoreState.RolledBack, UpdatedAt = DateTimeOffset.UtcNow };
+                await WriteMultiJournalAsync(journalPath, journal, CancellationToken.None);
+            }
+            else if (registryRestoreTransaction is null || string.IsNullOrWhiteSpace(journal.RegistrySafetyDirectory) || rules.Count == 0)
+            {
+                requiresManualIntervention = true;
+                journal = journal with { RegistryState = RegistryRestoreState.Failed, UpdatedAt = DateTimeOffset.UtcNow };
+                await WriteMultiJournalAsync(journalPath, journal, CancellationToken.None);
+            }
+            else
+            {
+                journal = journal with { RegistryState = RegistryRestoreState.RollingBack, UpdatedAt = DateTimeOffset.UtcNow };
+                await WriteMultiJournalAsync(journalPath, journal, CancellationToken.None);
+                try
+                {
+                    await registryRestoreTransaction.RollbackAsync(
+                        new RegistryRestorePreparation(journal.RegistrySafetyDirectory, string.Empty, rules, RegistryRestoreState.RollingBack),
+                        CancellationToken.None);
+                    journal = journal with { RegistryState = RegistryRestoreState.RolledBack, UpdatedAt = DateTimeOffset.UtcNow };
+                    await WriteMultiJournalAsync(journalPath, journal, CancellationToken.None);
+                }
+                catch
+                {
+                    requiresManualIntervention = true;
+                    journal = journal with { RegistryState = RegistryRestoreState.Failed, UpdatedAt = DateTimeOffset.UtcNow };
+                    await WriteMultiJournalAsync(journalPath, journal, CancellationToken.None);
+                }
+            }
         }
 
         MultiRootRestoreState finalState = requiresManualIntervention ? MultiRootRestoreState.Failed : MultiRootRestoreState.RolledBack;

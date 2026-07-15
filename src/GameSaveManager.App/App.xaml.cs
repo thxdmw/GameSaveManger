@@ -60,11 +60,13 @@ public partial class App : System.Windows.Application
                 manifestBuilder,
                 apiClient,
                 syncStateStore);
+            var registrySaveSnapshotService = new WindowsRegistrySaveSnapshotService();
             var restoreService = new SafeRestoreService(
                 apiClient,
                 new ContentObjectCache(fileHashService),
                 fileHashService,
-                syncStateStore);
+                syncStateStore,
+                registrySaveSnapshotService);
             _autoSyncCoordinator = new MultiGameAutoSyncCoordinator();
 
             IReadOnlyList<string> recoveryMessages = await restoreService.RecoverInterruptedRestoresAsync(
@@ -99,7 +101,7 @@ public partial class App : System.Windows.Application
                     new WindowsAutoStartService(),
                     new TextFileServerAddressStore(),
                     new LudusaviManifestUpdateService(_httpClient),
-                    new WindowsRegistrySaveSnapshotService())
+                    registrySaveSnapshotService)
             };
             window.Show();
             if (window.DataContext is MainViewModel viewModel) await viewModel.InitializeAsync();
