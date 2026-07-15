@@ -1349,12 +1349,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         if (string.IsNullOrWhiteSpace(game.ExecutablePath) || !File.Exists(game.ExecutablePath)) throw new InvalidOperationException("未找到可启动的游戏 EXE。");
         string executablePath = Path.GetFullPath(game.ExecutablePath);
+        // 通过资源管理器调用与用户双击 EXE 使用同一条 Windows Shell 启动链。
+        // 部分旧游戏会依赖该启动链提供的兼容性层或父进程上下文。
         Process.Start(new ProcessStartInfo
         {
-            FileName = executablePath,
+            FileName = "explorer.exe",
+            Arguments = $"\"{executablePath}\"",
             WorkingDirectory = Path.GetDirectoryName(executablePath)!,
-            UseShellExecute = false,
-            LoadUserProfile = true
+            UseShellExecute = true
         });
     }
     private async Task LaunchGameAsync(object? parameter)
