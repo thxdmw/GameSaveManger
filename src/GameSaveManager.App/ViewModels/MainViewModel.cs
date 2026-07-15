@@ -895,6 +895,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SelectedSnapshot = Snapshots.FirstOrDefault();
     }
 
+    /// <summary>恢复与同步共用 _syncQueue，避免恢复移动存档目录时与正在进行的（含自动）同步竞争同一目录。</summary>
     private async Task RestoreAsync()
     {
         try
@@ -904,9 +905,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (string.IsNullOrWhiteSpace(SaveDirectory)) throw new InvalidOperationException("请先填写本地存档目录");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
-            StatusText = "正在下载、校验并安全恢复快照…";
-            RestoreResult result = await _safeRestoreService.RestoreAsync(
-                server, token, SelectedGame.GameId, SelectedSnapshot.SnapshotId, SaveDirectory, CancellationToken.None);
+            StatusText = "正在等待同步任务空闲后开始恢复…";
+            await _syncQueue.WaitAsync(CancellationToken.None);
+            RestoreResult result;
+            try
+            {
+                StatusText = "正在下载、校验并安全恢复快照…";
+                result = await _safeRestoreService.RestoreAsync(
+                    server, token, SelectedGame.GameId, SelectedSnapshot.SnapshotId, SaveDirectory, CancellationToken.None);
+            }
+            finally
+            {
+                _syncQueue.Release();
+            }
             StatusText = result.SafetyBackupDirectory is null
                 ? $"已恢复快照 {result.SnapshotId}。"
                 : $"已恢复快照 {result.SnapshotId}；原存档安全备份：{result.SafetyBackupDirectory}";
