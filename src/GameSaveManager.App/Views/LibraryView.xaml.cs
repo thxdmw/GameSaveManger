@@ -9,6 +9,13 @@ public partial class LibraryView : System.Windows.Controls.UserControl
 {
     public LibraryView() => InitializeComponent();
 
+    private async void ChooseLocalGameExecutableButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "游戏程序 (*.exe)|*.exe", CheckFileExists = true, Multiselect = false };
+        if (dialog.ShowDialog() != true || DataContext is not MainViewModel viewModel) return;
+        try { await viewModel.AddLocalGameFromExecutableAsync(dialog.FileName); }
+        catch (Exception exception) { MessageBox.Show(exception.Message, "选择本地游戏失败", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
     private void DeleteGameMenuItem_OnClick(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuItem { DataContext: CloudGame game } || DataContext is not MainViewModel viewModel) return;

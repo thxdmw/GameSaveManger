@@ -1,9 +1,12 @@
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Games;
+using GameSaveManager.Application.Discovery;
 using GameSaveManager.Application.Sync;
 using GameSaveManager.Infrastructure.Persistence;
 using GameSaveManager.Infrastructure.Api;
 using GameSaveManager.Infrastructure.Diagnostics;
+using GameSaveManager.Infrastructure.Discovery;
+using Microsoft.Win32;
 using Microsoft.Data.Sqlite;
 
 var failures = new List<string>();
@@ -45,7 +48,8 @@ Run("服务端基础路径大小写必须保持隔离", () =>
 await RunAsync("旧 sync_state 表迁移并按服务端隔离 HEAD", VerifySyncStateMigrationAsync);
 await RunAsync("SQLite schema 版本迁移可重复执行", SqliteSchemaVerification.VerifySchemaVersionAsync);
 await RunAsync("本机游戏配置按服务端隔离", VerifyLocalGameProfileAsync);
-await RunAsync("旧本机游戏配置可迁移 EXE 路径字段", VerifyLocalGameProfileMigrationAsync);
+await RunAsync("旧本机游戏配置可迁移 EXE 路径字段", VerifyLocalGameProfileSchemaResetAsync);
+await RunAsync("HKCU 注册表存档可安全往返", VerifyRegistrySnapshotAsync);
 await RunAsync("安全重试只重试 GET 请求", RetryAndLoggingVerification.VerifySafeRetryHandlerAsync);
 await RunAsync("结构化日志会脱敏凭据", RetryAndLoggingVerification.VerifyJsonFileLoggerAsync);
 Run("CMS 无时区日期与时间戳可以兼容解析", CmsDateTimeOffsetVerification.Verify);
@@ -100,12 +104,12 @@ async Task VerifyLocalGameProfileAsync()
         var database = new SqliteDatabase(databasePath);
         await database.InitializeAsync(CancellationToken.None);
         var store = new SqliteLocalGameProfileStore(database);
-        await store.SaveAsync(new LocalGameProfile("server-a", "same-game", "D:\\Saves\\A", "game-a.exe", "D:\\Games\\A\\game-a.exe", true), CancellationToken.None);
-        await store.SaveAsync(new LocalGameProfile("server-b", "same-game", "E:\\Saves\\B", "game-b.exe", null, false), CancellationToken.None);
+        await store.SaveAsync(new LocalGameProfile("server-a", "same-game", "LOCAL", null, "D:\\Games\\A", "D:\\Saves\\A", "game-a.exe", "D:\\Games\\A\\game-a.exe", SaveLocationSource.Manual, 100, true, true, [SaveRootRule.CreateDefault("D:\\Saves\\A", SaveLocationSource.Manual, 100, true), new SaveRootRule("root2", "D:\\Saves\\A2", ["**/*.sav"], ["**/cache/**"], SaveLocationSource.Manual, 100, true)]), CancellationToken.None);
+        await store.SaveAsync(new LocalGameProfile("server-b", "same-game", "STEAM", "123", "E:\\Games\\B", "E:\\Saves\\B", "game-b.exe", null, SaveLocationSource.StoreMetadata, 90, true, false), CancellationToken.None);
         LocalGameProfile? serverA = await store.GetAsync("server-a", "same-game", CancellationToken.None);
         LocalGameProfile? serverB = await store.GetAsync("server-b", "same-game", CancellationToken.None);
-        Check(serverA is { SaveDirectory: "D:\\Saves\\A", ProcessName: "game-a.exe", ExecutablePath: "D:\\Games\\A\\game-a.exe", AutoSnapshotEnabled: true }, "server-a local profile read failed");
-        Check(serverB is { SaveDirectory: "E:\\Saves\\B", ProcessName: "game-b.exe", ExecutablePath: null, AutoSnapshotEnabled: false }, "server-b local profile read failed");
+        Check(serverA is { Provider: "LOCAL", SaveDirectory: "D:\\Saves\\A", ProcessName: "game-a.exe", ExecutablePath: "D:\\Games\\A\\game-a.exe", UserConfirmed: true, AutoSnapshotEnabled: true } && serverA.EffectiveSaveRoots.Count == 2 && serverA.EffectiveSaveRoots[1].RootId == "root2", "server-a local profile read failed");
+        Check(serverB is { Provider: "STEAM", ProviderGameId: "123", SaveDirectory: "E:\\Saves\\B", ProcessName: "game-b.exe", ExecutablePath: null, UserConfirmed: true, AutoSnapshotEnabled: false }, "server-b local profile read failed");
     }
     finally
     {
@@ -115,7 +119,7 @@ async Task VerifyLocalGameProfileAsync()
         try { Directory.Delete(tempDirectory, recursive: true); } catch (IOException) { }
     }
 }
-async Task VerifyLocalGameProfileMigrationAsync()
+async Task VerifyLocalGameProfileSchemaResetAsync()
 {
     string tempDirectory = Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", Guid.NewGuid().ToString("N"));
     Directory.CreateDirectory(tempDirectory);
@@ -157,6 +161,34 @@ async Task VerifyLocalGameProfileMigrationAsync()
         TryDelete(databasePath + "-wal");
         TryDelete(databasePath + "-shm");
         try { Directory.Delete(tempDirectory, recursive: true); } catch (IOException) { }
+    }
+}
+async Task VerifyRegistrySnapshotAsync()
+{
+    string ruleId = "verification-" + Guid.NewGuid().ToString("N");
+    string relativeKey = "Software\\GameSaveManager\\Verification\\" + ruleId;
+    string keyPath = "HKCU\\" + relativeKey;
+    string directory = Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", ruleId);
+    try
+    {
+        using (RegistryKey key = Registry.CurrentUser.CreateSubKey(relativeKey, writable: true)!) key.SetValue("value", "before");
+        var service = new WindowsRegistrySaveSnapshotService();
+        var rules = new[] { new RegistrySaveRule(ruleId, keyPath, true) };
+        await service.ExportAsync(directory, rules, CancellationToken.None);
+        using (RegistryKey key = Registry.CurrentUser.OpenSubKey(relativeKey, writable: true)!) key.SetValue("value", "after");
+        await service.ImportAsync(directory, rules, CancellationToken.None);
+        using RegistryKey restored = Registry.CurrentUser.OpenSubKey(relativeKey, writable: false) ?? throw new InvalidOperationException("注册表键未恢复");
+        Check(string.Equals(restored.GetValue("value")?.ToString(), "before", StringComparison.Ordinal), "注册表值未恢复为快照内容");
+    }
+    finally
+    {
+        Registry.CurrentUser.DeleteSubKeyTree(relativeKey, throwOnMissingSubKey: false);
+        try { Directory.Delete(directory, recursive: true); } catch (IOException) { }
+        string safetyParent = Path.GetDirectoryName(directory)!;
+        foreach (string path in Directory.Exists(safetyParent) ? Directory.EnumerateDirectories(safetyParent, "registry-safety-*") : [])
+        {
+            try { Directory.Delete(path, recursive: true); } catch (IOException) { }
+        }
     }
 }
 async Task VerifySyncStateMigrationAsync()

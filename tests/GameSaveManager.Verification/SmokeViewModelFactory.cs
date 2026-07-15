@@ -39,13 +39,17 @@ internal static class SmokeViewModelFactory
             new MultiGameAutoSyncCoordinator(),
             new SnapshotExportService(apiClient, new ContentObjectCache(fileHashService), fileHashService),
             new WindowsGameDiscoveryService(),
-            new WindowsSavePathSuggestionService(),
+            new WindowsSaveLocationDetector(),
+            new WindowsExecutableGameIdentityFactory(),
+            new WindowsRuntimeSaveLearningService(),
             new SqliteLocalGameProfileStore(database),
             new WindowsCredentialStore(),
             new SqliteDeviceIdentityProvider(database),
             new NullLogger(),
             new DisabledAutoStartService(),
-            new TextFileServerAddressStore(Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", "smoke-server-address.txt")));
+            new TextFileServerAddressStore(Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", "smoke-server-address.txt")),
+            new LudusaviManifestUpdateService(new HttpClient()),
+            new WindowsRegistrySaveSnapshotService());
     }
 
     private sealed class NullLogger : IAppLogger

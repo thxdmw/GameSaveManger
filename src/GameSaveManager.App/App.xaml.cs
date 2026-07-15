@@ -88,13 +88,17 @@ public partial class App : System.Windows.Application
                     _autoSyncCoordinator,
                     new SnapshotExportService(apiClient, new ContentObjectCache(fileHashService), fileHashService),
                     new WindowsGameDiscoveryService(),
-                    new WindowsSavePathSuggestionService(),
+                    new WindowsSaveLocationDetector(),
+                    new WindowsExecutableGameIdentityFactory(),
+                    new WindowsRuntimeSaveLearningService(),
                     new SqliteLocalGameProfileStore(database),
                     new WindowsCredentialStore(),
                     new SqliteDeviceIdentityProvider(database),
                     _appLogger,
                     new WindowsAutoStartService(),
-                    new TextFileServerAddressStore())
+                    new TextFileServerAddressStore(),
+                    new LudusaviManifestUpdateService(_httpClient),
+                    new WindowsRegistrySaveSnapshotService())
             };
             window.Show();
             if (window.DataContext is MainViewModel viewModel) await viewModel.InitializeAsync();

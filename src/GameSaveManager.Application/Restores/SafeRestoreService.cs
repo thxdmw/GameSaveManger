@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Files;
+using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Sync;
 
 namespace GameSaveManager.Application.Restores;
@@ -33,11 +34,56 @@ public sealed class SafeRestoreService(
         string saveDirectory,
         CancellationToken cancellationToken)
     {
-        CloudSnapshotManifest manifest = await apiClient.GetSnapshotAsync(
-            server, deviceToken, gameId, snapshotId, cancellationToken);
+        CloudSnapshotManifest manifest = await apiClient.GetSnapshotAsync(server, deviceToken, gameId, snapshotId, cancellationToken);
         ValidateManifest(manifest);
         CloudHead remoteHead = await apiClient.GetHeadAsync(server, deviceToken, gameId, cancellationToken);
+        RestoreResult result = await RestoreOneAsync(server, deviceToken, manifest, remoteHead, saveDirectory, cancellationToken);
+        await SaveRestoreStateAsync(server, gameId, remoteHead, cancellationToken);
+        return result;
+    }
 
+    /// <summary>按存档根标识拆分云端文件，分别恢复到每个已确认的本地目录。</summary>
+    public async Task<IReadOnlyList<RestoreResult>> RestoreAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        string snapshotId,
+        IReadOnlyList<SaveRootRule> roots,
+        CancellationToken cancellationToken)
+    {
+        if (roots is null || roots.Count == 0) throw new InvalidOperationException("至少需要一个存档根目录。");
+        if (roots.Any(root => !root.UserConfirmed)) throw new InvalidOperationException("所有存档根目录都必须经用户确认。");
+        if (roots.Select(root => root.RootId).Distinct(StringComparer.OrdinalIgnoreCase).Count() != roots.Count)
+            throw new InvalidOperationException("存档根目录标识不能重复。");
+
+        CloudSnapshotManifest manifest = await apiClient.GetSnapshotAsync(server, deviceToken, gameId, snapshotId, cancellationToken);
+        ValidateManifest(manifest);
+        CloudHead remoteHead = await apiClient.GetHeadAsync(server, deviceToken, gameId, cancellationToken);
+        var results = new List<RestoreResult>();
+        foreach (SaveRootRule root in roots)
+        {
+            string prefix = root.RootId + "/";
+            IReadOnlyList<CloudSnapshotFile> files = manifest.Files
+                .Where(file => file.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .Select(file => file with { RelativePath = file.RelativePath[prefix.Length..] })
+                .ToArray();
+            if (files.Count == 0) continue;
+            CloudSnapshotManifest scopedManifest = manifest with { Files = files };
+            results.Add(await RestoreOneAsync(server, deviceToken, scopedManifest, remoteHead, root.Path, cancellationToken));
+        }
+        if (results.Count == 0) throw new InvalidDataException("快照不包含已配置存档根目录的文件。");
+        await SaveRestoreStateAsync(server, gameId, remoteHead, cancellationToken);
+        return results;
+    }
+
+    private async Task<RestoreResult> RestoreOneAsync(
+        Uri server,
+        string deviceToken,
+        CloudSnapshotManifest manifest,
+        CloudHead remoteHead,
+        string saveDirectory,
+        CancellationToken cancellationToken)
+    {
         string target = Path.GetFullPath(saveDirectory);
         if (File.Exists(target))
         {
@@ -54,8 +100,6 @@ public sealed class SafeRestoreService(
         string journalPath = Path.Combine(transactionDirectory, "journal.json");
         Directory.CreateDirectory(transactionDirectory);
 
-        // 安全备份路径是确定值：无条件写入 journal，即使当前目标目录不存在。
-        // 若下载期间目标目录被外部重新创建、随后被移动为安全备份，崩溃恢复也能凭此路径找回原始存档。
         var journal = new RestoreJournal(
             transactionId,
             RestoreJournalState.Prepared,
@@ -66,57 +110,38 @@ public sealed class SafeRestoreService(
             DateTimeOffset.UtcNow);
         await WriteJournalAsync(journalPath, journal, cancellationToken);
 
-        // 仅当真正把原目录移动为安全备份后才赋值，用于回传界面提示实际备份位置。
         string? actualSafetyBackup = null;
         try
         {
-            await BuildAndVerifyStagingAsync(
-                server, deviceToken, manifest, staging, cancellationToken);
+            await BuildAndVerifyStagingAsync(server, deviceToken, manifest, staging, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 
             if (Directory.Exists(target))
             {
                 Directory.Move(target, safetyBackup);
                 actualSafetyBackup = safetyBackup;
-                journal = journal with
-                {
-                    State = RestoreJournalState.OriginalMoved,
-                    UpdatedAt = DateTimeOffset.UtcNow
-                };
+                journal = journal with { State = RestoreJournalState.OriginalMoved, UpdatedAt = DateTimeOffset.UtcNow };
                 await WriteJournalAsync(journalPath, journal, CancellationToken.None);
             }
 
             Directory.Move(staging, target);
-            journal = journal with
-            {
-                State = RestoreJournalState.Applied,
-                UpdatedAt = DateTimeOffset.UtcNow
-            };
+            journal = journal with { State = RestoreJournalState.Applied, UpdatedAt = DateTimeOffset.UtcNow };
             await WriteJournalAsync(journalPath, journal, CancellationToken.None);
 
             await VerifyDirectoryAsync(target, manifest.Files, CancellationToken.None);
-            journal = journal with
-            {
-                State = RestoreJournalState.Completed,
-                UpdatedAt = DateTimeOffset.UtcNow
-            };
+            journal = journal with { State = RestoreJournalState.Completed, UpdatedAt = DateTimeOffset.UtcNow };
             await WriteJournalAsync(journalPath, journal, CancellationToken.None);
-
-            await localSyncStateStore.SaveAsync(
-                new LocalSyncState(GameSaveServerIdentity.CreateStableKey(server), gameId, remoteHead.HeadSnapshotId, remoteHead.Version),
-                CancellationToken.None);
-
-            // 完成后仅删除事务日志；原目录的安全备份刻意保留，避免恢复后立即失去回滚点。
             Directory.Delete(transactionDirectory, recursive: true);
             return new RestoreResult(manifest.SnapshotId, target, actualSafetyBackup);
         }
         catch
         {
-            // 发生故障时不删除安全备份或日志；下次启动可据此回滚或提示用户处理。
             throw;
         }
     }
 
+    private Task SaveRestoreStateAsync(Uri server, string gameId, CloudHead remoteHead, CancellationToken cancellationToken) =>
+        localSyncStateStore.SaveAsync(new LocalSyncState(GameSaveServerIdentity.CreateStableKey(server), gameId, remoteHead.HeadSnapshotId, remoteHead.Version), cancellationToken);
     /// <summary>
     /// 应用启动时调用。只在“原目录已移走且目标目录不存在”这一确定场景自动回滚；
     /// 其他场景保留现场，避免用猜测覆盖可能已恢复成功的用户数据。

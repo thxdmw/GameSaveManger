@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
 using GameSaveManager.Application.Discovery;
@@ -75,7 +76,7 @@ public sealed class WindowsGameDiscoveryService : IGameDiscoveryService
                 string installDirectory = Path.Combine(steamApps, "common", installName);
                 if (!Directory.Exists(installDirectory)) continue;
                 string? executable = FindExecutable(installDirectory);
-                games.Add(new DiscoveredGame(name, "STEAM", appId, installDirectory, executable, executable is null ? null : Path.GetFileName(executable)));
+                games.Add(new DiscoveredGame(new GameIdentity(name, GameIdentity.Steam, appId, installDirectory, executable, executable is null ? null : Path.GetFileName(executable))));
             }
         }
     }
@@ -98,7 +99,7 @@ public sealed class WindowsGameDiscoveryService : IGameDiscoveryService
                 if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(install) || !Directory.Exists(install)) continue;
                 string? executable = string.IsNullOrWhiteSpace(launch) ? FindExecutable(install) : Path.Combine(install, launch);
                 if (!File.Exists(executable)) executable = FindExecutable(install);
-                games.Add(new DiscoveredGame(name, "EPIC", id, install, executable, executable is null ? null : Path.GetFileName(executable)));
+                games.Add(new DiscoveredGame(new GameIdentity(name, GameIdentity.Epic, id, install, executable, executable is null ? null : Path.GetFileName(executable))));
             }
             catch (JsonException)
             {
@@ -120,7 +121,7 @@ public sealed class WindowsGameDiscoveryService : IGameDiscoveryService
                 if (string.IsNullOrWhiteSpace(install) || !Directory.Exists(install)) continue;
                 string name = gameKey?.GetValue("gameName") as string ?? $"GOG {subKeyName}";
                 string? executable = FindExecutable(install);
-                games.Add(new DiscoveredGame(name, "GOG", subKeyName, install, executable, executable is null ? null : Path.GetFileName(executable)));
+                games.Add(new DiscoveredGame(new GameIdentity(name, GameIdentity.Gog, subKeyName, install, executable, executable is null ? null : Path.GetFileName(executable))));
             }
         }
     }
@@ -145,13 +146,38 @@ public sealed class WindowsGameDiscoveryService : IGameDiscoveryService
     {
         try
         {
-            return Directory.EnumerateFiles(directory, "*.exe", SearchOption.TopDirectoryOnly)
-                .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+            string gameName = Path.GetFileName(directory);
+            return Directory.EnumerateFiles(directory, "*.exe", SearchOption.AllDirectories)
+                .Where(path => Path.GetRelativePath(directory, path).Count(character => character is '\\' or '/') <= 3)
+                .Select(path => new { Path = path, Score = ScoreExecutable(path, directory, gameName) })
+                .Where(candidate => candidate.Score >= 0)
+                .OrderByDescending(candidate => candidate.Score)
+                .ThenByDescending(candidate => new FileInfo(candidate.Path).Length)
+                .Select(candidate => candidate.Path)
                 .FirstOrDefault();
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException) { return null; }
+        catch (IOException) { return null; }
+    }
+
+    private static int ScoreExecutable(string path, string installDirectory, string gameName)
+    {
+        string name = Path.GetFileNameWithoutExtension(path);
+        string relative = Path.GetRelativePath(installDirectory, path);
+        string value = (name + " " + relative).ToLowerInvariant();
+        if (new[] { "unins", "uninstall", "setup", "redist" }.Any(value.Contains) || new[] { "crash", "reporter" }.Any(value.Contains) || new[] { "redist", "support", "installer" }.Any(segment => relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Contains(segment, StringComparer.OrdinalIgnoreCase))) return -100;
+        int score = 0;
+        if (string.Equals(Path.GetDirectoryName(path), installDirectory, StringComparison.OrdinalIgnoreCase)) score += 10;
+        if (name.Contains(gameName, StringComparison.OrdinalIgnoreCase) || gameName.Contains(name, StringComparison.OrdinalIgnoreCase)) score += 25;
+        if (name.Contains("launcher", StringComparison.OrdinalIgnoreCase)) score -= 10;
+        try
         {
-            return null;
+            FileVersionInfo info = FileVersionInfo.GetVersionInfo(path);
+            if (!string.IsNullOrWhiteSpace(info.ProductName) && info.ProductName.Contains(gameName, StringComparison.OrdinalIgnoreCase)) score += 40;
+            if (!string.IsNullOrWhiteSpace(info.FileDescription) && info.FileDescription.Contains(gameName, StringComparison.OrdinalIgnoreCase)) score += 30;
+            if (new FileInfo(path).Length > 10 * 1024 * 1024) score += 10;
         }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+        return score;
     }
 }

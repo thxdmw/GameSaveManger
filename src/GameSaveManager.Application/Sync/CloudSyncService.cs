@@ -1,5 +1,6 @@
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Snapshots;
+using GameSaveManager.Application.Games;
 using GameSaveManager.Domain.Snapshots;
 using System.Diagnostics;
 
@@ -14,11 +15,17 @@ public sealed class CloudSyncService(
     IGameSaveApiClient apiClient,
     ILocalSyncStateStore localSyncStateStore)
 {
-    public async Task<CloudSyncResult> SyncAsync(
+    public Task<CloudSyncResult> SyncAsync(Uri server, string deviceToken, string gameId, string saveDirectory, SnapshotTrigger trigger, string? description, CancellationToken cancellationToken, bool keepLocalOnConflict = false, IProgress<CloudSyncProgress>? progress = null) =>
+        SyncCoreAsync(server, deviceToken, gameId, [SaveRootRule.CreateDefault(saveDirectory, Discovery.SaveLocationSource.Manual, 100, true)], trigger, description, cancellationToken, keepLocalOnConflict, progress);
+
+    public Task<CloudSyncResult> SyncAsync(Uri server, string deviceToken, string gameId, IReadOnlyList<SaveRootRule> saveRoots, SnapshotTrigger trigger, string? description, CancellationToken cancellationToken, bool keepLocalOnConflict = false, IProgress<CloudSyncProgress>? progress = null) =>
+        SyncCoreAsync(server, deviceToken, gameId, saveRoots, trigger, description, cancellationToken, keepLocalOnConflict, progress);
+
+    private async Task<CloudSyncResult> SyncCoreAsync(
         Uri server,
         string deviceToken,
         string gameId,
-        string saveDirectory,
+        IReadOnlyList<SaveRootRule> saveRoots,
         SnapshotTrigger trigger,
         string? description,
         CancellationToken cancellationToken,
@@ -49,7 +56,7 @@ public sealed class CloudSyncService(
         // 用户显式选择“保留本机版本”时，以当前云端 HEAD 为父快照提交；旧云端版本保留在时间线中。
         progress?.Report(new CloudSyncProgress("扫描", 0, 0, "正在扫描存档并计算内容 Hash…"));
         IReadOnlyList<SnapshotFile> manifest =
-            await manifestBuilder.BuildAsync(saveDirectory, cancellationToken);
+            await manifestBuilder.BuildAsync(saveRoots, cancellationToken);
 
         IReadOnlyList<ContentObjectDescriptor> objectDescriptors = manifest
             .Select(file => new ContentObjectDescriptor(file.Sha256, file.Size))
@@ -71,7 +78,7 @@ public sealed class CloudSyncService(
                 throw new InvalidOperationException("服务端返回了本次 Manifest 中不存在的缺失对象");
             }
 
-            string fullPath = ResolveSourcePath(saveDirectory, source.RelativePath);
+            string fullPath = ResolveSourcePath(saveRoots, source.RelativePath);
             await apiClient.UploadObjectAsync(
                 server, deviceToken, fullPath, descriptor, cancellationToken);
             uploaded++;
@@ -123,25 +130,17 @@ public sealed class CloudSyncService(
     /// 把 Manifest 相对路径解析回本地文件，并再次确认结果仍位于存档根目录内。
     /// 使用 Path.GetRelativePath 做边界判断，避免磁盘根目录被 TrimEnd 成 C: 后改变 Path.Combine 语义。
     /// </summary>
-    private static string ResolveSourcePath(string saveDirectory, string relativePath)
+    private static string ResolveSourcePath(IReadOnlyList<SaveRootRule> roots, string manifestPath)
     {
-        string root = Path.GetFullPath(saveDirectory);
-        string localRelativePath = relativePath.Replace('/', Path.DirectorySeparatorChar);
-        string fullPath = Path.GetFullPath(Path.Combine(root, localRelativePath));
-        string resolvedRelativePath = Path.GetRelativePath(root, fullPath);
-
-        bool escapesRoot = Path.IsPathRooted(resolvedRelativePath)
-                           || string.Equals(resolvedRelativePath, "..", StringComparison.Ordinal)
-                           || resolvedRelativePath.StartsWith(
-                               ".." + Path.DirectorySeparatorChar,
-                               StringComparison.Ordinal)
-                           || resolvedRelativePath.StartsWith(
-                               ".." + Path.AltDirectorySeparatorChar,
-                               StringComparison.Ordinal);
-        if (escapesRoot)
-        {
-            throw new IOException($"快照相对路径越过存档目录边界: {relativePath}");
-        }
+        int separator = manifestPath.IndexOf('/');
+        if (separator <= 0 || separator == manifestPath.Length - 1) throw new IOException($"快照路径缺少根目录标识: {manifestPath}");
+        string rootId = manifestPath[..separator];
+        SaveRootRule? rule = roots.FirstOrDefault(root => string.Equals(root.RootId, rootId, StringComparison.OrdinalIgnoreCase));
+        if (rule is null) throw new IOException($"快照路径引用了未知存档根目录: {rootId}");
+        string root = Path.GetFullPath(rule.Path);
+        string fullPath = Path.GetFullPath(Path.Combine(root, manifestPath[(separator + 1)..].Replace('/', Path.DirectorySeparatorChar)));
+        string relative = Path.GetRelativePath(root, fullPath);
+        if (Path.IsPathRooted(relative) || relative.Equals("..", StringComparison.Ordinal) || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)) throw new IOException($"快照路径越过存档根目录边界: {manifestPath}");
         return fullPath;
     }
 }

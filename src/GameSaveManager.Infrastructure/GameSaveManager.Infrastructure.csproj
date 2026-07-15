@@ -11,9 +11,11 @@
       回落到存在 CVE-2025-6965 风险提示的 2.1.11 原生库。
     -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\GameSaveManager.Domain\GameSaveManager.Domain.csproj" />
     <ProjectReference Include="..\GameSaveManager.Application\GameSaveManager.Application.csproj" />
   </ItemGroup>
+  <ItemGroup><None Include="Discovery\Assets\ludusavi-manifest.yaml" CopyToOutputDirectory="PreserveNewest" /><None Include="Discovery\Assets\NOTICE-Ludusavi-manifest.txt" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
 </Project>

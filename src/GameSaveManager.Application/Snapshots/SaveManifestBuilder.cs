@@ -1,63 +1,44 @@
 using GameSaveManager.Application.Files;
+using GameSaveManager.Application.Games;
 using GameSaveManager.Domain.Snapshots;
 
 namespace GameSaveManager.Application.Snapshots;
 
-/// <summary>
-/// 构建存档内容清单。目录扫描是事实来源；mtime/size 只用于命中 SHA-256 缓存。
-/// 文件在构建期间发生变化时拒绝生成半一致 Manifest，由上层稍后重新扫描。
-/// </summary>
-public sealed class SaveManifestBuilder(
-    ISaveDirectoryScanner scanner,
-    IFileHashService hashService,
-    IFileHashCache hashCache)
+public sealed class SaveManifestBuilder(ISaveDirectoryScanner scanner, IFileHashService hashService, IFileHashCache hashCache)
 {
-    public async Task<IReadOnlyList<SnapshotFile>> BuildAsync(
-        string saveDirectory,
-        CancellationToken cancellationToken)
+    public Task<IReadOnlyList<SnapshotFile>> BuildAsync(string saveDirectory, CancellationToken cancellationToken) =>
+        BuildAsync([SaveRootRule.CreateDefault(saveDirectory, Discovery.SaveLocationSource.Manual, 100, true)], cancellationToken);
+
+    public async Task<IReadOnlyList<SnapshotFile>> BuildAsync(IReadOnlyList<SaveRootRule> roots, CancellationToken cancellationToken)
     {
-        IReadOnlyList<ScannedSaveFile> scannedFiles =
-            await scanner.ScanAsync(saveDirectory, cancellationToken);
-
-        var manifest = new List<SnapshotFile>(scannedFiles.Count);
-        foreach (ScannedSaveFile file in scannedFiles.OrderBy(item => item.RelativePath, StringComparer.OrdinalIgnoreCase))
+        if (roots is null || roots.Count == 0) throw new InvalidOperationException("至少需要一个存档根目录。");
+        if (roots.Any(root => !root.UserConfirmed)) throw new InvalidOperationException("所有存档根目录都必须经用户确认。");
+        if (roots.Select(root => root.RootId).Distinct(StringComparer.OrdinalIgnoreCase).Count() != roots.Count) throw new InvalidOperationException("存档根目录标识不能重复。");
+        var manifest = new List<SnapshotFile>();
+        foreach (SaveRootRule root in roots)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            string? sha256 = await hashCache.TryGetAsync(
-                file.FullPath,
-                file.Size,
-                file.LastWriteTimeUtc,
-                cancellationToken);
-
-            if (sha256 is null)
+            IReadOnlyList<ScannedSaveFile> files = await scanner.ScanAsync(root, cancellationToken);
+            foreach (ScannedSaveFile file in files.OrderBy(item => item.RelativePath, StringComparer.OrdinalIgnoreCase))
             {
-                sha256 = await hashService.ComputeSha256Async(file.FullPath, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                string? sha256 = await hashCache.TryGetAsync(file.FullPath, file.Size, file.LastWriteTimeUtc, cancellationToken);
+                if (sha256 is null)
+                {
+                    sha256 = await hashService.ComputeSha256Async(file.FullPath, cancellationToken);
+                    EnsureFileStayedStable(file);
+                    await hashCache.UpsertAsync(file.FullPath, file.Size, file.LastWriteTimeUtc, sha256, cancellationToken);
+                }
                 EnsureFileStayedStable(file);
-                await hashCache.UpsertAsync(
-                    file.FullPath,
-                    file.Size,
-                    file.LastWriteTimeUtc,
-                    sha256,
-                    cancellationToken);
+                manifest.Add(new SnapshotFile($"{root.RootId}/{file.RelativePath}", sha256, file.Size));
             }
-
-            // 缓存命中同样不能跳过稳定性检查：文件可能在初始 Scan 后、读取缓存前后发生变化。
-            EnsureFileStayedStable(file);
-            manifest.Add(new SnapshotFile(file.RelativePath, sha256, file.Size));
         }
-
-        return manifest;
+        if (manifest.Select(file => file.RelativePath).Distinct(StringComparer.OrdinalIgnoreCase).Count() != manifest.Count) throw new InvalidOperationException("多个存档根目录生成了重复文件路径。");
+        return manifest.OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    private static void EnsureFileStayedStable(ScannedSaveFile scannedFile)
+    private static void EnsureFileStayedStable(ScannedSaveFile file)
     {
-        var current = new FileInfo(scannedFile.FullPath);
-        if (!current.Exists
-            || current.Length != scannedFile.Size
-            || current.LastWriteTimeUtc != scannedFile.LastWriteTimeUtc)
-        {
-            throw new IOException($"Save file changed while building manifest and must be rescanned: {scannedFile.RelativePath}");
-        }
+        var current = new FileInfo(file.FullPath);
+        if (!current.Exists || current.Length != file.Size || current.LastWriteTimeUtc != file.LastWriteTimeUtc) throw new IOException($"存档文件在构建清单时发生变化：{file.RelativePath}");
     }
 }
