@@ -1034,7 +1034,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
-            string provider = SelectedDiscoveredGame?.Provider ?? "CUSTOM";
+            string discoveredProvider = SelectedDiscoveredGame?.Provider ?? GameIdentity.Custom;
+            // LOCAL 仅用于客户端识别本地可执行文件，服务端创建云端游戏时应归入自定义游戏。
+            string provider = string.Equals(discoveredProvider, GameIdentity.Local, StringComparison.OrdinalIgnoreCase)
+                ? GameIdentity.Custom
+                : discoveredProvider;
             string? providerGameId = SelectedDiscoveredGame?.ProviderGameId;
             CloudGame game = await _apiClient.CreateGameAsync(server, token, normalizedName, provider, providerGameId, CancellationToken.None);
             await ReloadGamesAsync(server, token);
