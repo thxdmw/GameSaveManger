@@ -78,6 +78,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _restorePreviewText = "选择快照后可预览将恢复的文件数量与大小。";
     private string _saveDirectoryPreviewText = "选择目录后先查看预览，确认后才能同步。";
     private string? _previewedSaveDirectory;
+    private string? _previewedSaveDirectoryFingerprint;
     private bool _isLightTheme;
     private bool _autoStartEnabled;
     private string _quotaUsageText = "尚未加载存储容量";
@@ -200,7 +201,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string ServerAddress { get => _serverAddress; set => SetField(ref _serverAddress, value); }
     public string Username { get => _username; set => SetField(ref _username, value); }
     public string NewGameName { get => _newGameName; set => SetField(ref _newGameName, value); }
-    public string SaveDirectory { get => _saveDirectory; set { if (SetField(ref _saveDirectory, value)) { IsSaveDirectoryConfirmed = false; _previewedSaveDirectory = null; SaveDirectoryPreviewText = "目录已变化，请重新预览。"; } } }
+    public string SaveDirectory { get => _saveDirectory; set { if (SetField(ref _saveDirectory, value)) { IsSaveDirectoryConfirmed = false; _previewedSaveDirectory = null; _previewedSaveDirectoryFingerprint = null; SaveDirectoryPreviewText = "目录已变化，请重新预览。"; } } }
     public string AdditionalSaveRootPath { get => _additionalSaveRootPath; set => SetField(ref _additionalSaveRootPath, value); }
     public string RegistrySaveKeyPath { get => _registrySaveKeyPath; set => SetField(ref _registrySaveKeyPath, value); }
     public bool IsSaveDirectoryConfirmed { get => _isSaveDirectoryConfirmed; private set { if (SetField(ref _isSaveDirectoryConfirmed, value)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SaveDirectoryConfirmationText))); } }
@@ -923,21 +924,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception exception) { ShowError("检测存档目录失败", exception); }
     }
 
+    private SaveRootRule BuildPrimarySaveRootRule() => SaveRootRule.CreateDefault(
+        SaveDirectory, SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual, 100, false);
+
+    private static string CreatePreviewFingerprint(SaveRootRule rule) => string.Join("|",
+        Path.GetFullPath(rule.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+        string.Join(";", rule.IncludePatterns.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)),
+        string.Join(";", rule.ExcludePatterns.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)));
     private async Task PreviewSaveDirectoryAsync()
     {
         try
         {
             if (string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory)) throw new InvalidOperationException("请选择存在的存档目录。");
-            var rule = SaveRootRule.CreateDefault(SaveDirectory, SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual, 100, false);
+            var rule = BuildPrimarySaveRootRule();
             SaveDirectoryPreview preview = await _saveDirectoryPreviewService.PreviewAsync(rule, CancellationToken.None);
             FileCount = preview.FileCount;
             LogicalSizeText = FormatBytes(preview.TotalSize);
             _previewedSaveDirectory = Path.GetFullPath(SaveDirectory);
+            _previewedSaveDirectoryFingerprint = CreatePreviewFingerprint(rule);
             string warnings = preview.Warnings.Count == 0 ? string.Empty : " 警告：" + string.Join("；", preview.Warnings);
             SaveDirectoryPreviewText = $"{preview.FileCount} 个文件，共 {FormatBytes(preview.TotalSize)}；最近修改：{preview.LatestWriteTimeUtc?.ToLocalTime():g}。" + warnings;
             StatusText = "目录预览完成；确认后才会保存并允许同步。";
         }
-        catch (Exception exception) { _previewedSaveDirectory = null; ShowError("预览存档目录失败", exception); }
+        catch (Exception exception) { _previewedSaveDirectory = null; _previewedSaveDirectoryFingerprint = null; ShowError("预览存档目录失败", exception); }
     }
     private async Task ConfirmSaveDirectoryAsync()
     {
