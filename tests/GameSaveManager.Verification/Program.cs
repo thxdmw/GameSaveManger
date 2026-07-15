@@ -53,6 +53,7 @@ await RunAsync("本机游戏配置按服务端隔离", VerifyLocalGameProfileAsy
 await RunAsync("旧本机游戏配置可迁移 EXE 路径字段", VerifyLocalGameProfileSchemaResetAsync);
 await RunAsync("HKCU 注册表存档可安全往返", VerifyRegistrySnapshotAsync);
 await RunAsync("Glob 与注册表 JSON 会进入多根 Manifest", VerifyGlobAndRegistryManifestAsync);
+await RunAsync("多根恢复崩溃后按磁盘事实回滚且不重复处理", GameSaveManager.Verification.RestoreRecoveryVerification.VerifyMultiRootJournalRecoveryAsync);
 await RunAsync("安全重试只重试 GET 请求", RetryAndLoggingVerification.VerifySafeRetryHandlerAsync);
 await RunAsync("结构化日志会脱敏凭据", RetryAndLoggingVerification.VerifyJsonFileLoggerAsync);
 Run("CMS 无时区日期与时间戳可以兼容解析", CmsDateTimeOffsetVerification.Verify);

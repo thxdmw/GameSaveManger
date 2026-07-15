@@ -89,64 +89,88 @@ public sealed class SafeRestoreService(
             if (files.Count == 0) continue;
             string target = Path.GetFullPath(root.Path);
             if (File.Exists(target)) throw new IOException($"存档目录路径被同名文件占用: {target}");
-            string parent = Path.GetDirectoryName(target) ?? throw new IOException("存档目录必须具有父目录");
+            string parent = Path.GetDirectoryName(target) ?? throw new IOException("存档目录必须具有父目录。");
             Directory.CreateDirectory(parent);
             plans.Add(new RestoreRootPlan(root.RootId, target,
                 Path.Combine(parent, $".{Path.GetFileName(target)}.gamesave-staging-{transactionId}"),
                 Path.Combine(parent, $".{Path.GetFileName(target)}.gamesave-safety-{transactionId}"),
-                manifest with { Files = files }));
+                manifest with { Files = files })
+            {
+                OriginalExisted = Directory.Exists(target)
+            });
         }
         if (plans.Count == 0) throw new InvalidDataException("快照不包含已配置存档根目录的文件。");
+
         string journalPath = Path.Combine(transactionDirectory, "multi-root-journal.json");
         DateTimeOffset createdAt = DateTimeOffset.UtcNow;
-        await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Prepared, createdAt), cancellationToken);
+        await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Prepared, createdAt, cancellationToken);
         try
         {
             foreach (RestoreRootPlan plan in plans)
             {
+                plan.State = RestoreRootState.StagingBuilding;
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.BuildingStaging, createdAt, cancellationToken);
                 await BuildAndVerifyStagingAsync(server, deviceToken, plan.Manifest, plan.StagingDirectory, cancellationToken);
                 plan.State = RestoreRootState.StagingBuilt;
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.StagingBuilt, createdAt, cancellationToken);
             }
-            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.StagingBuilt, createdAt), CancellationToken.None);
 
             foreach (RestoreRootPlan plan in plans)
             {
-                if (Directory.Exists(plan.TargetDirectory))
+                plan.OriginalExisted = Directory.Exists(plan.TargetDirectory);
+                if (plan.OriginalExisted)
                 {
+                    plan.State = RestoreRootState.MovingOriginal;
+                    await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.MovingOriginals, createdAt, CancellationToken.None);
                     Directory.Move(plan.TargetDirectory, plan.SafetyBackupDirectory);
                     plan.OriginalMoved = true;
                 }
                 plan.State = RestoreRootState.OriginalMoved;
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.OriginalsMoved, createdAt, CancellationToken.None);
             }
-            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.OriginalsMoved, createdAt), CancellationToken.None);
 
             foreach (RestoreRootPlan plan in plans)
             {
+                plan.State = RestoreRootState.ApplyingTarget;
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.ApplyingTargets, createdAt, CancellationToken.None);
                 Directory.Move(plan.StagingDirectory, plan.TargetDirectory);
                 plan.Applied = true;
                 plan.State = RestoreRootState.Applied;
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.TargetsApplied, createdAt, CancellationToken.None);
             }
-            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.TargetsApplied, createdAt), CancellationToken.None);
 
             foreach (RestoreRootPlan plan in plans)
             {
+                plan.State = RestoreRootState.Verifying;
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Verifying, createdAt, CancellationToken.None);
                 await VerifyDirectoryAsync(plan.TargetDirectory, plan.Manifest.Files, CancellationToken.None);
                 plan.State = RestoreRootState.Verified;
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Verified, createdAt, CancellationToken.None);
             }
-            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Verified, createdAt), CancellationToken.None);
-            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Completed, createdAt), CancellationToken.None);
+
+            await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Completed, createdAt, CancellationToken.None);
             Directory.Delete(transactionDirectory, recursive: true);
             return plans.Select(plan => new RestoreResult(manifest.SnapshotId, plan.TargetDirectory, plan.OriginalMoved ? plan.SafetyBackupDirectory : null)).ToArray();
         }
         catch
         {
-            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RollingBack, createdAt), CancellationToken.None);
-            await RollbackPlansAsync(plans);
-            await WriteMultiJournalAsync(journalPath, CreateMultiJournal(transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RolledBack, createdAt), CancellationToken.None);
+            try
+            {
+                foreach (RestoreRootPlan plan in plans)
+                {
+                    plan.State = RestoreRootState.RollingBack;
+                    await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RollingBack, createdAt, CancellationToken.None);
+                }
+                await RollbackPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, createdAt);
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.RolledBack, createdAt, CancellationToken.None);
+            }
+            catch
+            {
+                await PersistPlansAsync(journalPath, transactionId, gameId, manifest.SnapshotId, plans, MultiRootRestoreState.Failed, createdAt, CancellationToken.None);
+            }
             throw;
         }
     }
-
     private static void ValidateRootDirectories(IReadOnlyList<SaveRootRule> roots)
     {
         string[] paths = roots.Select(root => Path.GetFullPath(root.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).ToArray();
@@ -160,26 +184,56 @@ public sealed class SafeRestoreService(
         }
     }
 
-    private static async Task RollbackPlansAsync(IEnumerable<RestoreRootPlan> plans)
+    private static async Task RollbackPlansAsync(
+        string journalPath,
+        string transactionId,
+        string gameId,
+        string snapshotId,
+        IReadOnlyList<RestoreRootPlan> plans,
+        DateTimeOffset createdAt)
     {
         foreach (RestoreRootPlan plan in plans.Reverse())
         {
-            if (plan.Applied && Directory.Exists(plan.TargetDirectory)) Directory.Delete(plan.TargetDirectory, recursive: true);
+            plan.State = RestoreRootState.RollingBack;
+            await PersistPlansAsync(journalPath, transactionId, gameId, snapshotId, plans, MultiRootRestoreState.RollingBack, createdAt, CancellationToken.None);
+            if (plan.Applied && Directory.Exists(plan.TargetDirectory))
+            {
+                Directory.Delete(plan.TargetDirectory, recursive: true);
+            }
             if (plan.OriginalMoved && Directory.Exists(plan.SafetyBackupDirectory) && !Directory.Exists(plan.TargetDirectory))
+            {
                 Directory.Move(plan.SafetyBackupDirectory, plan.TargetDirectory);
-            if (Directory.Exists(plan.StagingDirectory)) Directory.Delete(plan.StagingDirectory, recursive: true);
+            }
+            if (Directory.Exists(plan.StagingDirectory))
+            {
+                Directory.Delete(plan.StagingDirectory, recursive: true);
+            }
+            plan.State = RestoreRootState.RolledBack;
+            await PersistPlansAsync(journalPath, transactionId, gameId, snapshotId, plans, MultiRootRestoreState.RollingBack, createdAt, CancellationToken.None);
         }
-        await Task.CompletedTask;
     }
-
     private static MultiRootRestoreJournal CreateMultiJournal(string transactionId, string gameId, string snapshotId, IReadOnlyList<RestoreRootPlan> plans, MultiRootRestoreState state, DateTimeOffset createdAt) =>
         new(transactionId, gameId, snapshotId, state, plans.Select(plan => new RestoreRootJournalItem(plan.RootId, plan.TargetDirectory, plan.StagingDirectory, plan.SafetyBackupDirectory, plan.State, plan.OriginalExisted, plan.OriginalMoved, plan.Applied)).ToArray(), createdAt, DateTimeOffset.UtcNow);
 
     private static async Task WriteMultiJournalAsync(string path, MultiRootRestoreJournal journal, CancellationToken cancellationToken)
     {
-        string temporary = path + ".tmp";
-        await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(journal, JournalJsonOptions), cancellationToken);
-        File.Move(temporary, path, overwrite: true);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            await using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await JsonSerializer.SerializeAsync(stream, journal, JournalJsonOptions, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporary, path, overwrite: true);
+        }
+        catch
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+            throw;
+        }
     }
 
     private static Task PersistPlansAsync(string path, string transactionId, string gameId, string snapshotId, IReadOnlyList<RestoreRootPlan> plans, MultiRootRestoreState state, DateTimeOffset createdAt, CancellationToken cancellationToken) =>
@@ -278,30 +332,35 @@ public sealed class SafeRestoreService(
     /// 应用启动时调用。只在“原目录已移走且目标目录不存在”这一确定场景自动回滚；
     /// 其他场景保留现场，避免用猜测覆盖可能已恢复成功的用户数据。
     /// </summary>
-    public async Task<IReadOnlyList<string>> RecoverInterruptedRestoresAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<string>> RecoverInterruptedRestoresAsync(CancellationToken cancellationToken) =>
+        RecoverInterruptedRestoresAsync(RestoreRoot, cancellationToken);
+
+    public async Task<IReadOnlyList<string>> RecoverInterruptedRestoresAsync(string restoreRoot, CancellationToken cancellationToken)
     {
-        if (!Directory.Exists(RestoreRoot))
+        if (!Directory.Exists(restoreRoot))
         {
             return Array.Empty<string>();
         }
 
         var messages = new List<string>();
-        foreach (string journalPath in Directory.EnumerateFiles(RestoreRoot, "multi-root-journal.json", SearchOption.AllDirectories))
+        foreach (string transactionDirectory in Directory.EnumerateDirectories(restoreRoot))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            string journalPath = Path.Combine(transactionDirectory, "multi-root-journal.json");
+            if (!File.Exists(journalPath)) continue;
             MultiRootRestoreJournal? journal = await ReadMultiJournalAsync(journalPath, cancellationToken);
-            if (journal is null || journal.State == MultiRootRestoreState.Completed) continue;
-            await RecoverMultiRootJournalAsync(journal, cancellationToken);
-            messages.Add($"已整体回滚未完成的多目录存档恢复: {journal.SnapshotId}");
+            if (journal is null || journal.State is MultiRootRestoreState.Completed or MultiRootRestoreState.RolledBack) continue;
+            MultiRootRestoreJournal recovered = await RecoverMultiRootJournalAsync(journalPath, journal, cancellationToken);
+            messages.Add(recovered.State == MultiRootRestoreState.RolledBack
+                ? $"已回滚未完成的多目录存档恢复: {journal.SnapshotId}"
+                : $"发现无法自动判定的多目录存档恢复，已保留现场等待人工处理: {journal.SnapshotId}");
         }
-        foreach (string journalPath in Directory.EnumerateFiles(RestoreRoot, "journal.json", SearchOption.AllDirectories))
+
+        foreach (string journalPath in Directory.EnumerateFiles(restoreRoot, "journal.json", SearchOption.AllDirectories))
         {
             cancellationToken.ThrowIfCancellationRequested();
             RestoreJournal? journal = await ReadJournalAsync(journalPath, cancellationToken);
-            if (journal is null || journal.State is RestoreJournalState.Completed)
-            {
-                continue;
-            }
+            if (journal is null || journal.State is RestoreJournalState.Completed) continue;
 
             bool targetExists = Directory.Exists(journal.SaveDirectory);
             bool backupExists = !string.IsNullOrWhiteSpace(journal.SafetyBackupDirectory)
@@ -325,19 +384,68 @@ public sealed class SafeRestoreService(
         catch (JsonException) { return null; }
     }
 
-    private static async Task RecoverMultiRootJournalAsync(MultiRootRestoreJournal journal, CancellationToken cancellationToken)
+    private static async Task<MultiRootRestoreJournal> RecoverMultiRootJournalAsync(
+        string journalPath,
+        MultiRootRestoreJournal journal,
+        CancellationToken cancellationToken)
     {
-        foreach (RestoreRootJournalItem root in journal.Roots.Reverse())
+        RestoreRootJournalItem[] roots = journal.Roots.ToArray();
+        bool requiresManualIntervention = false;
+        for (int index = roots.Length - 1; index >= 0; index--)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (root.State is RestoreRootState.Applied or RestoreRootState.Verified && Directory.Exists(root.TargetDirectory))
-                Directory.Delete(root.TargetDirectory, recursive: true);
-            if (root.State is RestoreRootState.OriginalMoved or RestoreRootState.Applied or RestoreRootState.Verified
-                && Directory.Exists(root.SafetyBackupDirectory) && !Directory.Exists(root.TargetDirectory))
+            RestoreRootJournalItem root = roots[index];
+            RestoreRootState observedState = root.State;
+            roots[index] = root with { State = RestoreRootState.RollingBack };
+            journal = journal with { State = MultiRootRestoreState.RollingBack, Roots = roots, UpdatedAt = DateTimeOffset.UtcNow };
+            await WriteMultiJournalAsync(journalPath, journal, CancellationToken.None);
+
+            bool targetExists = Directory.Exists(root.TargetDirectory);
+            bool safetyExists = Directory.Exists(root.SafetyBackupDirectory);
+            bool recovered = false;
+            if (!targetExists && safetyExists)
+            {
                 Directory.Move(root.SafetyBackupDirectory, root.TargetDirectory);
-            if (Directory.Exists(root.StagingDirectory)) Directory.Delete(root.StagingDirectory, recursive: true);
+                recovered = true;
+            }
+            else if (targetExists && safetyExists && (root.TargetApplied || observedState is RestoreRootState.ApplyingTarget or RestoreRootState.Applied or RestoreRootState.Verifying or RestoreRootState.Verified))
+            {
+                Directory.Delete(root.TargetDirectory, recursive: true);
+                Directory.Move(root.SafetyBackupDirectory, root.TargetDirectory);
+                recovered = true;
+            }
+            else if (targetExists && !safetyExists && !root.OriginalExisted)
+            {
+                Directory.Delete(root.TargetDirectory, recursive: true);
+                recovered = true;
+            }
+            else if (!targetExists && !safetyExists && !root.OriginalExisted)
+            {
+                recovered = true;
+            }
+            else if (targetExists && !safetyExists && root.OriginalExisted
+                     && observedState is RestoreRootState.Prepared or RestoreRootState.StagingBuilding or RestoreRootState.StagingBuilt or RestoreRootState.MovingOriginal)
+            {
+                recovered = true;
+            }
+            else
+            {
+                requiresManualIntervention = true;
+            }
+
+            if (recovered && Directory.Exists(root.StagingDirectory))
+            {
+                Directory.Delete(root.StagingDirectory, recursive: true);
+            }
+            roots[index] = root with { State = recovered ? RestoreRootState.RolledBack : RestoreRootState.Failed };
+            journal = journal with { State = MultiRootRestoreState.RollingBack, Roots = roots, UpdatedAt = DateTimeOffset.UtcNow };
+            await WriteMultiJournalAsync(journalPath, journal, CancellationToken.None);
         }
-        await Task.CompletedTask;
+
+        MultiRootRestoreState finalState = requiresManualIntervention ? MultiRootRestoreState.Failed : MultiRootRestoreState.RolledBack;
+        journal = journal with { State = finalState, Roots = roots, UpdatedAt = DateTimeOffset.UtcNow };
+        await WriteMultiJournalAsync(journalPath, journal, CancellationToken.None);
+        return journal;
     }
     private async Task BuildAndVerifyStagingAsync(
         Uri server,
