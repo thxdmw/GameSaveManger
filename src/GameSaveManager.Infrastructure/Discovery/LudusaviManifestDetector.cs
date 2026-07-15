@@ -58,18 +58,21 @@ internal static class LudusaviManifestDetector
             if (nameNode is not YamlScalarNode { Value: { } name } || dataNode is not YamlMappingNode data) continue;
             string? steam = Scalar(data, "steam", "id");
             string? gog = Scalar(data, "gog", "id");
+            string? aliasTarget = Scalar(data, "alias");
             var aliases = Sequence(data, "alias").Append(name).ToArray();
-            var files = MappingKeys(data, "files").Where(path => IsWindowsRule(data, path)).ToArray();
-            if (files.Length > 0) entries.Add(new ManifestEntry(name, steam, gog, aliases, files));
+            var files = MappingKeys(data, "files").Where(path => IsRuleAllowed(data, path)).ToArray();
+            if (files.Length > 0 || aliasTarget is not null) entries.Add(new ManifestEntry(name, steam, gog, aliases, files, aliasTarget));
         }
         return new ManifestIndex(entries);
     }
 
-    private static bool IsWindowsRule(YamlMappingNode data, string path)
+    private static bool IsRuleAllowed(YamlMappingNode data, string path)
     {
         if (!data.Children.TryGetValue(new YamlScalarNode("files"), out YamlNode? files) || files is not YamlMappingNode mapping || !mapping.Children.TryGetValue(new YamlScalarNode(path), out YamlNode? node) || node is not YamlMappingNode file) return true;
-        if (!file.Children.TryGetValue(new YamlScalarNode("when"), out YamlNode? when)) return true;
-        return when.ToString().Contains("windows", StringComparison.OrdinalIgnoreCase) || !when.ToString().Contains("os", StringComparison.OrdinalIgnoreCase);
+        if (!file.Children.TryGetValue(new YamlScalarNode("when"), out YamlNode? when) || when is not YamlMappingNode constraints) return true;
+        string? os = (constraints.Children.TryGetValue(new YamlScalarNode("os"), out YamlNode? osNode) ? (osNode as YamlScalarNode)?.Value : null);
+        if (!string.IsNullOrWhiteSpace(os) && !os.Split(',', StringSplitOptions.TrimEntries).Contains("windows", StringComparer.OrdinalIgnoreCase)) return false;
+        return true;
     }
 
     private static string? ResolveDirectory(string rule, GameIdentity game)
@@ -77,8 +80,8 @@ internal static class LudusaviManifestDetector
         string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["home"] = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ["root"] = Path.GetPathRoot(game.InstallDirectory) ?? string.Empty,
-            ["game"] = game.InstallDirectory, ["base"] = game.InstallDirectory, ["storeGameId"] = game.ProviderGameId ?? string.Empty,
+            ["home"] = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ["root"] = FindStoreRoot(game.InstallDirectory) ?? string.Empty,
+            ["game"] = Path.GetFileName(game.InstallDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)), ["base"] = game.InstallDirectory, ["storeGameId"] = game.ProviderGameId ?? string.Empty,
             ["storeUserId"] = string.Empty, ["osUserName"] = Environment.UserName, ["winDocuments"] = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             ["winAppData"] = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ["winLocalAppData"] = local,
             ["winLocalAppDataLow"] = Path.Combine(local, "..", "LocalLow"), ["winPublic"] = Environment.GetFolderPath(Environment.SpecialFolder.CommonDocuments),
@@ -92,11 +95,19 @@ internal static class LudusaviManifestDetector
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
     }
 
+    private static string? FindStoreRoot(string installDirectory)
+    {
+        DirectoryInfo? current = new(installDirectory);
+        while (current is not null) { if (string.Equals(current.Name, "steamapps", StringComparison.OrdinalIgnoreCase)) return current.Parent?.FullName; current = current.Parent; }
+        return null;
+    }
+
+    private static string? Scalar(YamlMappingNode node, string key) => node.Children.TryGetValue(new YamlScalarNode(key), out YamlNode? value) ? (value as YamlScalarNode)?.Value : null;
     private static string? Scalar(YamlMappingNode node, string parent, string child) => node.Children.TryGetValue(new YamlScalarNode(parent), out YamlNode? value) && value is YamlMappingNode map && map.Children.TryGetValue(new YamlScalarNode(child), out YamlNode? scalar) ? (scalar as YamlScalarNode)?.Value : null;
     private static IEnumerable<string> Sequence(YamlMappingNode node, string key) => node.Children.TryGetValue(new YamlScalarNode(key), out YamlNode? value) && value is YamlSequenceNode sequence ? sequence.Children.OfType<YamlScalarNode>().Select(item => item.Value!).Where(item => !string.IsNullOrWhiteSpace(item)) : [];
     private static IEnumerable<string> MappingKeys(YamlMappingNode node, string key) => node.Children.TryGetValue(new YamlScalarNode(key), out YamlNode? value) && value is YamlMappingNode mapping ? mapping.Children.Keys.OfType<YamlScalarNode>().Select(item => item.Value!).Where(item => !string.IsNullOrWhiteSpace(item)) : [];
 
-    private sealed record ManifestEntry(string Name, string? SteamId, string? GogId, IReadOnlyList<string> Aliases, IReadOnlyList<string> Files)
+    private sealed record ManifestEntry(string Name, string? SteamId, string? GogId, IReadOnlyList<string> Aliases, IReadOnlyList<string> Files, string? AliasTarget)
     {
         public int MatchConfidence { get; private set; }
         public bool Matches(GameIdentity game)
@@ -110,7 +121,13 @@ internal static class LudusaviManifestDetector
 
     private sealed class ManifestIndex(IReadOnlyList<ManifestEntry> entries)
     {
-        public ManifestEntry? Find(GameIdentity game) => entries.FirstOrDefault(entry => entry.Matches(game));
+        public ManifestEntry? Find(GameIdentity game)
+        {
+            ManifestEntry? entry = entries.FirstOrDefault(item => item.Matches(game));
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (entry?.AliasTarget is { Length: > 0 } target && visited.Add(entry.Name)) entry = entries.FirstOrDefault(item => string.Equals(item.Name, target, StringComparison.OrdinalIgnoreCase));
+            return entry;
+        }
     }
 
     private static string Normalize(string value) => Regex.Replace(value.ToLowerInvariant(), "[\\s:_'?\\-]", string.Empty)
