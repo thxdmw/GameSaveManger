@@ -173,7 +173,7 @@ public sealed class SafeRestoreService(
     }
 
     private static MultiRootRestoreJournal CreateMultiJournal(string transactionId, string gameId, string snapshotId, IReadOnlyList<RestoreRootPlan> plans, MultiRootRestoreState state, DateTimeOffset createdAt) =>
-        new(transactionId, gameId, snapshotId, state, plans.Select(plan => new RestoreRootJournalItem(plan.RootId, plan.TargetDirectory, plan.StagingDirectory, plan.SafetyBackupDirectory, plan.State)).ToArray(), createdAt, DateTimeOffset.UtcNow);
+        new(transactionId, gameId, snapshotId, state, plans.Select(plan => new RestoreRootJournalItem(plan.RootId, plan.TargetDirectory, plan.StagingDirectory, plan.SafetyBackupDirectory, plan.State, plan.OriginalExisted, plan.OriginalMoved, plan.Applied)).ToArray(), createdAt, DateTimeOffset.UtcNow);
 
     private static async Task WriteMultiJournalAsync(string path, MultiRootRestoreJournal journal, CancellationToken cancellationToken)
     {
@@ -182,6 +182,8 @@ public sealed class SafeRestoreService(
         File.Move(temporary, path, overwrite: true);
     }
 
+    private static Task PersistPlansAsync(string path, string transactionId, string gameId, string snapshotId, IReadOnlyList<RestoreRootPlan> plans, MultiRootRestoreState state, DateTimeOffset createdAt, CancellationToken cancellationToken) =>
+        WriteMultiJournalAsync(path, CreateMultiJournal(transactionId, gameId, snapshotId, plans, state, createdAt), cancellationToken);
     private sealed class RestoreRootPlan(string rootId, string targetDirectory, string stagingDirectory, string safetyBackupDirectory, CloudSnapshotManifest manifest)
     {
         public string RootId { get; } = rootId;
@@ -190,6 +192,7 @@ public sealed class SafeRestoreService(
         public string SafetyBackupDirectory { get; } = safetyBackupDirectory;
         public CloudSnapshotManifest Manifest { get; } = manifest;
         public RestoreRootState State { get; set; } = RestoreRootState.Prepared;
+        public bool OriginalExisted { get; set; }
         public bool OriginalMoved { get; set; }
         public bool Applied { get; set; }
     }

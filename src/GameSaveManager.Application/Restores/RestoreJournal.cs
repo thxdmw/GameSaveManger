@@ -28,6 +28,6 @@ public sealed record RestoreResult(
     string SaveDirectory,
     string? SafetyBackupDirectory);
 public enum MultiRootRestoreState { Prepared, StagingBuilt, OriginalsMoved, TargetsApplied, Verified, Completed, RollingBack, RolledBack, Failed }
-public enum RestoreRootState { Prepared, StagingBuilt, OriginalMoved, Applied, Verified }
-public sealed record RestoreRootJournalItem(string RootId, string TargetDirectory, string StagingDirectory, string SafetyBackupDirectory, RestoreRootState State);
+public enum RestoreRootState { Prepared, StagingBuilding, StagingBuilt, MovingOriginal, OriginalMoved, ApplyingTarget, Applied, Verifying, Verified, RollingBack, RolledBack, Failed }
+public sealed record RestoreRootJournalItem(string RootId, string TargetDirectory, string StagingDirectory, string SafetyBackupDirectory, RestoreRootState State, bool OriginalExisted, bool OriginalMoved, bool TargetApplied);
 public sealed record MultiRootRestoreJournal(string TransactionId, string GameId, string SnapshotId, MultiRootRestoreState State, IReadOnlyList<RestoreRootJournalItem> Roots, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
