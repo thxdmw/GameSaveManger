@@ -36,7 +36,10 @@ public static class ThemeManager
 
         foreach ((string key, string color) in palette)
         {
-            System.Windows.Application.Current.Resources[key] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+            Color parsedColor = (Color)ColorConverter.ConvertFromString(color);
+            System.Windows.Application.Current.Resources[key] = key.StartsWith("GameCardHero", StringComparison.Ordinal)
+                ? parsedColor
+                : new SolidColorBrush(parsedColor);
         }
     }
 }

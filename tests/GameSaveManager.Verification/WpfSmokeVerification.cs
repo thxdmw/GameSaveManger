@@ -5,6 +5,7 @@ using GameSaveManager.App;
 using GameSaveManager.App.Views;
 using GameSaveManager.App.ViewModels;
 using GameSaveManager.App.Theming;
+using GameSaveManager.Application.Api;
 
 namespace GameSaveManager.Verification;
 
@@ -40,13 +41,18 @@ internal static class WpfSmokeVerification
             var application = new WpfApplication();
             application.InitializeComponent();
             MainViewModel viewModel = SmokeViewModelFactory.Create();
+            viewModel.Games.Add(new CloudGame("smoke-game", "界面冒烟游戏", "CUSTOM", null));
             var window = new MainWindow { DataContext = viewModel };
             var wizard = new AddGameWizardWindow(viewModel);
             var saveConfiguration = new SaveConfigurationDialog(viewModel.SaveConfiguration);
             var conflict = new ConflictResolutionDialog(viewModel);
             ThemeManager.Apply(useLightTheme: true);
-            ThemeManager.Apply(useLightTheme: false);
             window.Measure(new Size(1100, 700));
+            window.Arrange(new Rect(0, 0, 1100, 700));
+            window.UpdateLayout();
+            ThemeManager.Apply(useLightTheme: false);
+            window.InvalidateVisual();
+            window.UpdateLayout();
             wizard.Measure(new Size(700, 620));
             saveConfiguration.Measure(new Size(700, 600));
             conflict.Measure(new Size(620, 460));

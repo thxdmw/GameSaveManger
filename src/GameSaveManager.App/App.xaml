@@ -22,9 +22,9 @@
         <SolidColorBrush x:Key="DangerSurface" Color="#3A1720"/>
         <SolidColorBrush x:Key="Warning" Color="#F2B84B"/>
         <SolidColorBrush x:Key="WarningSurface" Color="#382B14"/>
-        <SolidColorBrush x:Key="GameCardHeroStart" Color="#1A3C60"/>
-        <SolidColorBrush x:Key="GameCardHeroMiddle" Color="#172338"/>
-        <SolidColorBrush x:Key="GameCardHeroEnd" Color="#46354B"/>
+        <Color x:Key="GameCardHeroStart">#1A3C60</Color>
+        <Color x:Key="GameCardHeroMiddle">#172338</Color>
+        <Color x:Key="GameCardHeroEnd">#46354B</Color>
         <SolidColorBrush x:Key="GameCardAccent" Color="#6CACFF"/>
         <SolidColorBrush x:Key="LogoSurface" Color="#102C4B"/>
         <SolidColorBrush x:Key="LogoAccent" Color="#58CBFF"/>
