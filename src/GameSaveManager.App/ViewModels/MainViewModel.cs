@@ -781,11 +781,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SaveDirectory, AutoSnapshotProcessName, AutoSnapshotExecutablePath,
             SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual,
             SelectedSaveLocationCandidate?.Confidence ?? (IsSaveDirectoryConfirmed ? 100 : 0),
-            IsSaveDirectoryConfirmed, autoSnapshotEnabled && IsSaveDirectoryConfirmed, GetConfiguredSaveRoots(server, SelectedGame.GameId), RegistrySaveRules.ToArray());
+            IsSaveDirectoryConfirmed, autoSnapshotEnabled && IsSaveDirectoryConfirmed, GetConfiguredSaveRoots(server, SelectedGame.GameId), RegistrySaveRules.ToArray(), identity.ExecutablePath, CreateLaunchProfile(identity));
         await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
         _localGameProfiles[profile.GameId] = profile;
         RefreshGameRuntimeStatus();
         return profile;
+    }
+    private static GameLaunchProfile? CreateLaunchProfile(GameIdentity identity)
+    {
+        if (string.IsNullOrWhiteSpace(identity.ExecutablePath)) return null;
+        return new GameLaunchProfile(
+            GameLaunchTargetType.Executable,
+            identity.ExecutablePath,
+            null,
+            Path.GetDirectoryName(identity.ExecutablePath),
+            false,
+            string.IsNullOrWhiteSpace(identity.ProcessName) ? [] : [Path.GetFileNameWithoutExtension(identity.ProcessName)]);
     }
     private async Task RefreshAutomaticSyncConfigurationAsync(Uri server, string token, LocalGameProfile profile)
     {
@@ -1377,7 +1388,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsSaveDirectoryConfirmed = profile.UserConfirmed;
             AutoSnapshotProcessName = profile.ProcessName;
             AutoSnapshotExecutablePath = profile.ExecutablePath;
-            await LaunchGameAsync(new GameIdentity(game.Name, profile.Provider, profile.ProviderGameId, profile.InstallDirectory ?? string.Empty, profile.ExecutablePath, profile.ProcessName));
+            GameLaunchProfile launchProfile = profile.EffectiveLaunchProfile ?? throw new InvalidOperationException("未找到有效的游戏启动配置。");
+            await _gameLaunchService.LaunchAsync(launchProfile, profile.InstallDirectory, CancellationToken.None);
             StatusText = $"已启动 {game.Name}，运行状态会自动刷新。";
             await Task.Delay(300);
             RefreshGameRuntimeStatus();

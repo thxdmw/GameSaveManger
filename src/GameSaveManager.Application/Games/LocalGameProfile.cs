@@ -1,8 +1,8 @@
 namespace GameSaveManager.Application.Games;
 
 using GameSaveManager.Application.Discovery;
+using GameSaveManager.Application.Launching;
 
-/// <summary>本地游戏配置；自动同步只能使用已确认的存档根目录。</summary>
 public sealed record LocalGameProfile(
     string ServerKey,
     string GameId,
@@ -17,10 +17,17 @@ public sealed record LocalGameProfile(
     bool UserConfirmed,
     bool AutoSnapshotEnabled,
     IReadOnlyList<SaveRootRule>? SaveRoots = null,
-    IReadOnlyList<RegistrySaveRule>? RegistrySaveRules = null)
+    IReadOnlyList<RegistrySaveRule>? RegistrySaveRules = null,
+    string? IdentityExecutablePath = null,
+    GameLaunchProfile? LaunchProfile = null)
 {
+    public GameLaunchProfile? EffectiveLaunchProfile => LaunchProfile ?? (string.IsNullOrWhiteSpace(ExecutablePath) ? null : new GameLaunchProfile(
+        GameLaunchTargetType.Executable, ExecutablePath, null, Path.GetDirectoryName(ExecutablePath), false,
+        string.IsNullOrWhiteSpace(ProcessName) ? [] : [Path.GetFileNameWithoutExtension(ProcessName)]));
+
     public IReadOnlyList<SaveRootRule> EffectiveSaveRoots => SaveRoots is { Count: > 0 }
         ? SaveRoots
         : [SaveRootRule.CreateDefault(SaveDirectory, SaveDirectorySource, SaveDirectoryConfidence, UserConfirmed)];
+
     public IReadOnlyList<RegistrySaveRule> EffectiveRegistrySaveRules => RegistrySaveRules ?? [];
 }

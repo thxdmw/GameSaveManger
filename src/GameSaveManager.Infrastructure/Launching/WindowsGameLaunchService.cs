@@ -4,8 +4,9 @@ using GameSaveManager.Application.Launching;
 namespace GameSaveManager.Infrastructure.Launching;
 
 /// <summary>通过 Windows Shell 直接请求启动游戏入口，不经由 Explorer 或命令解释器中转。</summary>
-public sealed class WindowsGameLaunchService : IGameLaunchService
+public sealed class WindowsGameLaunchService(IGameProcessDetectionService? processDetectionService = null) : IGameLaunchService
 {
+    private readonly IGameProcessDetectionService _processDetectionService = processDetectionService ?? new WindowsGameProcessDetectionService();
     public Task<GameLaunchResult> LaunchAsync(
         GameLaunchProfile profile,
         string? installDirectory,
@@ -15,20 +16,19 @@ public sealed class WindowsGameLaunchService : IGameLaunchService
         ArgumentNullException.ThrowIfNull(profile);
 
         ProcessStartInfo startInfo = CreateStartInfo(profile);
+        ProcessSnapshot before = _processDetectionService.CaptureSnapshot();
         DateTimeOffset requestedAt = DateTimeOffset.UtcNow;
         using Process? process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Windows 未接受游戏启动请求。");
 
-        return Task.FromResult(new GameLaunchResult(
-            true,
-            TryGetProcessId(process),
-            requestedAt,
-            profile.Target,
-            startInfo.WorkingDirectory,
-            [],
-            null));
+        return CreateResultAsync(process, before, profile, installDirectory, requestedAt, startInfo.WorkingDirectory, cancellationToken);
     }
 
+    private async Task<GameLaunchResult> CreateResultAsync(Process process, ProcessSnapshot before, GameLaunchProfile profile, string? installDirectory, DateTimeOffset requestedAt, string workingDirectory, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<DetectedGameProcess> detected = await _processDetectionService.DetectNewProcessesAsync(before, installDirectory, profile.MonitoredProcessNames, TimeSpan.FromSeconds(15), cancellationToken);
+        return new GameLaunchResult(true, TryGetProcessId(process), requestedAt, profile.Target, workingDirectory, detected, detected.Count == 0 ? "未在 15 秒内检测到持续运行的游戏进程。" : null);
+    }
     private static ProcessStartInfo CreateStartInfo(GameLaunchProfile profile) => profile.TargetType switch
     {
         GameLaunchTargetType.Executable => CreateExecutableStartInfo(profile),
