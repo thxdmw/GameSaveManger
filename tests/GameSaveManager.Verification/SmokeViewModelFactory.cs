@@ -2,6 +2,7 @@ using System.Net.Http;
 using GameSaveManager.App.ViewModels;
 using GameSaveManager.Application.Diagnostics;
 using GameSaveManager.Application.Discovery;
+using GameSaveManager.Application.Launching;
 using GameSaveManager.Application.Monitoring;
 using GameSaveManager.Application.Restores;
 using GameSaveManager.Application.Snapshots;

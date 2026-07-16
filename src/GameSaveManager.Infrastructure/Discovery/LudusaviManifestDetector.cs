@@ -417,7 +417,7 @@ internal static class LudusaviManifestDetector
             }
             if (entry is null) return null;
 
-            string installDirectory = entry.InstallDirectories.FirstOrDefault(name =>
+            string? installDirectory = entry.InstallDirectories.FirstOrDefault(name =>
                 string.Equals(
                     Normalize(name),
                     Normalize(Path.GetFileName(Path.TrimEndingDirectorySeparator(game.InstallDirectory))),
@@ -432,8 +432,10 @@ internal static class LudusaviManifestDetector
             while (entry.AliasTarget is { Length: > 0 } target)
             {
                 if (!visited.Add(entry.Name)) return null;
-                entry = entries.FirstOrDefault(item => string.Equals(item.Name, target, StringComparison.OrdinalIgnoreCase));
-                if (entry is null) return null;
+                ManifestEntry? targetEntry = entries.FirstOrDefault(item =>
+                    string.Equals(item.Name, target, StringComparison.OrdinalIgnoreCase));
+                if (targetEntry is null) return null;
+                entry = targetEntry;
             }
             return entry;
         }

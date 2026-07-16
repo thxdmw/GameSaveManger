@@ -8,6 +8,7 @@ using System.Windows.Data;
 using System.Windows.Threading;
 using GameSaveManager.App.Common;
 using GameSaveManager.App.Theming;
+using GameSaveManager.Application;
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Device;
 using GameSaveManager.Application.Diagnostics;
@@ -928,7 +929,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     launchProfile with
                     {
                         MonitoredProcessNames = launchProfile.MonitoredProcessNames
-                            .Concat([shortcut.TargetPath])
+                            .Concat(string.IsNullOrWhiteSpace(shortcut.TargetPath)
+                                ? []
+                                : [shortcut.TargetPath])
                             .ToArray()
                     },
                     AutoSnapshotProcessName)
@@ -1513,7 +1516,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             string token = await RequireDeviceTokenAsync(server);
             string downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
             string name = string.Concat(SelectedGame.Name.Select(character => Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
-            string destination = Path.Combine(downloads, $"{name}-{SelectedSnapshot.CreateTime:yyyyMMdd-HHmmss}.zip");
+            string destination = Path.Combine(downloads, $"{name}-{SelectedSnapshot.LocalCreateTime:yyyyMMdd-HHmmss}.zip");
             StatusText = "正在下载并校验快照内容，然后导出 ZIP…";
             string exported = await _snapshotExportService.ExportAsync(server, token, SelectedGame.GameId,
                 SelectedSnapshot.SnapshotId, destination, CancellationToken.None);

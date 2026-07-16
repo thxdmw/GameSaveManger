@@ -3,7 +3,7 @@ using System.ComponentModel;
 using System.Windows.Input;
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Discovery;
-using GameSaveManager.Application.Persistence;
+using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Security;
 
 namespace GameSaveManager.App.ViewModels;

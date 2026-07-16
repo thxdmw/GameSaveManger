@@ -51,7 +51,7 @@
                     <ItemsControl Margin="0,12,0,0" ItemsSource="{Binding RecentSnapshots}">
                         <ItemsControl.ItemTemplate><DataTemplate>
                             <DockPanel Margin="0,5">
-                                <TextBlock Foreground="{DynamicResource Text}" Text="{Binding CreateTime, StringFormat={}{0:yyyy-MM-dd HH:mm}}"/>
+                                <TextBlock Foreground="{DynamicResource Text}" Text="{Binding LocalCreateTime, StringFormat={}{0:yyyy-MM-dd HH:mm}}"/>
                                 <TextBlock DockPanel.Dock="Right" Foreground="{DynamicResource Muted}" Text="{Binding TriggerDisplayText}"/>
                             </DockPanel>
                         </DataTemplate></ItemsControl.ItemTemplate>

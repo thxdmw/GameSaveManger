@@ -1,14 +1,17 @@
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using GameSaveManager.Application.Launching;
 
 namespace GameSaveManager.Infrastructure.Launching;
 
 /// <summary>通过 Windows Script Host 解析快捷方式，COM 对象仅存在于基础设施层。</summary>
+[SupportedOSPlatform("windows")]
 public sealed class WindowsShortcutResolver : IShortcutResolver
 {
     public Task<ShortcutResolution> ResolveAsync(string shortcutPath, CancellationToken cancellationToken) =>
         Task.Run(() => Resolve(shortcutPath, cancellationToken), cancellationToken);
 
+    [SupportedOSPlatform("windows")]
     private static ShortcutResolution Resolve(string shortcutPath, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -24,6 +27,7 @@ public sealed class WindowsShortcutResolver : IShortcutResolver
             if (shellType is null) throw new InvalidOperationException("当前系统不支持 Windows Script Host。");
             shell = Activator.CreateInstance(shellType);
             shortcut = shellType.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell, [fullPath]);
+            if (shortcut is null) throw new InvalidOperationException("无法创建快捷方式解析对象。");
             Type shortcutType = shortcut.GetType();
             string? target = shortcutType.InvokeMember("TargetPath", System.Reflection.BindingFlags.GetProperty, null, shortcut, null)?.ToString();
             string? arguments = shortcutType.InvokeMember("Arguments", System.Reflection.BindingFlags.GetProperty, null, shortcut, null)?.ToString();

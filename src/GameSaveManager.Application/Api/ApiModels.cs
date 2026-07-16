@@ -24,7 +24,11 @@ public sealed record CloudDevice(
     string DeviceName,
     DateTimeOffset? LastSeenTime,
     bool Active,
-    DateTimeOffset? CreateTime);
+    DateTimeOffset? CreateTime)
+{
+    public DateTimeOffset? LocalLastSeenTime => LastSeenTime?.ToLocalTime();
+    public DateTimeOffset? LocalCreateTime => CreateTime?.ToLocalTime();
+}
 
 /// <summary>指定游戏当前云端同步 HEAD。</summary>
 public sealed record CloudHead(string GameId, string? HeadSnapshotId, long Version);
@@ -52,6 +56,7 @@ public sealed record CloudSnapshotSummary(
     int ChangedFileCount,
     DateTimeOffset CreateTime)
 {
+    public DateTimeOffset LocalCreateTime => CreateTime.ToLocalTime();
     public string TriggerDisplayText => SnapshotTriggerNames.ToDisplayName(TriggerType);
 }
 

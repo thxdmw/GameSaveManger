@@ -49,7 +49,7 @@
                             <ItemsControl.ItemTemplate><DataTemplate>
                                 <Border Width="116" Height="82" Padding="9" Margin="0,0,10,0" Background="{DynamicResource ItemBackground}" BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="9">
                                     <StackPanel>
-                                        <TextBlock Foreground="{DynamicResource Text}" FontSize="12" Text="{Binding CreateTime, StringFormat={}{0:MM/dd HH:mm}}"/>
+                                        <TextBlock Foreground="{DynamicResource Text}" FontSize="12" Text="{Binding LocalCreateTime, StringFormat={}{0:MM/dd HH:mm}}"/>
                                         <TextBlock Margin="0,7,0,0" Foreground="{DynamicResource Muted}" FontSize="11" Text="{Binding TriggerDisplayText}" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
                                 </Border>
