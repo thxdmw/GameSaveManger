@@ -25,4 +25,9 @@
       <Link>Assets\NOTICE-Ludusavi-manifest.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
   </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>GameSaveManager.Verification</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>

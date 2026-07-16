@@ -74,7 +74,7 @@ public sealed class SqliteLocalGameProfileStore(SqliteDatabase database) : ILoca
         command.Parameters.AddWithValue("$confirmed", profile.UserConfirmed ? 1 : 0);
         command.Parameters.AddWithValue("$enabled", profile.AutoSnapshotEnabled && profile.UserConfirmed ? 1 : 0);
         command.Parameters.AddWithValue("$identityExecutablePath", (object?)profile.IdentityExecutablePath ?? DBNull.Value);
-        command.Parameters.AddWithValue("$launchProfile", (object?)JsonSerializer.Serialize(profile.EffectiveLaunchProfile) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$launchProfile", profile.EffectiveLaunchProfile is null ? DBNull.Value : JsonSerializer.Serialize(profile.EffectiveLaunchProfile));
         command.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         await command.ExecuteNonQueryAsync(cancellationToken);
     }

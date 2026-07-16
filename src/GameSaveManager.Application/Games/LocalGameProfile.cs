@@ -22,7 +22,7 @@ public sealed record LocalGameProfile(
     GameLaunchProfile? LaunchProfile = null)
 {
     public GameLaunchProfile? EffectiveLaunchProfile => LaunchProfile ?? (string.IsNullOrWhiteSpace(ExecutablePath) ? null : new GameLaunchProfile(
-        GameLaunchTargetType.Executable, ExecutablePath, null, Path.GetDirectoryName(ExecutablePath), false,
+        Path.GetExtension(ExecutablePath).Equals(".lnk", StringComparison.OrdinalIgnoreCase) ? GameLaunchTargetType.Shortcut : GameLaunchTargetType.Executable, ExecutablePath, null, Path.GetDirectoryName(ExecutablePath), false,
         string.IsNullOrWhiteSpace(ProcessName) ? [] : [Path.GetFileNameWithoutExtension(ProcessName)]));
 
     public IReadOnlyList<SaveRootRule> EffectiveSaveRoots => SaveRoots is { Count: > 0 }

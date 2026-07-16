@@ -9,6 +9,8 @@ public partial class AddGameWizardWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+        viewModel.GameCreated += ViewModel_OnGameCreated;
+        Closed += (_, _) => viewModel.GameCreated -= ViewModel_OnGameCreated;
     }
 
     private async void ChooseLocalGameExecutableButton_OnClick(object sender, RoutedEventArgs e)
@@ -16,6 +18,9 @@ public partial class AddGameWizardWindow : Window
         var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "游戏启动入口 (*.exe;*.lnk)|*.exe;*.lnk", CheckFileExists = true };
         if (dialog.ShowDialog(this) != true || DataContext is not MainViewModel viewModel) return;
         await viewModel.AddLocalGameFromExecutableAsync(dialog.FileName);
-        DialogResult = true;
+    }
+    private void ViewModel_OnGameCreated(object? sender, EventArgs e)
+    {
+        if (IsVisible) DialogResult = true;
     }
 }

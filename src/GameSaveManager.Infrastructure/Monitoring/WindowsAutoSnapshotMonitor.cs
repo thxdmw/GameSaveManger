@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using GameSaveManager.Application.Monitoring;
 
 namespace GameSaveManager.Infrastructure.Monitoring;
@@ -20,7 +20,8 @@ public sealed class WindowsAutoSnapshotMonitor : IAutoSnapshotMonitor
 
     public Task StartAsync(AutoSnapshotProfile profile, Func<CancellationToken, Task> onDirtyGameExitedAsync, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(profile.ProcessName);
+        ArgumentNullException.ThrowIfNull(profile.ProcessNames);
+        if (profile.ProcessNames.Count == 0 || profile.ProcessNames.All(string.IsNullOrWhiteSpace)) throw new ArgumentException("至少需要一个游戏进程名。", nameof(profile));
         ArgumentNullException.ThrowIfNull(profile.SaveDirectories);
         ArgumentNullException.ThrowIfNull(onDirtyGameExitedAsync);
         return StartCoreAsync(profile, onDirtyGameExitedAsync, cancellationToken);
@@ -69,7 +70,7 @@ public sealed class WindowsAutoSnapshotMonitor : IAutoSnapshotMonitor
             _profile = profile with { SaveDirectories = directories };
             _onDirtyGameExitedAsync = callback;
             _dirty = false;
-            _wasRunning = IsProcessRunning(profile.ProcessName);
+            _wasRunning = IsAnyProcessRunning(profile.ProcessNames);
             _watchers.AddRange(created);
             _lifetime = lifetime;
             _loop = MonitorLoopAsync(lifetime.Token);
@@ -110,7 +111,7 @@ public sealed class WindowsAutoSnapshotMonitor : IAutoSnapshotMonitor
             AutoSnapshotProfile? profile = _profile;
             Func<CancellationToken, Task>? callback = _onDirtyGameExitedAsync;
             if (profile is null || callback is null) continue;
-            bool running = IsProcessRunning(profile.ProcessName);
+            bool running = IsAnyProcessRunning(profile.ProcessNames);
             if (running) { _wasRunning = true; continue; }
             if (!_wasRunning || !_dirty) continue;
             _wasRunning = false;
@@ -126,6 +127,11 @@ public sealed class WindowsAutoSnapshotMonitor : IAutoSnapshotMonitor
     {
         Trace.TraceWarning($"自动同步目录监控发生错误：{eventArgs.GetException().GetType().Name}");
         _dirty = true;
+    }
+
+    private static bool IsAnyProcessRunning(IReadOnlyList<string> processNames)
+    {
+        return processNames.Any(IsProcessRunning);
     }
 
     private static bool IsProcessRunning(string processName)

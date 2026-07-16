@@ -57,6 +57,10 @@ await RunAsync("Glob 与注册表 JSON 会进入多根 Manifest", VerifyGlobAndR
 await RunAsync("多根恢复崩溃后按磁盘事实回滚且不重复处理", GameSaveManager.Verification.RestoreRecoveryVerification.VerifyMultiRootJournalRecoveryAsync);
 await RunAsync("安全重试只重试 GET 请求", RetryAndLoggingVerification.VerifySafeRetryHandlerAsync);
 await RunAsync("结构化日志会脱敏凭据", RetryAndLoggingVerification.VerifyJsonFileLoggerAsync);
+Run("Ludusavi 商店条件与受限 Glob 会返回实际目录", GameSaveManager.Verification.LudusaviManifestVerification.VerifyStoreConditionsAndGlobExpansion);
+Run("Ludusavi 安装目录、Alias 循环与二级 Manifest 语义正确", GameSaveManager.Verification.LudusaviManifestVerification.VerifyInstallDirectoryAliasCycleAndSecondaryManifest);
+Run("网络错误会转换为可操作的统一错误", GameSaveManager.Verification.ClientOperationErrorVerification.VerifyClassification);
+await RunAsync("游戏进程检测会等待并确认稳定进程", GameSaveManager.Verification.GameProcessDetectionVerification.VerifyDelayedPollingAndStableProcessAsync);
 Run("CMS 无时区日期与时间戳可以兼容解析", CmsDateTimeOffsetVerification.Verify);
 Run("Desktop UI starts without WPF binding errors", GameSaveManager.Verification.WpfSmokeVerification.VerifyMainWindowLoadsWithoutBindingErrors);
 

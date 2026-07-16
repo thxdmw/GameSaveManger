@@ -2,16 +2,25 @@ using System.Windows.Input;
 
 namespace GameSaveManager.App.Common;
 
-/// <summary>用于页面切换等同步 UI 操作的最小命令实现。</summary>
-public sealed class DelegateCommand(Action<object?> execute) : ICommand
+public sealed class DelegateCommand : ICommand
 {
-    public bool CanExecute(object? parameter) => true;
+    private readonly Action<object?> _execute;
+    private readonly Predicate<object?>? _canExecute;
 
-    public void Execute(object? parameter) => execute(parameter);
-
-    public event EventHandler? CanExecuteChanged
+    public DelegateCommand(Action<object?> execute, Predicate<object?>? canExecute = null)
     {
-        add { }
-        remove { }
+        _execute = execute;
+        _canExecute = canExecute;
     }
+
+    public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
+
+    public void Execute(object? parameter)
+    {
+        if (CanExecute(parameter)) _execute(parameter);
+    }
+
+    public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+
+    public event EventHandler? CanExecuteChanged;
 }

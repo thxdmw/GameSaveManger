@@ -26,8 +26,17 @@ public sealed class WindowsGameLaunchService(IGameProcessDetectionService? proce
 
     private async Task<GameLaunchResult> CreateResultAsync(Process process, ProcessSnapshot before, GameLaunchProfile profile, string? installDirectory, DateTimeOffset requestedAt, string workingDirectory, CancellationToken cancellationToken)
     {
-        IReadOnlyList<DetectedGameProcess> detected = await _processDetectionService.DetectNewProcessesAsync(before, installDirectory, profile.MonitoredProcessNames, TimeSpan.FromSeconds(15), cancellationToken);
-        return new GameLaunchResult(true, TryGetProcessId(process), requestedAt, profile.Target, workingDirectory, detected, detected.Count == 0 ? "未在 15 秒内检测到持续运行的游戏进程。" : null);
+        string? detectionDirectory = string.IsNullOrWhiteSpace(installDirectory) ? (string.IsNullOrWhiteSpace(workingDirectory) ? null : workingDirectory) : installDirectory;
+        IReadOnlyList<DetectedGameProcess> detected = await _processDetectionService.DetectNewProcessesAsync(before, detectionDirectory, profile.MonitoredProcessNames, TimeSpan.FromSeconds(15), cancellationToken);
+        DetectedGameProcess[] runningCandidates = detected.Where(candidate => candidate.IsStillRunning).ToArray();
+        bool confirmed = runningCandidates.Any(candidate => candidate.IsInsideGameDirectory || profile.MonitoredProcessNames.Any(name => string.Equals(Path.GetFileNameWithoutExtension(name), candidate.ProcessName, StringComparison.OrdinalIgnoreCase)))
+            || runningCandidates.Length == 1;
+        string? warning = confirmed ? null : detected.Count == 0
+            ? "未在 15 秒内检测到游戏进程。"
+            : runningCandidates.Length > 1
+                ? "检测到多个候选进程，请在启动设置中选择实际游戏进程。"
+                : "检测到的候选进程均已退出，游戏可能快速退出。";
+        return new GameLaunchResult(true, TryGetProcessId(process), requestedAt, profile.Target, workingDirectory, detected, warning);
     }
     private static ProcessStartInfo CreateStartInfo(GameLaunchProfile profile) => profile.TargetType switch
     {

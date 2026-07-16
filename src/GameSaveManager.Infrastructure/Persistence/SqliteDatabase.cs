@@ -12,7 +12,12 @@ public sealed class SqliteDatabase
     {
         AppDataPaths.EnsureCreated();
         _databasePath = databasePath ?? AppDataPaths.DatabasePath;
-        _connectionString = new SqliteConnectionStringBuilder { DataSource = _databasePath, Mode = SqliteOpenMode.ReadWriteCreate, Cache = SqliteCacheMode.Shared }.ToString();
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = _databasePath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Shared
+        }.ToString();
     }
 
     public SqliteConnection CreateConnection() => new(_connectionString);
@@ -26,7 +31,10 @@ public sealed class SqliteDatabase
             pragma.CommandText = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;";
             await pragma.ExecuteNonQueryAsync(cancellationToken);
         }
-        if (await RequiresLaunchProfileMigrationAsync(connection, cancellationToken)) CreateMigrationBackup();
+
+        if (await RequiresLaunchProfileMigrationAsync(connection, cancellationToken))
+            await CreateMigrationBackupAsync(connection, cancellationToken);
+
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -37,10 +45,16 @@ public sealed class SqliteDatabase
             await ExecuteAsync(connection, transaction, "INSERT INTO schema_version(id, version) VALUES(1, $version) ON CONFLICT(id) DO UPDATE SET version = excluded.version;", cancellationToken, ("$version", CurrentSchemaVersion));
             await transaction.CommitAsync(cancellationToken);
         }
-        catch { await transaction.RollbackAsync(CancellationToken.None); throw; }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+
+        await ValidateSchemaAsync(connection, cancellationToken);
     }
 
-    private async Task<bool> RequiresLaunchProfileMigrationAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    private static async Task<bool> RequiresLaunchProfileMigrationAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         await using SqliteCommand command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'local_game_profile';";
@@ -49,12 +63,19 @@ public sealed class SqliteDatabase
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) == 0;
     }
 
-    private void CreateMigrationBackup()
+    private async Task CreateMigrationBackupAsync(SqliteConnection source, CancellationToken cancellationToken)
     {
         if (!File.Exists(_databasePath)) return;
-        string backupPath = _databasePath + ".backup-" + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss");
-        File.Copy(_databasePath, backupPath, overwrite: false);
+        string backupPath = _databasePath + ".backup-" + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff");
+        await using var backup = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = backupPath,
+            Mode = SqliteOpenMode.ReadWriteCreate
+        }.ToString());
+        await backup.OpenAsync(cancellationToken);
+        source.BackupDatabase(backup);
     }
+
     private static async Task EnsureCurrentSyncStateSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken)
     {
         bool exists = await ScalarLongAsync(connection, transaction, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_state';", cancellationToken) > 0;
@@ -65,18 +86,37 @@ public sealed class SqliteDatabase
         }
         await ExecuteAsync(connection, transaction, "CREATE TABLE IF NOT EXISTS sync_state (server_key TEXT NOT NULL, game_id TEXT NOT NULL, head_snapshot_id TEXT NULL, head_version INTEGER NOT NULL, PRIMARY KEY(server_key, game_id));", cancellationToken);
     }
+
     private static async Task EnsureCurrentLocalProfileSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken)
     {
         bool exists = await ScalarLongAsync(connection, transaction, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'local_game_profile';", cancellationToken) > 0;
         if (exists)
         {
-            long matches = await ScalarLongAsync(connection, transaction, "SELECT COUNT(*) FROM pragma_table_info('local_game_profile') WHERE name IN ('provider', 'user_confirmed', 'save_directory_source', 'save_roots_json', 'registry_save_rules_json');", cancellationToken);
-            if (matches != 5) throw new InvalidOperationException("本地游戏配置表结构不受支持，已保留原数据库。");
-            long hasIdentityPath = await ScalarLongAsync(connection, transaction, "SELECT COUNT(*) FROM pragma_table_info('local_game_profile') WHERE name = 'identity_executable_path';", cancellationToken);
-            if (hasIdentityPath == 0) await ExecuteAsync(connection, transaction, "ALTER TABLE local_game_profile ADD COLUMN identity_executable_path TEXT NULL;", cancellationToken);
-            long hasLaunchProfile = await ScalarLongAsync(connection, transaction, "SELECT COUNT(*) FROM pragma_table_info('local_game_profile') WHERE name = 'launch_profile_json';", cancellationToken);
-            if (hasLaunchProfile == 0) await ExecuteAsync(connection, transaction, "ALTER TABLE local_game_profile ADD COLUMN launch_profile_json TEXT NULL;", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "provider", "TEXT NOT NULL DEFAULT 'CUSTOM'", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "provider_game_id", "TEXT NULL", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "install_directory", "TEXT NULL", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "executable_path", "TEXT NULL", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "save_directory_source", "TEXT NOT NULL DEFAULT 'Manual'", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "save_directory_confidence", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "save_roots_json", "TEXT NOT NULL DEFAULT '[]'", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "registry_save_rules_json", "TEXT NOT NULL DEFAULT '[]'", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "user_confirmed", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "identity_executable_path", "TEXT NULL", cancellationToken);
+            await EnsureColumnAsync(connection, transaction, "launch_profile_json", "TEXT NULL", cancellationToken);
+            await ExecuteAsync(connection, transaction, "UPDATE local_game_profile SET identity_executable_path = executable_path WHERE identity_executable_path IS NULL AND executable_path IS NOT NULL;", cancellationToken);
+            await ExecuteAsync(connection, transaction, """
+                UPDATE local_game_profile
+                SET launch_profile_json = json_object(
+                    'TargetType', 0,
+                    'Target', executable_path,
+                    'Arguments', NULL,
+                    'WorkingDirectory', NULL,
+                    'RunAsAdministrator', 0,
+                    'MonitoredProcessNames', json_array(process_name))
+                WHERE launch_profile_json IS NULL AND executable_path IS NOT NULL;
+                """, cancellationToken);
         }
+
         await ExecuteAsync(connection, transaction, """
             CREATE TABLE IF NOT EXISTS local_game_profile (
                 server_key TEXT NOT NULL, game_id TEXT NOT NULL, provider TEXT NOT NULL, provider_game_id TEXT NULL,
@@ -87,15 +127,41 @@ public sealed class SqliteDatabase
             """, cancellationToken);
     }
 
+    private static async Task EnsureColumnAsync(SqliteConnection connection, SqliteTransaction transaction, string name, string declaration, CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('local_game_profile') WHERE name = $name;";
+        command.Parameters.AddWithValue("$name", name);
+        long exists = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+        if (exists == 0)
+            await ExecuteAsync(connection, transaction, $"ALTER TABLE local_game_profile ADD COLUMN {name} {declaration};", cancellationToken);
+    }
+
+    private static async Task ValidateSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('local_game_profile') WHERE name IN ('executable_path', 'identity_executable_path', 'launch_profile_json');";
+        if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) != 3)
+            throw new InvalidOperationException("本地游戏配置迁移后的结构校验失败。");
+        command.CommandText = "PRAGMA integrity_check;";
+        if (!string.Equals(Convert.ToString(await command.ExecuteScalarAsync(cancellationToken)), "ok", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("本地数据库完整性校验失败。");
+    }
+
     private static async Task<long> ScalarLongAsync(SqliteConnection connection, SqliteTransaction transaction, string sql, CancellationToken cancellationToken)
     {
-        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql;
+        await using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
     }
 
     private static async Task ExecuteAsync(SqliteConnection connection, SqliteTransaction transaction, string sql, CancellationToken cancellationToken, params (string Name, object Value)[] parameters)
     {
-        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql;
+        await using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
         foreach ((string name, object value) in parameters) command.Parameters.AddWithValue(name, value);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }

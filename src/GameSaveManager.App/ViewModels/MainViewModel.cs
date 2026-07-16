@@ -147,28 +147,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         RegisterCommand = new AsyncCommand(() => AuthenticateAsync(true));
         LoginCommand = new AsyncCommand(() => AuthenticateAsync(false));
-        CreateGameCommand = new AsyncCommand(CreateGameAsync);
-        DeleteGameCommand = new AsyncCommand(DeleteGameAsync);
-        LogoutCommand = new AsyncCommand(LogoutAsync);
+        CreateGameCommand = new AsyncCommand(CreateGameAsync, CanCreateGame);
+        DeleteGameCommand = new AsyncCommand(DeleteGameAsync, () => IsAuthenticated && SelectedGame is not null);
+        LogoutCommand = new AsyncCommand(LogoutAsync, () => IsAuthenticated);
         AccountActionCommand = new AsyncCommand(AccountActionAsync);
         BuildManifestCommand = new AsyncCommand(BuildManifestAsync);
         SyncCommand = new AsyncCommand(SyncAsync, CanSynchronize);
         RetrySyncCommand = new AsyncCommand(SyncAsync, CanSynchronize);
-        CancelSyncCommand = new DelegateCommand(_ => _syncCancellation?.Cancel());
+        CancelSyncCommand = new DelegateCommand(_ => _syncCancellation?.Cancel(), _ => IsSyncing);
         ReloadSnapshotsCommand = new AsyncCommand(ReloadSnapshotsFromUiAsync);
         DeleteSnapshotCommand = new AsyncCommand(DeleteSnapshotAsync);
         RestoreCommand = new AsyncCommand(RestoreAsync, CanRestore);
         LoadRestorePreviewCommand = new AsyncCommand(LoadRestorePreviewAsync);
         ExportSnapshotCommand = new AsyncCommand(ExportSnapshotAsync);
-        StartAutoSnapshotCommand = new AsyncCommand(StartAutoSnapshotAsync);
-        StopAutoSnapshotCommand = new AsyncCommand(StopAutoSnapshotAsync);
+        StartAutoSnapshotCommand = new AsyncCommand(StartAutoSnapshotAsync, CanStartAutoSnapshot);
+        StopAutoSnapshotCommand = new AsyncCommand(StopAutoSnapshotAsync, () => SelectedGame is not null && IsAutoSyncEnabled);
         DiscoverGamesCommand = new AsyncCommand(DiscoverGamesAsync);
         SuggestSaveDirectoriesCommand = new AsyncCommand(SuggestSaveDirectoriesAsync);
-        ConfirmSaveDirectoryCommand = new AsyncCommand(ConfirmSaveDirectoryAsync);
-        PreviewSaveDirectoryCommand = new AsyncCommand(PreviewSaveDirectoryAsync);
+        ConfirmSaveDirectoryCommand = new AsyncCommand(ConfirmSaveDirectoryAsync, CanUseSaveDirectory);
+        PreviewSaveDirectoryCommand = new AsyncCommand(PreviewSaveDirectoryAsync, CanUseSaveDirectory);
         StartSaveLearningCommand = new AsyncCommand(StartSaveLearningAsync, CanStartSaveLearning);
         CompleteSaveLearningCommand = new AsyncCommand(CompleteSaveLearningAsync, () => _learningBefore is not null && !(_learningCancellation?.IsCancellationRequested ?? false));
-        CancelSaveLearningCommand = new DelegateCommand(_ => CancelSaveLearning());
+        CancelSaveLearningCommand = new DelegateCommand(_ => CancelSaveLearning(), _ => _learningBefore is not null);
         LoadLocalProfileCommand = new AsyncCommand(LoadLocalProfileFromUiAsync);
         ReloadDevicesCommand = new AsyncCommand(ReloadDevicesAsync);
         ReloadQuotaCommand = new AsyncCommand(ReloadQuotaAsync);
@@ -179,7 +179,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         KeepLocalConflictCommand = new AsyncCommand(KeepLocalConflictAsync);
         NavigateCommand = new DelegateCommand(NavigateTo);
         SelectGameCommand = new AsyncCommand(SelectGameAsync);
-        LaunchGameCommand = new AsyncCommand(LaunchGameAsync);
+        LaunchGameCommand = new AsyncCommand(LaunchGameAsync, CanLaunchGame);
         ToggleThemeCommand = new DelegateCommand(_ => ToggleTheme());
         ToggleAutoStartCommand = new AsyncCommand(ToggleAutoStartAsync);
         UpdateManifestCommand = new AsyncCommand(UpdateManifestAsync);
@@ -380,6 +380,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand UpdateManifestCommand { get; }
 
     public event EventHandler? PasswordClearRequested;
+    public event EventHandler? GameCreated;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>密码仅暂存于内存，并由 PasswordBox 调用此方法传入。</summary>
@@ -597,15 +598,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RefreshGameRuntimeStatus();
     }
 
+    private static IReadOnlyList<string> GetMonitoredProcessNames(LocalGameProfile profile)
+    {
+        IReadOnlyList<string>? configured = profile.EffectiveLaunchProfile?.MonitoredProcessNames;
+        return configured is { Count: > 0 }
+            ? configured.Where(name => !string.IsNullOrWhiteSpace(name)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+            : string.IsNullOrWhiteSpace(profile.ProcessName) ? [] : [profile.ProcessName];
+    }
     private async Task EnableAutomaticSyncAsync(Uri server, string token, string gameId, LocalGameProfile profile)
     {
         IReadOnlyList<SaveRootRule> fileRoots = profile.EffectiveSaveRoots
             .Where(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (!profile.UserConfirmed || string.IsNullOrWhiteSpace(profile.ProcessName)
+        if (!profile.UserConfirmed || GetMonitoredProcessNames(profile).Count == 0
             || fileRoots.Count == 0 || fileRoots.Any(root => !root.UserConfirmed || !Directory.Exists(root.Path))) return;
         await _autoSyncCoordinator.EnableAsync(
             gameId,
-            new AutoSnapshotProfile(profile.ProcessName, fileRoots.Select(root => root.Path).ToArray()),
+            new AutoSnapshotProfile(GetMonitoredProcessNames(profile), fileRoots.Select(root => root.Path).ToArray()),
             cancellationToken => RunAutomaticSyncAsync(server, token, gameId, cancellationToken),
             CancellationToken.None);
     }
@@ -790,14 +798,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
     private static GameLaunchProfile? CreateLaunchProfile(GameIdentity identity)
     {
+        IReadOnlyList<string> monitoredProcessNames = string.IsNullOrWhiteSpace(identity.ProcessName)
+            ? []
+            : [Path.GetFileNameWithoutExtension(identity.ProcessName)];
+        if (string.Equals(identity.Provider, GameIdentity.Steam, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(identity.ProviderGameId))
+            return new GameLaunchProfile(GameLaunchTargetType.StoreUri, $"steam://run/{Uri.EscapeDataString(identity.ProviderGameId)}", null, null, false, monitoredProcessNames);
+        if (string.Equals(identity.Provider, GameIdentity.Epic, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(identity.ProviderGameId))
+            return new GameLaunchProfile(GameLaunchTargetType.StoreUri, $"com.epicgames.launcher://apps/{Uri.EscapeDataString(identity.ProviderGameId)}?action=launch&silent=true", null, null, false, monitoredProcessNames);
         if (string.IsNullOrWhiteSpace(identity.ExecutablePath)) return null;
+        GameLaunchTargetType targetType = string.Equals(Path.GetExtension(identity.ExecutablePath), ".lnk", StringComparison.OrdinalIgnoreCase)
+            ? GameLaunchTargetType.Shortcut
+            : GameLaunchTargetType.Executable;
         return new GameLaunchProfile(
-            GameLaunchTargetType.Executable,
+            targetType,
             identity.ExecutablePath,
             null,
-            Path.GetDirectoryName(identity.ExecutablePath),
+            targetType == GameLaunchTargetType.Executable ? Path.GetDirectoryName(identity.ExecutablePath) : null,
             false,
-            string.IsNullOrWhiteSpace(identity.ProcessName) ? [] : [Path.GetFileNameWithoutExtension(identity.ProcessName)]);
+            monitoredProcessNames);
     }
     private async Task RefreshAutomaticSyncConfigurationAsync(Uri server, string token, LocalGameProfile profile)
     {
@@ -992,8 +1010,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _learningCancellation?.Dispose();
             _learningCancellation = new CancellationTokenSource();
             _learningBefore = await _runtimeSaveLearningService.CaptureBeforeAsync(game, _learningCancellation.Token);
-            Process.Start(new ProcessStartInfo(game.ExecutablePath) { UseShellExecute = true });
-            StatusText = "已记录受限范围内的文件元数据并启动游戏；在游戏内保存并退出后，点击完成学习。";
+            GameLaunchResult launchResult = await LaunchGameAsync(game, _learningCancellation.Token);
+            StatusText = launchResult.Warning is null
+                ? "已记录文件元数据并确认游戏正在运行；保存并退出后点击完成学习。"
+                : $"已记录文件元数据并发送启动请求，但{launchResult.Warning}";
         }
         catch (OperationCanceledException) { StatusText = "存档学习已取消。"; }
         catch (Exception exception) { ShowError("启动存档学习失败", exception); }
@@ -1063,7 +1083,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await ReloadRetentionAsync(server, token);
             await ReloadQuotaAsync(server, token);
             NewGameName = string.Empty;
-            StatusText = $"已创建云端游戏：{game.Name}。";
+            CurrentPage = "游戏详情";
+            StatusText = $"已创建云端游戏：{game.Name}。请继续配置启动入口和存档保护。";
+            GameCreated?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception exception) { ShowError("创建游戏失败", exception); }
     }
@@ -1305,20 +1327,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
     public string GetGameRuntimeStatusText(CloudGame game)
     {
-        if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile) ||
-            string.IsNullOrWhiteSpace(profile.ExecutablePath) || !File.Exists(profile.ExecutablePath))
-            return "未配置 EXE";
+        if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile) || profile.EffectiveLaunchProfile is null)
+            return "启动配置待验证";
         return IsGameRunning(profile) ? "运行中" : "未启动";
     }
 
     public async Task AddLocalGameFromExecutableAsync(string executablePath)
     {
-        GameIdentity identity = await _executableGameIdentityFactory.CreateAsync(executablePath, CancellationToken.None);
+        string fullPath = Path.GetFullPath(executablePath);
+        GameIdentity identity = string.Equals(Path.GetExtension(fullPath), ".lnk", StringComparison.OrdinalIgnoreCase)
+            ? new GameIdentity(Path.GetFileNameWithoutExtension(fullPath), GameIdentity.Local, null, Path.GetDirectoryName(fullPath) ?? string.Empty, fullPath, null)
+            : await _executableGameIdentityFactory.CreateAsync(fullPath, CancellationToken.None);
         var discovered = new DiscoveredGame(identity);
         if (!DiscoveredGames.Any(game => string.Equals(game.ExecutablePath, identity.ExecutablePath, StringComparison.OrdinalIgnoreCase))) DiscoveredGames.Add(discovered);
         SelectedDiscoveredGame = discovered;
         AutoSnapshotExecutablePath = identity.ExecutablePath ?? string.Empty;
-        StatusText = "已读取本地游戏 EXE；确认游戏名称后创建云端游戏，再检测并确认存档目录。";
+        AutoSnapshotProcessName = identity.ProcessName ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(NewGameName)) NewGameName = identity.Name;
+        StatusText = "已读取本地游戏启动入口；确认名称后创建游戏，再配置存档保护。";
     }
 
     private void ApplyDiscoveredIdentity(CloudGame? game)
@@ -1351,34 +1377,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return SelectedDiscoveredGame?.Identity ?? new GameIdentity(NewGameName, GameIdentity.Custom, null, string.Empty, null, null);
     }
 
-    private async Task LaunchGameAsync(GameIdentity game)
+    private Task<GameLaunchResult> LaunchGameAsync(GameIdentity game, CancellationToken cancellationToken = default)
     {
-        GameLaunchProfile launchProfile;
-        if (string.Equals(game.Provider, GameIdentity.Steam, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(game.ProviderGameId))
-        {
-            launchProfile = new(GameLaunchTargetType.StoreUri, $"steam://run/{Uri.EscapeDataString(game.ProviderGameId)}", null, null, false, []);
-        }
-        else if (string.Equals(game.Provider, GameIdentity.Epic, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(game.ProviderGameId))
-        {
-            launchProfile = new(GameLaunchTargetType.StoreUri, $"com.epicgames.launcher://apps/{Uri.EscapeDataString(game.ProviderGameId)}?action=launch&silent=true", null, null, false, []);
-        }
-        else
-        {
-            if (string.IsNullOrWhiteSpace(game.ExecutablePath)) throw new InvalidOperationException("未找到可启动的游戏 EXE。");
-            launchProfile = new(GameLaunchTargetType.Executable, game.ExecutablePath, null, null, false, []);
-        }
-
-        await _gameLaunchService.LaunchAsync(launchProfile, game.InstallDirectory, CancellationToken.None);
-    }
-    private async Task LaunchGameAsync(object? parameter)
+        GameLaunchProfile launchProfile = CreateLaunchProfile(game)
+            ?? throw new InvalidOperationException("未找到有效的游戏启动配置。");
+        return _gameLaunchService.LaunchAsync(launchProfile, game.InstallDirectory, cancellationToken);
+    }    private async Task LaunchGameAsync(object? parameter)
     {
         if (parameter is not CloudGame game) return;
-        if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile) ||
-            string.IsNullOrWhiteSpace(profile.ExecutablePath) || !File.Exists(profile.ExecutablePath))
+        if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile))
         {
             SelectedGame = game;
             CurrentPage = "游戏详情";
-            StatusText = "请先在同步中心选择该游戏的 EXE 文件，再从游戏卡片启动。";
+            StatusText = "请先配置该游戏的启动入口，再从游戏卡片启动。";
+            return;
+        }
+
+        GameLaunchProfile? launchProfile = profile.EffectiveLaunchProfile;
+        bool invalidLocalTarget = launchProfile is { TargetType: not GameLaunchTargetType.StoreUri } && !File.Exists(launchProfile.Target);
+        if (launchProfile is null || invalidLocalTarget)
+        {
+            SelectedGame = game;
+            CurrentPage = "同步中心";
+            StatusText = "游戏启动入口缺失或已失效，请重新选择。";
             return;
         }
 
@@ -1386,13 +1407,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             SelectedGame = game;
             SaveDirectory = profile.SaveDirectory;
-        IsSaveDirectoryConfirmed = profile.UserConfirmed;
+            IsSaveDirectoryConfirmed = profile.UserConfirmed;
             AutoSnapshotProcessName = profile.ProcessName;
-            AutoSnapshotExecutablePath = profile.ExecutablePath;
-            GameLaunchProfile launchProfile = profile.EffectiveLaunchProfile ?? throw new InvalidOperationException("未找到有效的游戏启动配置。");
-            await _gameLaunchService.LaunchAsync(launchProfile, profile.InstallDirectory, CancellationToken.None);
-            StatusText = $"已启动 {game.Name}，运行状态会自动刷新。";
-            await Task.Delay(300);
+            AutoSnapshotExecutablePath = profile.ExecutablePath ?? string.Empty;
+            StatusText = $"已发送 {game.Name} 的启动请求，正在确认游戏进程…";
+            GameLaunchResult launchResult = await _gameLaunchService.LaunchAsync(launchProfile, profile.InstallDirectory, CancellationToken.None);
+            DetectedGameProcess[] runningCandidates = launchResult.DetectedProcesses.Where(candidate => candidate.IsStillRunning).ToArray();
+            if (runningCandidates.Length == 1 && !launchProfile.MonitoredProcessNames.Any(name => string.Equals(Path.GetFileNameWithoutExtension(name), runningCandidates[0].ProcessName, StringComparison.OrdinalIgnoreCase)))
+            {
+                string detectedProcessName = runningCandidates[0].ProcessName + ".exe";
+                launchProfile = launchProfile with { MonitoredProcessNames = [detectedProcessName] };
+                profile = profile with { ProcessName = detectedProcessName, LaunchProfile = launchProfile };
+                await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
+                _localGameProfiles[profile.GameId] = profile;
+                AutoSnapshotProcessName = detectedProcessName;
+            }
+            StatusText = launchResult.Warning is null
+                ? $"已确认 {game.Name} 的游戏进程正在运行。"
+                : $"已发送 {game.Name} 的启动请求，但{launchResult.Warning}";
             RefreshGameRuntimeStatus();
         }
         catch (Exception exception)
@@ -1400,14 +1432,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ShowError("启动游戏失败", exception);
         }
     }
-
     private static bool IsGameRunning(LocalGameProfile profile)
     {
-        string processName = Path.GetFileNameWithoutExtension(profile.ProcessName);
-        if (string.IsNullOrWhiteSpace(processName)) return false;
-        foreach (Process process in Process.GetProcessesByName(processName))
+        foreach (string configuredName in GetMonitoredProcessNames(profile))
         {
-            using (process) return true;
+            string processName = Path.GetFileNameWithoutExtension(configuredName);
+            if (string.IsNullOrWhiteSpace(processName)) continue;
+            Process[] processes = Process.GetProcessesByName(processName);
+            try { if (processes.Length > 0) return true; }
+            finally { foreach (Process process in processes) process.Dispose(); }
         }
         return false;
     }
@@ -1475,9 +1508,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void ShowError(string operation, Exception exception)
     {
         _appLogger.Error("operation.failed", exception, operation);
-        StatusText = exception is GameSaveApiException apiException
-            ? $"{operation} [{apiException.Code}]：{apiException.Message}"
-            : $"{operation}：{exception.Message}";
+        ClientOperationError error = ClientOperationError.FromException(exception);
+        string requestId = string.IsNullOrWhiteSpace(error.RequestId) ? string.Empty : $"（请求 ID：{error.RequestId}）";
+        string retry = error.CanRetry
+            ? error.SuggestedRetryDelay is { } delay && delay > TimeSpan.Zero
+                ? $" 可在约 {Math.Ceiling(delay.TotalSeconds):0} 秒后重试。"
+                : " 可稍后重试。"
+            : string.Empty;
+        StatusText = $"{operation}：{error.UserMessage}{requestId}{retry}";
     }
 
     private static string FormatBytes(long bytes)
@@ -1489,16 +1527,43 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return $"{value:0.##} {units[unit]}";
     }
 
+    private bool CanCreateGame() =>
+        IsAuthenticated && !string.IsNullOrWhiteSpace(NewGameName);
+
+    private bool CanLaunchGame(object? parameter)
+    {
+        if (parameter is not CloudGame game || !_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile)) return false;
+        return IsLaunchTargetValid(profile.EffectiveLaunchProfile);
+    }
+
+    private static bool IsLaunchTargetValid(GameLaunchProfile? profile)
+    {
+        if (profile is null || string.IsNullOrWhiteSpace(profile.Target)) return false;
+        if (profile.TargetType == GameLaunchTargetType.StoreUri) return Uri.TryCreate(profile.Target, UriKind.Absolute, out _);
+        if (!File.Exists(profile.Target)) return false;
+        return string.IsNullOrWhiteSpace(profile.WorkingDirectory) || Directory.Exists(profile.WorkingDirectory);
+    }
+
+    private bool CanUseSaveDirectory() =>
+        !string.IsNullOrWhiteSpace(SaveDirectory) && Directory.Exists(SaveDirectory);
+
+    private bool CanStartAutoSnapshot()
+    {
+        if (!IsAuthenticated || SelectedGame is null || IsAutoSyncEnabled || !HasConfirmedExistingFileRoots()) return false;
+        if (string.IsNullOrWhiteSpace(AutoSnapshotProcessName)) return false;
+        return IsLaunchTargetValid(CreateLaunchProfile(GetCurrentGameIdentity()));
+    }
     private bool CanSynchronize() =>
-        IsAuthenticated && SelectedGame is not null && HasConfirmedExistingFileRoots();
+        IsAuthenticated && !IsSyncing && SelectedGame is not null && HasConfirmedExistingFileRoots();
 
     private bool CanRestore() =>
-        CanSynchronize() && SelectedSnapshot is not null;
+        CanSynchronize() && SelectedSnapshot is not null &&
+        (SelectedGame is null || !_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? profile) || !IsGameRunning(profile));
 
     private bool CanStartSaveLearning()
     {
         GameIdentity game = GetCurrentGameIdentity();
-        return !string.IsNullOrWhiteSpace(game.ExecutablePath) && File.Exists(game.ExecutablePath);
+        return IsLaunchTargetValid(CreateLaunchProfile(game));
     }
 
     private bool HasConfirmedExistingFileRoots()
@@ -1509,9 +1574,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void RaiseCommandStates()
     {
-        foreach (ICommand command in new ICommand[] { SyncCommand, RetrySyncCommand, RestoreCommand, StartSaveLearningCommand, CompleteSaveLearningCommand })
+        foreach (ICommand command in new ICommand[]
+        {
+            CreateGameCommand, DeleteGameCommand, LogoutCommand, SyncCommand, RetrySyncCommand, CancelSyncCommand,
+            RestoreCommand, LaunchGameCommand, StartAutoSnapshotCommand, StopAutoSnapshotCommand,
+            ConfirmSaveDirectoryCommand, PreviewSaveDirectoryCommand, StartSaveLearningCommand,
+            CompleteSaveLearningCommand, CancelSaveLearningCommand
+        })
         {
             if (command is AsyncCommand asyncCommand) asyncCommand.RaiseCanExecuteChanged();
+            else if (command is DelegateCommand delegateCommand) delegateCommand.RaiseCanExecuteChanged();
         }
     }
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

@@ -296,7 +296,7 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             throw new GameSaveApiException(
                 (int)response.StatusCode,
                 "OBJECT_DOWNLOAD_FAILED",
-                $"对象下载请求失败: {(int)response.StatusCode}");
+                $"对象下载请求失败: {(int)response.StatusCode}", GetRetryDelay(response), GetRequestId(response));
         }
 
         string? parent = Path.GetDirectoryName(destinationPath);
@@ -360,7 +360,7 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         throw new GameSaveApiException(
             (int)response.StatusCode,
             envelope?.Code ?? "HTTP_ERROR",
-            envelope?.Msg ?? $"GameSave API request failed: {(int)response.StatusCode}");
+            envelope?.Msg ?? $"GameSave API request failed: {(int)response.StatusCode}", GetRetryDelay(response), GetRequestId(response));
     }
     private async Task<T> SendForDataAsync<T>(
         HttpRequestMessage request,
@@ -380,7 +380,7 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             throw new GameSaveApiException(
                 (int)response.StatusCode,
                 envelope?.Code ?? "HTTP_ERROR",
-                envelope?.Msg ?? $"GameSave API 请求失败: {(int)response.StatusCode}");
+                envelope?.Msg ?? $"GameSave API 请求失败: {(int)response.StatusCode}", GetRetryDelay(response), GetRequestId(response));
         }
         if (envelope?.Data is null)
         {
@@ -389,6 +389,26 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         return envelope.Data;
     }
 
+    private static TimeSpan? GetRetryDelay(HttpResponseMessage response)
+    {
+        if (response.Headers.RetryAfter?.Delta is { } delta) return delta;
+        if (response.Headers.RetryAfter?.Date is { } date)
+        {
+            TimeSpan delay = date - DateTimeOffset.UtcNow;
+            return delay > TimeSpan.Zero ? delay : TimeSpan.Zero;
+        }
+        return null;
+    }
+
+    private static string? GetRequestId(HttpResponseMessage response)
+    {
+        foreach (string header in new[] { "X-Request-ID", "Request-ID" })
+        {
+            if (response.Headers.TryGetValues(header, out IEnumerable<string>? values))
+                return values.FirstOrDefault()?.Trim() is { Length: > 0 } value ? value[..Math.Min(value.Length, 128)] : null;
+        }
+        return null;
+    }
     private static HttpRequestMessage CreateRequest(
         HttpMethod method,
         Uri server,

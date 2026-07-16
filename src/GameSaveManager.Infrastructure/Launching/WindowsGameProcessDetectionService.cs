@@ -6,6 +6,9 @@ namespace GameSaveManager.Infrastructure.Launching;
 
 public sealed class WindowsGameProcessDetectionService : IGameProcessDetectionService
 {
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan StableDuration = TimeSpan.FromSeconds(5);
+
     public ProcessSnapshot CaptureSnapshot() => new(SnapshotProcesses());
 
     public async Task<IReadOnlyList<DetectedGameProcess>> DetectNewProcessesAsync(
@@ -16,28 +19,52 @@ public sealed class WindowsGameProcessDetectionService : IGameProcessDetectionSe
         CancellationToken cancellationToken)
     {
         HashSet<int> existingIds = before.Processes.Select(process => process.ProcessId).ToHashSet();
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.Add(timeout);
-        var candidates = new Dictionary<int, DetectedGameProcess>();
+        DateTimeOffset startedAt = DateTimeOffset.UtcNow;
+        DateTimeOffset deadline = startedAt.Add(timeout);
+        var observations = new Dictionary<int, ProcessObservation>();
 
-        do
+        while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (DetectedGameProcess process in SnapshotProcesses())
+            DateTimeOffset observedAt = DateTimeOffset.UtcNow;
+            IReadOnlyList<DetectedGameProcess> snapshot = SnapshotProcesses();
+            HashSet<int> runningIds = snapshot.Select(process => process.ProcessId).ToHashSet();
+
+            foreach (DetectedGameProcess process in snapshot)
             {
                 if (existingIds.Contains(process.ProcessId)) continue;
-                candidates[process.ProcessId] = process with
+                DetectedGameProcess candidate = process with
                 {
-                    IsInsideGameDirectory = IsInsideDirectory(process.ExecutablePath, installDirectory)
+                    IsInsideGameDirectory = IsInsideDirectory(process.ExecutablePath, installDirectory),
+                    IsStillRunning = true
                 };
+                if (observations.TryGetValue(process.ProcessId, out ProcessObservation? observation))
+                    observations[process.ProcessId] = observation with { Process = candidate, LastSeenAt = observedAt };
+                else
+                    observations[process.ProcessId] = new ProcessObservation(candidate, observedAt, observedAt);
             }
 
-            if (candidates.Count > 0 && DateTimeOffset.UtcNow.AddSeconds(5) <= deadline)
-                await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
-            else
-                break;
-        } while (DateTimeOffset.UtcNow < deadline);
+            foreach ((int processId, ProcessObservation observation) in observations.ToArray())
+            {
+                if (!runningIds.Contains(processId))
+                    observations[processId] = observation with { Process = observation.Process with { IsStillRunning = false } };
+            }
 
-        return candidates.Values
+            ProcessObservation[] stableRunning = observations.Values
+                .Where(observation => observation.Process.IsStillRunning && observedAt - observation.FirstSeenAt >= StableDuration)
+                .ToArray();
+            bool stableCandidate = stableRunning.Any(observation =>
+                observation.Process.IsInsideGameDirectory || MatchesExpectedName(observation.Process.ProcessName, expectedProcessNames));
+            bool singleUnambiguousCandidate = stableRunning.Length == 1 && !IsHelperProcess(stableRunning[0].Process.ProcessName);
+            if (stableCandidate || singleUnambiguousCandidate) break;
+
+            TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining > TimeSpan.Zero)
+                await Task.Delay(remaining < PollInterval ? remaining : PollInterval, cancellationToken);
+        }
+
+        return observations.Values
+            .Select(observation => observation.Process)
             .OrderByDescending(process => Score(process, expectedProcessNames))
             .ThenBy(process => process.ProcessName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -52,9 +79,11 @@ public sealed class WindowsGameProcessDetectionService : IGameProcessDetectionSe
             {
                 try
                 {
-                    result.Add(new DetectedGameProcess(process.Id, process.ProcessName, TryGetExecutablePath(process), false, !process.HasExited));
+                    if (!process.HasExited)
+                        result.Add(new DetectedGameProcess(process.Id, process.ProcessName, TryGetExecutablePath(process), false, true));
                 }
                 catch (InvalidOperationException) { }
+                catch (Win32Exception) { }
             }
         }
         return result;
@@ -70,16 +99,37 @@ public sealed class WindowsGameProcessDetectionService : IGameProcessDetectionSe
     private static bool IsInsideDirectory(string? path, string? directory)
     {
         if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(directory)) return false;
-        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar;
-        return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar;
+            return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
+
+    private static bool MatchesExpectedName(string processName, IReadOnlyList<string> expectedProcessNames) =>
+        expectedProcessNames.Any(name => string.Equals(Path.GetFileNameWithoutExtension(name), processName, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsHelperProcess(string processName) =>
+        processName.Contains("launcher", StringComparison.OrdinalIgnoreCase) ||
+        processName.Contains("setup", StringComparison.OrdinalIgnoreCase) ||
+        processName.Contains("crash", StringComparison.OrdinalIgnoreCase) ||
+        processName.Contains("reporter", StringComparison.OrdinalIgnoreCase);
 
     private static int Score(DetectedGameProcess process, IReadOnlyList<string> expectedProcessNames)
     {
         int score = 50;
         if (process.IsInsideGameDirectory) score += 40;
-        if (expectedProcessNames.Any(name => string.Equals(Path.GetFileNameWithoutExtension(name), process.ProcessName, StringComparison.OrdinalIgnoreCase))) score += 40;
-        if (process.ProcessName.Contains("launcher", StringComparison.OrdinalIgnoreCase) || process.ProcessName.Contains("crash", StringComparison.OrdinalIgnoreCase) || process.ProcessName.Contains("reporter", StringComparison.OrdinalIgnoreCase)) score -= 50;
+        if (MatchesExpectedName(process.ProcessName, expectedProcessNames)) score += 40;
+        if (process.IsStillRunning) score += 20;
+        else score -= 30;
+        if (IsHelperProcess(process.ProcessName)) score -= 50;
+
         return score;
     }
+
+    private sealed record ProcessObservation(DetectedGameProcess Process, DateTimeOffset FirstSeenAt, DateTimeOffset LastSeenAt);
 }
