@@ -9,6 +9,11 @@ public partial class LibraryView : System.Windows.Controls.UserControl
 {
     public LibraryView() => InitializeComponent();
 
+    private void OpenAddGameWizardButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainViewModel viewModel) new AddGameWizardWindow(viewModel) { Owner = Window.GetWindow(this) }.ShowDialog();
+    }
+
     private async void ChooseLocalGameExecutableButton_OnClick(object sender, RoutedEventArgs e)
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "游戏程序 (*.exe)|*.exe", CheckFileExists = true, Multiselect = false };

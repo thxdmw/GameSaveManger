@@ -1,0 +1,39 @@
+<Window x:Class="GameSaveManager.App.Views.AddGameWizardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="添加游戏" Width="760" Height="680" MinWidth="680" MinHeight="580"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize">
+    <Grid Background="{DynamicResource AppBackground}" Margin="24">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Foreground="{DynamicResource Text}" FontSize="26" FontWeight="Bold" Text="添加游戏"/>
+            <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Muted}" Text="选择游戏来源后，确认启动入口和存档保护配置。"/>
+        </StackPanel>
+        <ScrollViewer Grid.Row="1" Margin="0,24,0,16" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <Border Padding="20" Style="{StaticResource PanelStyle}">
+                    <StackPanel>
+                        <TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="1. 创建或导入游戏"/>
+                        <TextBlock Margin="0,16,0,7" Foreground="{DynamicResource Muted}" Text="游戏名称"/>
+                        <TextBox Style="{StaticResource Input}" Text="{Binding NewGameName, UpdateSourceTrigger=PropertyChanged}"/>
+                        <StackPanel Margin="0,14,0,0" Orientation="Horizontal">
+                            <Button Height="40" Style="{StaticResource ButtonStyle}" Command="{Binding DiscoverGamesCommand}" Content="从 Steam / Epic / GOG 扫描"/>
+                            <Button Height="40" Margin="10,0,0,0" Style="{StaticResource ButtonStyle}" Click="ChooseLocalGameExecutableButton_OnClick" Content="选择本地 EXE 或快捷方式"/>
+                        </StackPanel>
+                        <ComboBox Margin="0,14,0,0" Height="40" Padding="10,4" ItemsSource="{Binding DiscoveredGames}" SelectedItem="{Binding SelectedDiscoveredGame}" DisplayMemberPath="Name"/>
+                    </StackPanel>
+                </Border>
+                <Border Margin="0,18,0,0" Padding="20" Style="{StaticResource PanelStyle}">
+                    <StackPanel>
+                        <TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="2. 后续配置"/>
+                        <TextBlock Margin="0,10,0,0" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Text="创建后进入游戏详情，可配置存档目录、测试启动入口，并选择是否在游戏退出后自动备份。"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+        <DockPanel Grid.Row="2">
+            <Button DockPanel.Dock="Right" Width="120" Height="40" Style="{StaticResource Primary}" Command="{Binding CreateGameCommand}" Content="创建并继续"/>
+            <Button DockPanel.Dock="Right" Width="90" Height="40" Margin="0,0,10,0" Style="{StaticResource ButtonStyle}" IsCancel="True" Content="取消"/>
+        </DockPanel>
+    </Grid>
+</Window>

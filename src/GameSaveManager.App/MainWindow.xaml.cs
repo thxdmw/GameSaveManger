@@ -70,6 +70,11 @@ public partial class MainWindow : Window
     private void ToggleMaximize() => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     private void CloseButton_OnClick(object sender, RoutedEventArgs e) => Close();
 
+    private void OpenAddGameWizardButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainViewModel viewModel) new Views.AddGameWizardWindow(viewModel) { Owner = this }.ShowDialog();
+    }
+
     private void MainWindow_OnClosing(object? sender, CancelEventArgs e)
     {
         if (_allowClose) return;
