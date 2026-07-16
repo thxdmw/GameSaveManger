@@ -1,0 +1,51 @@
+<UserControl x:Class="GameSaveManager.App.Views.GameDetailView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="34,28,34,32">
+            <TextBlock Foreground="{DynamicResource Text}" FontSize="30" FontWeight="Bold" Text="游戏详情"/>
+            <TextBlock Margin="0,8,0,24" Foreground="{DynamicResource Muted}" Text="管理当前游戏的启动、存档保护和最近备份。"/>
+            <Border Padding="24" Style="{StaticResource PanelStyle}">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Foreground="{DynamicResource Text}" FontSize="24" FontWeight="SemiBold" Text="{Binding SelectedGame.Name, Mode=OneWay}" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Muted}" Text="{Binding SelectedGame.Provider, Mode=OneWay}"/>
+                        <TextBlock Margin="0,12,0,0" Foreground="{DynamicResource Muted}" Text="{Binding StatusText, Mode=OneWay}" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                        <Button Height="40" Margin="0,0,10,0" Style="{StaticResource ButtonStyle}" Command="{Binding SyncCommand}" Content="立即备份"/>
+                        <Button Height="40" Style="{StaticResource Primary}" Command="{Binding LaunchGameCommand}" CommandParameter="{Binding SelectedGame}" Content="启动游戏"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <Border Margin="0,18,0,0" Padding="24" Style="{StaticResource PanelStyle}">
+                <StackPanel>
+                    <TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="存档保护"/>
+                    <TextBlock Margin="0,16,0,6" Foreground="{DynamicResource Muted}" Text="主存档目录"/>
+                    <TextBlock Foreground="{DynamicResource Text}" Text="{Binding SaveDirectory, Mode=OneWay}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SaveDirectory}"/>
+                    <TextBlock Margin="0,12,0,0" Foreground="{DynamicResource Muted}" Text="{Binding SaveDirectoryConfirmationText, Mode=OneWay}"/>
+                    <StackPanel Margin="0,18,0,0" Orientation="Horizontal">
+                        <Button Height="40" Style="{StaticResource ButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="同步中心" Content="修改存档配置"/>
+                        <Button Height="40" Margin="10,0,0,0" Style="{StaticResource ButtonStyle}" Command="{Binding StartAutoSnapshotCommand}" Content="启用退出后自动备份"/>
+                        <Button Height="40" Margin="10,0,0,0" Style="{StaticResource ButtonStyle}" Command="{Binding StopAutoSnapshotCommand}" Content="停止自动备份"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Margin="0,18,0,0" Padding="24" Style="{StaticResource PanelStyle}">
+                <StackPanel>
+                    <TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="最近备份"/>
+                    <ItemsControl Margin="0,12,0,0" ItemsSource="{Binding Snapshots}">
+                        <ItemsControl.ItemTemplate><DataTemplate>
+                            <DockPanel Margin="0,5">
+                                <TextBlock Foreground="{DynamicResource Text}" Text="{Binding CreatedAt}"/>
+                                <TextBlock DockPanel.Dock="Right" Foreground="{DynamicResource Muted}" Text="{Binding Status}"/>
+                            </DockPanel>
+                        </DataTemplate></ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Height="40" Margin="0,16,0,0" HorizontalAlignment="Left" Style="{StaticResource ButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="时间线" Content="查看全部时间线"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

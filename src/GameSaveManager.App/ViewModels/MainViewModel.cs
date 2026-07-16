@@ -492,7 +492,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             string token = await RequireDeviceTokenAsync(server);
             await RestoreLocalProfileAsync(server, token);
             await ReloadSnapshotsAsync(server, token);
-            StatusText = $"已选择{selected.Name}。可在同步中心配置存档路径和同步。";
+            CurrentPage = "游戏详情";
+            StatusText = $"已打开 {selected.Name} 的游戏详情。";
         }
         catch (Exception exception) { ShowError("加载游戏快照失败", exception); }
     }
@@ -1376,7 +1377,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             string.IsNullOrWhiteSpace(profile.ExecutablePath) || !File.Exists(profile.ExecutablePath))
         {
             SelectedGame = game;
-            CurrentPage = "同步中心";
+            CurrentPage = "游戏详情";
             StatusText = "请先在同步中心选择该游戏的 EXE 文件，再从游戏卡片启动。";
             return;
         }
