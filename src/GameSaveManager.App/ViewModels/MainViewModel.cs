@@ -262,7 +262,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
     public string AuthenticatedUsername { get => _authenticatedUsername; private set => SetField(ref _authenticatedUsername, value); }
-    public bool IsAutoSyncEnabled { get => _isAutoSyncEnabled; private set => SetField(ref _isAutoSyncEnabled, value); }
+    public bool IsAutoSyncEnabled
+    {
+        get => _isAutoSyncEnabled;
+        private set
+        {
+            if (SetField(ref _isAutoSyncEnabled, value))
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutoSyncConfigurationText)));
+        }
+    }
     public bool IsSyncing { get => _isSyncing; private set => SetField(ref _isSyncing, value); }
     public string SyncProgressText { get => _syncProgressText; private set => SetField(ref _syncProgressText, value); }
     public double SyncProgressValue { get => _syncProgressValue; private set => SetField(ref _syncProgressValue, value); }
@@ -274,6 +282,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string AccountSummaryText => IsAuthenticated ? $"当前账号：{AuthenticatedUsername}" : "尚未登录";
     public string CloudReadinessText => IsAuthenticated ? "云端同步已就绪" : "登录后启用云端同步";
     public string ThemeToggleText => IsLightTheme ? "切换至深色主题" : "切换至浅色主题";
+    public string AutoSyncConfigurationText
+    {
+        get
+        {
+            if (SelectedGame is null) return "请先选择游戏。";
+            if (!_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? profile)) return "尚未保存启动入口和存档目录。";
+            if (IsAutoSyncEnabled) return "已启用；游戏退出后会自动创建并上传存档快照。";
+            if (!IsAutomaticSyncProfileReady(profile)) return "启动入口或存档目录尚未配置完成，请先在游戏详情中完成配置。";
+            int rootCount = profile.EffectiveSaveRoots.Count(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase));
+            return $"配置已就绪：{rootCount} 个存档目录，可直接启用自动同步。";
+        }
+    }
     public string RetentionCountText { get => _retentionCountText; set => SetField(ref _retentionCountText, value); }
     public string RetentionDaysText { get => _retentionDaysText; set => SetField(ref _retentionDaysText, value); }
 
@@ -293,6 +313,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 RegistrySaveRules.Clear();
                 SelectedRegistrySaveRule = null;
                 IsSaveDirectoryConfirmed = false;
+                IsAutoSyncEnabled = false;
                 Snapshots.Clear();
                 SelectedSnapshot = null;
                 ApplyDiscoveredIdentity(value);
@@ -601,10 +622,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         GameProcessNameRules.GetEffectiveNames(profile.EffectiveLaunchProfile, profile.ProcessName);
     private async Task EnableAutomaticSyncAsync(Uri server, string token, string gameId, LocalGameProfile profile)
     {
-        IReadOnlyList<SaveRootRule> fileRoots = profile.EffectiveSaveRoots
-            .Where(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (!profile.UserConfirmed || GetMonitoredProcessNames(profile).Count == 0
-            || fileRoots.Count == 0 || fileRoots.Any(root => !root.UserConfirmed || !Directory.Exists(root.Path))) return;
+        IReadOnlyList<SaveRootRule> fileRoots = GetAutomaticSyncFileRoots(profile);
+        if (!IsAutomaticSyncProfileReady(profile)) return;
         await _autoSyncCoordinator.EnableAsync(
             gameId,
             new AutoSnapshotProfile(GetMonitoredProcessNames(profile), fileRoots.Select(root => root.Path).ToArray()),
@@ -707,6 +726,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string GetRegistryCacheDirectory(Uri server, string gameId) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GameSaveManager", "registry",
         GameSaveServerIdentity.CreateStableKey(server), gameId);
+
+    private void DeleteGeneratedGameData(Uri server, string gameId)
+    {
+        string gameDataRoot = Path.GetFullPath(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GameSaveManager", "registry",
+            GameSaveServerIdentity.CreateStableKey(server)));
+        string gameDataDirectory = Path.GetFullPath(GetRegistryCacheDirectory(server, gameId));
+        string relativePath = Path.GetRelativePath(gameDataRoot, gameDataDirectory);
+        if (Path.IsPathRooted(relativePath) || relativePath.Equals("..", StringComparison.Ordinal)
+            || relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new IOException("游戏本地数据目录越过了应用数据边界，已停止删除");
+        if (Directory.Exists(gameDataDirectory)) Directory.Delete(gameDataDirectory, true);
+    }
 
     private async Task PrepareRegistrySnapshotsAsync(Uri server, string gameId, IReadOnlyList<RegistrySaveRule>? rules = null)
     {
@@ -1097,7 +1129,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await _autoSyncCoordinator.DisableAsync(gameId);
             IsAutoSyncEnabled = false;
             await _apiClient.DeleteGameAsync(server, token, gameId, CancellationToken.None);
-            await _localGameProfileStore.DeleteAsync(GameSaveServerIdentity.CreateStableKey(server), gameId, CancellationToken.None);
+            string serverKey = GameSaveServerIdentity.CreateStableKey(server);
+            await _localGameProfileStore.DeleteAsync(serverKey, gameId, CancellationToken.None);
+            await _cloudSyncService.DeleteLocalStateAsync(server, gameId, CancellationToken.None);
+            _localGameProfiles.Remove(gameId);
+            DeleteGeneratedGameData(server, gameId);
             Games.Remove(SelectedGame);
             Snapshots.Clear();
             SelectedSnapshot = null;
@@ -1108,7 +1144,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 await ReloadSnapshotsAsync(server, token);
             }
             await ReloadQuotaAsync(server, token);
-            StatusText = $"已删除游戏“{gameName}”及其全部云端存档。";
+            StatusText = $"已删除游戏“{gameName}”、全部云端存档及这台电脑上的对应设置；本机原始存档未被删除。";
         }
         catch (Exception exception) { ShowError("删除游戏失败", exception); }
     }
@@ -1498,6 +1534,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         _runningProcessNames = SnapshotRunningProcessNames();
         RuntimeStatusVersion++;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutoSyncConfigurationText)));
     }
 
     private static HashSet<string> SnapshotRunningProcessNames()
@@ -1516,16 +1553,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
-            if (string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory))
-                throw new InvalidOperationException("请填写存在的本地存档目录");
-            if (string.IsNullOrWhiteSpace(AutoSnapshotProcessName))
-                throw new InvalidOperationException("请填写游戏进程名，例如 eldenring.exe");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
-            if (!IsSaveDirectoryConfirmed) throw new InvalidOperationException("请先确认存档目录后再启用自动同步");
-            LocalGameProfile profile = await SaveLocalProfileAsync(server, true);
+            if (!_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? savedProfile) || !IsAutomaticSyncProfileReady(savedProfile))
+                throw new InvalidOperationException("启动入口或存档目录尚未配置完成，请先在游戏详情中完成配置");
+            LocalGameProfile profile = savedProfile with { AutoSnapshotEnabled = true };
             await EnableAutomaticSyncAsync(server, token, SelectedGame.GameId, profile);
-            IsAutoSyncEnabled = true;
+            IsAutoSyncEnabled = _autoSyncCoordinator.ActiveGameIds.Contains(SelectedGame.GameId);
+            if (!IsAutoSyncEnabled) throw new InvalidOperationException("自动同步监听未能启动，请检查启动入口和存档目录");
+            await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
+            _localGameProfiles[profile.GameId] = profile;
+            RefreshGameRuntimeStatus();
             StatusText = "自动同步已启用：每个已启用的游戏都会独立监听，游戏退出后排队增量同步。";
         }
         catch (Exception exception) { ShowError("启用自动同步失败", exception); }
@@ -1536,8 +1574,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (SelectedGame is null) return;
         Uri server = ParseServerUri();
         await _autoSyncCoordinator.DisableAsync(SelectedGame.GameId);
-        await SaveLocalProfileAsync(server, false);
+        string serverKey = GameSaveServerIdentity.CreateStableKey(server);
+        LocalGameProfile? profile = await _localGameProfileStore.GetAsync(serverKey, SelectedGame.GameId, CancellationToken.None);
+        if (profile is not null)
+        {
+            LocalGameProfile disabledProfile = profile with { AutoSnapshotEnabled = false };
+            await _localGameProfileStore.SaveAsync(disabledProfile, CancellationToken.None);
+            _localGameProfiles[disabledProfile.GameId] = disabledProfile;
+        }
         IsAutoSyncEnabled = false;
+        RefreshGameRuntimeStatus();
         StatusText = "已停止当前游戏的自动同步；其他游戏的自动同步不受影响。";
     }
 
@@ -1591,9 +1637,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private bool CanStartAutoSnapshot()
     {
-        if (!IsAuthenticated || SelectedGame is null || IsAutoSyncEnabled || !HasConfirmedExistingFileRoots()) return false;
-        if (string.IsNullOrWhiteSpace(AutoSnapshotProcessName)) return false;
-        return IsLaunchTargetValid(CreateLaunchProfile(GetCurrentGameIdentity()));
+        return IsAuthenticated && SelectedGame is not null && !IsAutoSyncEnabled
+            && _localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? profile)
+            && IsAutomaticSyncProfileReady(profile);
+    }
+
+    private static IReadOnlyList<SaveRootRule> GetAutomaticSyncFileRoots(LocalGameProfile profile) =>
+        profile.EffectiveSaveRoots.Where(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase)).ToArray();
+
+    private static bool IsAutomaticSyncProfileReady(LocalGameProfile profile)
+    {
+        IReadOnlyList<SaveRootRule> fileRoots = GetAutomaticSyncFileRoots(profile);
+        return profile.UserConfirmed
+            && IsLaunchTargetValid(profile.EffectiveLaunchProfile)
+            && GetMonitoredProcessNames(profile).Count > 0
+            && fileRoots.Count > 0
+            && fileRoots.All(root => root.UserConfirmed && Directory.Exists(root.Path));
     }
     private bool CanSynchronize() =>
         IsAuthenticated && !IsSyncing && SelectedGame is not null && HasConfirmedExistingFileRoots();

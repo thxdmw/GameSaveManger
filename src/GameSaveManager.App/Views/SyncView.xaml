@@ -61,32 +61,35 @@
                     </StackPanel>
                 </StackPanel>
             </Border>
+            <Border Margin="0,18,0,0" Padding="24" Style="{StaticResource PanelStyle}">
+                <StackPanel>
+                    <TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="自动同步"/>
+                    <TextBlock Margin="0,8,0,6" Foreground="{DynamicResource Muted}" Text="使用当前游戏已经保存的启动入口和存档目录，无需再次选择。"/>
+                    <TextBlock Margin="0,0,0,14" Foreground="{DynamicResource Muted}" FontSize="12" Text="{Binding AutoSyncConfigurationText}" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Command="{Binding StartAutoSnapshotCommand}" Content="启用自动同步">
+                            <Button.Style><Style TargetType="Button" BasedOn="{StaticResource Primary}"><Style.Triggers><DataTrigger Binding="{Binding IsAutoSyncEnabled}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Button.Style>
+                        </Button>
+                        <Button Command="{Binding StopAutoSnapshotCommand}" Content="取消自动同步">
+                            <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ButtonStyle}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsAutoSyncEnabled}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Button.Style>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
             <Border Margin="0,18,0,0" Padding="22" Style="{StaticResource PanelStyle}">
                 <StackPanel>
-                    <DockPanel>
-                        <TextBlock DockPanel.Dock="Left" Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="同步任务"/>
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="同步任务"/>
+                        <StackPanel Grid.Column="1" HorizontalAlignment="Right" Orientation="Horizontal">
                             <Button Style="{StaticResource ButtonStyle}" Margin="0,0,8,0" Command="{Binding RetrySyncCommand}" Content="重试"/>
                             <Button Style="{StaticResource ButtonStyle}" Command="{Binding CancelSyncCommand}" Content="取消"/>
                         </StackPanel>
-                    </DockPanel>
+                    </Grid>
                     <TextBlock Margin="0,14,0,8" Foreground="{DynamicResource Muted}" Text="{Binding SyncProgressText}"/>
                     <ProgressBar Height="9" Maximum="100" Value="{Binding SyncProgressValue, Mode=OneWay}"/>
                     <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="{Binding SyncSummaryText, Mode=OneWay}" TextWrapping="Wrap"/>
                     <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="自动同步和手动同步共用一个安全队列，避免同一时间提交相互覆盖。"/>
-                </StackPanel>
-            </Border>
-            <Border Margin="0,18,0,0" Padding="24" Style="{StaticResource PanelStyle}">
-                <StackPanel>
-                    <TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="自动同步"/>
-                    <TextBlock Margin="0,8,0,14" Foreground="{DynamicResource Muted}" Text="每个已启用游戏都会独立监听。目录变化只标记为待同步，游戏进程退出后才会完整扫描并排队同步。"/>
-                    <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="110"/><ColumnDefinition Width="14"/><ColumnDefinition Width="150"/><ColumnDefinition Width="10"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
-                        <TextBox Style="{StaticResource Input}" Text="{Binding AutoSnapshotProcessName, UpdateSourceTrigger=PropertyChanged}" ToolTip="游戏进程名，例如 eldenring.exe"/>
-                        <Button Grid.Column="2" Style="{StaticResource ButtonStyle}" Click="ChooseProcessExecutableButton_OnClick" Content="选择 EXE"/>
-                        <Button Grid.Column="4" Style="{StaticResource Primary}" Command="{Binding StartAutoSnapshotCommand}" Content="启用当前游戏"/>
-                        <Button Grid.Column="6" Style="{StaticResource ButtonStyle}" Command="{Binding StopAutoSnapshotCommand}" Content="停止当前游戏"/>
-                    </Grid>
                 </StackPanel>
             </Border>
             <Grid Margin="0,18,0,0">

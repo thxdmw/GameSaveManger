@@ -15,6 +15,9 @@ public sealed class CloudSyncService(
     IGameSaveApiClient apiClient,
     ILocalSyncStateStore localSyncStateStore)
 {
+    public Task DeleteLocalStateAsync(Uri server, string gameId, CancellationToken cancellationToken) =>
+        localSyncStateStore.DeleteAsync(GameSaveServerIdentity.CreateStableKey(server), gameId, cancellationToken);
+
     public Task<CloudSyncResult> SyncAsync(Uri server, string deviceToken, string gameId, string saveDirectory, SnapshotTrigger trigger, string? description, CancellationToken cancellationToken, bool keepLocalOnConflict = false, IProgress<CloudSyncProgress>? progress = null) =>
         SyncCoreAsync(server, deviceToken, gameId, [SaveRootRule.CreateDefault(saveDirectory, Discovery.SaveLocationSource.Manual, 100, true)], trigger, description, cancellationToken, keepLocalOnConflict, progress);
 

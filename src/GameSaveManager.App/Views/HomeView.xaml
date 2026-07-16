@@ -33,13 +33,17 @@
                                 <TextBlock Foreground="{DynamicResource Text}" FontSize="20" FontWeight="SemiBold" Text="{Binding SelectedGame.Name, TargetNullValue=选择一款游戏}" TextTrimming="CharacterEllipsis"/>
                                 <TextBlock Margin="0,7,0,0" Foreground="{DynamicResource Muted}" Text="{Binding SelectedGame.Provider, TargetNullValue=云端游戏库}"/>
                                 <TextBlock Margin="0,9,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="在同步中心配置存档路径和同步。"/>
-                                <Button Margin="0,14,0,0" Width="132" HorizontalAlignment="Left" Style="{StaticResource Primary}" Command="{Binding NavigateCommand}" CommandParameter="同步中心" Content="▣  管理存档"/>
+                                <StackPanel Margin="0,14,0,0" Orientation="Horizontal">
+                                    <Button Width="86" Style="{StaticResource Primary}" Command="{Binding LaunchGameCommand}" CommandParameter="{Binding SelectedGame}" Content="启动"/>
+                                    <Button Margin="10,0,0,0" Width="132" Style="{StaticResource Primary}" Command="{Binding NavigateCommand}" CommandParameter="同步中心" Content="▣  管理存档"/>
+                                </StackPanel>
                             </StackPanel>
                         </Grid>
                     </Border>
                     <StackPanel Grid.Column="2">
                         <TextBlock Foreground="{DynamicResource Text}" FontWeight="SemiBold" Text="最近快照"/>
-                        <ItemsControl Height="82" Margin="0,12,0,0" ClipToBounds="True" ItemsSource="{Binding Snapshots}">
+                        <Grid Height="82" Margin="0,12,0,0">
+                            <ItemsControl ClipToBounds="True" ItemsSource="{Binding Snapshots}">
                             <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate><DataTemplate>
                                 <Border Width="116" Height="82" Padding="9" Margin="0,0,10,0" Background="{DynamicResource ItemBackground}" BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="9">
@@ -49,7 +53,12 @@
                                     </StackPanel>
                                 </Border>
                             </DataTemplate></ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                            </ItemsControl>
+                            <Border Width="116" Height="82" HorizontalAlignment="Left" Background="{DynamicResource ItemBackground}" BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="9">
+                                <Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Snapshots.Count}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style>
+                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Muted}" Text="无"/>
+                            </Border>
+                        </Grid>
                         <Grid Height="20" Margin="0,14,0,0" ClipToBounds="True">
                             <Border Height="2" Margin="5,0" VerticalAlignment="Center" Background="{DynamicResource TimelineLine}"/>
                             <ItemsControl ItemsSource="{Binding Snapshots}">
@@ -93,7 +102,6 @@
                                 </Grid>
                             </Border>
                             <Button Style="{StaticResource GameCardButton}" Command="{Binding DataContext.SelectGameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
-                            <Button Width="62" Height="28" Margin="0,0,12,10" HorizontalAlignment="Right" VerticalAlignment="Bottom" Style="{StaticResource Primary}" Command="{Binding DataContext.LaunchGameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Content="启动"/>
                         </Grid>
                     </DataTemplate></ItemsControl.ItemTemplate>
                 </ItemsControl>

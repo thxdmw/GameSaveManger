@@ -31,14 +31,32 @@ public partial class LibraryView : UserControl
         }
     }
 
+    private static CloudGame? GetMenuGame(object sender) =>
+        sender is MenuItem { DataContext: CloudGame game } ? game : null;
+
+    private void GameMenuButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { ContextMenu: { } menu } button) return;
+        menu.PlacementTarget = button;
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private void ManageSaveMenuItem_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuGame(sender) is not { } game || DataContext is not MainViewModel viewModel) return;
+        if (viewModel.SelectGameCommand.CanExecute(game)) viewModel.SelectGameCommand.Execute(game);
+        if (viewModel.NavigateCommand.CanExecute("同步中心")) viewModel.NavigateCommand.Execute("同步中心");
+    }
+
     private void DeleteGameMenuItem_OnClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem { DataContext: CloudGame game } || DataContext is not MainViewModel viewModel) return;
+        if (GetMenuGame(sender) is not { } game || DataContext is not MainViewModel viewModel) return;
         viewModel.SelectedGame = game;
         ThemedDialogResult confirmation = ThemedDialogWindow.ShowThemed(
             Window.GetWindow(this),
             "确认删除游戏",
-            $"确定删除“{game.Name}”吗？\n\n这会删除该游戏的全部云端快照，并回收没有被其他快照引用的云端存档内容。此操作无法撤销；本机原始存档文件不会被删除。",
+            $"确定删除“{game.Name}”吗？\n\n这会删除该游戏的全部云端快照，以及这台电脑中保存的启动、存档和自动同步设置。此操作无法撤销；本机原始存档文件不会被删除。",
             "确认删除",
             "取消");
         if (confirmation == ThemedDialogResult.Primary && viewModel.DeleteGameCommand.CanExecute(null))

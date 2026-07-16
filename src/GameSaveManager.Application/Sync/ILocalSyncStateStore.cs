@@ -9,4 +9,9 @@ public interface ILocalSyncStateStore
         CancellationToken cancellationToken);
 
     Task SaveAsync(LocalSyncState state, CancellationToken cancellationToken);
+
+    Task DeleteAsync(
+        string serverKey,
+        string gameId,
+        CancellationToken cancellationToken);
 }

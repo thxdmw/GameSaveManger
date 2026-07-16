@@ -50,4 +50,15 @@ public sealed class SqliteSyncStateStore(SqliteDatabase database) : ILocalSyncSt
         command.Parameters.AddWithValue("$headVersion", state.HeadVersion);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
+
+    public async Task DeleteAsync(string serverKey, string gameId, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = database.CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM sync_state WHERE server_key = $serverKey AND game_id = $gameId;";
+        command.Parameters.AddWithValue("$serverKey", serverKey);
+        command.Parameters.AddWithValue("$gameId", gameId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
 }
