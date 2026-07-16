@@ -55,8 +55,7 @@ public sealed class WindowsGameProcessDetectionService : IGameProcessDetectionSe
                 .ToArray();
             bool stableCandidate = stableRunning.Any(observation =>
                 observation.Process.IsInsideGameDirectory || MatchesExpectedName(observation.Process.ProcessName, expectedProcessNames));
-            bool singleUnambiguousCandidate = stableRunning.Length == 1 && !IsHelperProcess(stableRunning[0].Process.ProcessName);
-            if (stableCandidate || singleUnambiguousCandidate) break;
+            if (stableCandidate) break;
 
             TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
             if (remaining > TimeSpan.Zero)

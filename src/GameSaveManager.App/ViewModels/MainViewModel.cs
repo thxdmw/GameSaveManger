@@ -598,13 +598,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RefreshGameRuntimeStatus();
     }
 
-    private static IReadOnlyList<string> GetMonitoredProcessNames(LocalGameProfile profile)
-    {
-        IReadOnlyList<string>? configured = profile.EffectiveLaunchProfile?.MonitoredProcessNames;
-        return configured is { Count: > 0 }
-            ? configured.Where(name => !string.IsNullOrWhiteSpace(name)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
-            : string.IsNullOrWhiteSpace(profile.ProcessName) ? [] : [profile.ProcessName];
-    }
+    private static IReadOnlyList<string> GetMonitoredProcessNames(LocalGameProfile profile) =>
+        GameProcessNameRules.GetEffectiveNames(profile.EffectiveLaunchProfile, profile.ProcessName);
     private async Task EnableAutomaticSyncAsync(Uri server, string token, string gameId, LocalGameProfile profile)
     {
         IReadOnlyList<SaveRootRule> fileRoots = profile.EffectiveSaveRoots
@@ -1371,8 +1366,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
             DiscoveredGame? discovered = FindDiscoveredGame(SelectedGame);
             if (discovered is not null) return discovered.Identity;
             if (_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? profile))
-                return new GameIdentity(SelectedGame.Name, profile.Provider, profile.ProviderGameId, profile.InstallDirectory ?? string.Empty, profile.ExecutablePath, profile.ProcessName);
-            return new GameIdentity(SelectedGame.Name, SelectedGame.Provider, SelectedGame.ProviderGameId, string.Empty, string.IsNullOrWhiteSpace(AutoSnapshotExecutablePath) ? null : AutoSnapshotExecutablePath, string.IsNullOrWhiteSpace(AutoSnapshotProcessName) ? null : AutoSnapshotProcessName);
+            {
+                string? executablePath = string.IsNullOrWhiteSpace(AutoSnapshotExecutablePath)
+                    ? profile.ExecutablePath
+                    : AutoSnapshotExecutablePath;
+                string? processName = string.IsNullOrWhiteSpace(AutoSnapshotProcessName)
+                    ? profile.ProcessName
+                    : AutoSnapshotProcessName;
+                string installDirectory = !string.IsNullOrWhiteSpace(executablePath) && File.Exists(executablePath)
+                    ? Path.GetDirectoryName(executablePath) ?? profile.InstallDirectory ?? string.Empty
+                    : profile.InstallDirectory ?? string.Empty;
+                return new GameIdentity(SelectedGame.Name, profile.Provider, profile.ProviderGameId, installDirectory, executablePath, processName);
+            }
+            string? configuredExecutablePath = string.IsNullOrWhiteSpace(AutoSnapshotExecutablePath) ? null : AutoSnapshotExecutablePath;
+            string configuredInstallDirectory = configuredExecutablePath is { Length: > 0 } && File.Exists(configuredExecutablePath)
+                ? Path.GetDirectoryName(configuredExecutablePath) ?? string.Empty
+                : string.Empty;
+            return new GameIdentity(SelectedGame.Name, SelectedGame.Provider, SelectedGame.ProviderGameId,
+                configuredInstallDirectory, configuredExecutablePath,
+                string.IsNullOrWhiteSpace(AutoSnapshotProcessName) ? null : AutoSnapshotProcessName);
         }
         return SelectedDiscoveredGame?.Identity ?? new GameIdentity(NewGameName, GameIdentity.Custom, null, string.Empty, null, null);
     }
@@ -1382,14 +1394,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         GameLaunchProfile launchProfile = CreateLaunchProfile(game)
             ?? throw new InvalidOperationException("未找到有效的游戏启动配置。");
         return _gameLaunchService.LaunchAsync(launchProfile, game.InstallDirectory, cancellationToken);
-    }    private async Task LaunchGameAsync(object? parameter)
+    }
+
+    private async Task LaunchGameAsync(object? parameter)
     {
         if (parameter is not CloudGame game) return;
         if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile))
         {
             SelectedGame = game;
             CurrentPage = "游戏详情";
-            StatusText = "请先配置该游戏的启动入口，再从游戏卡片启动。";
+            StatusText = "该游戏的启动配置待验证，请在游戏详情中选择正确的 EXE。";
             return;
         }
 
@@ -1398,8 +1412,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (launchProfile is null || invalidLocalTarget)
         {
             SelectedGame = game;
-            CurrentPage = "同步中心";
-            StatusText = "游戏启动入口缺失或已失效，请重新选择。";
+            AutoSnapshotExecutablePath = profile.ExecutablePath ?? string.Empty;
+            AutoSnapshotProcessName = profile.ProcessName;
+            CurrentPage = "游戏详情";
+            StatusText = "游戏启动入口缺失或已经失效，请在游戏详情中重新选择 EXE。";
             return;
         }
 
@@ -1408,20 +1424,60 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SelectedGame = game;
             SaveDirectory = profile.SaveDirectory;
             IsSaveDirectoryConfirmed = profile.UserConfirmed;
-            AutoSnapshotProcessName = profile.ProcessName;
-            AutoSnapshotExecutablePath = profile.ExecutablePath ?? string.Empty;
-            StatusText = $"已发送 {game.Name} 的启动请求，正在确认游戏进程…";
-            GameLaunchResult launchResult = await _gameLaunchService.LaunchAsync(launchProfile, profile.InstallDirectory, CancellationToken.None);
-            DetectedGameProcess[] runningCandidates = launchResult.DetectedProcesses.Where(candidate => candidate.IsStillRunning).ToArray();
-            if (runningCandidates.Length == 1 && !launchProfile.MonitoredProcessNames.Any(name => string.Equals(Path.GetFileNameWithoutExtension(name), runningCandidates[0].ProcessName, StringComparison.OrdinalIgnoreCase)))
+            AutoSnapshotExecutablePath = profile.ExecutablePath ?? launchProfile.Target;
+
+            IReadOnlyList<string> effectiveNames = GameProcessNameRules.GetEffectiveNames(launchProfile, profile.ProcessName);
+            launchProfile = launchProfile with { MonitoredProcessNames = effectiveNames };
+            string primaryProcessName = launchProfile.TargetType == GameLaunchTargetType.Executable
+                ? Path.GetFileName(launchProfile.Target)
+                : effectiveNames.FirstOrDefault() is { Length: > 0 } first ? first + ".exe" : string.Empty;
+            AutoSnapshotProcessName = primaryProcessName;
+            string? repairedExecutablePath = launchProfile.TargetType == GameLaunchTargetType.Executable
+                ? launchProfile.Target
+                : profile.ExecutablePath;
+            string? repairedInstallDirectory = repairedExecutablePath is { Length: > 0 }
+                ? Path.GetDirectoryName(repairedExecutablePath)
+                : profile.InstallDirectory;
+
+            if (!profile.EffectiveLaunchProfile!.MonitoredProcessNames.SequenceEqual(effectiveNames, StringComparer.OrdinalIgnoreCase) ||
+                !string.Equals(profile.ProcessName, primaryProcessName, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(profile.ExecutablePath, repairedExecutablePath, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(profile.InstallDirectory, repairedInstallDirectory, StringComparison.OrdinalIgnoreCase))
             {
-                string detectedProcessName = runningCandidates[0].ProcessName + ".exe";
-                launchProfile = launchProfile with { MonitoredProcessNames = [detectedProcessName] };
-                profile = profile with { ProcessName = detectedProcessName, LaunchProfile = launchProfile };
+                profile = profile with
+                {
+                    ProcessName = primaryProcessName,
+                    ExecutablePath = repairedExecutablePath,
+                    InstallDirectory = repairedInstallDirectory,
+                    IdentityExecutablePath = repairedExecutablePath,
+                    LaunchProfile = launchProfile
+                };
                 await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
                 _localGameProfiles[profile.GameId] = profile;
-                AutoSnapshotProcessName = detectedProcessName;
             }
+
+            StatusText = $"已发送 {game.Name} 的启动请求，正在确认游戏进程…";
+            GameLaunchResult launchResult = await _gameLaunchService.LaunchAsync(
+                launchProfile,
+                profile.InstallDirectory,
+                CancellationToken.None);
+            string[] detectedNames = launchResult.DetectedProcesses
+                .Where(candidate => candidate.IsStillRunning && !GameProcessNameRules.IsUnsafeGenericName(candidate.ProcessName))
+                .Select(candidate => GameProcessNameRules.Normalize(candidate.ProcessName))
+                .Where(name => name.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            string[] monitoredNames = effectiveNames.Concat(detectedNames)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (!launchProfile.MonitoredProcessNames.SequenceEqual(monitoredNames, StringComparer.OrdinalIgnoreCase))
+            {
+                launchProfile = launchProfile with { MonitoredProcessNames = monitoredNames };
+                profile = profile with { LaunchProfile = launchProfile };
+                await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
+                _localGameProfiles[profile.GameId] = profile;
+            }
+
             StatusText = launchResult.Warning is null
                 ? $"已确认 {game.Name} 的游戏进程正在运行。"
                 : $"已发送 {game.Name} 的启动请求，但{launchResult.Warning}";
@@ -1432,18 +1488,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ShowError("启动游戏失败", exception);
         }
     }
-    private static bool IsGameRunning(LocalGameProfile profile)
-    {
-        foreach (string configuredName in GetMonitoredProcessNames(profile))
-        {
-            string processName = Path.GetFileNameWithoutExtension(configuredName);
-            if (string.IsNullOrWhiteSpace(processName)) continue;
-            Process[] processes = Process.GetProcessesByName(processName);
-            try { if (processes.Length > 0) return true; }
-            finally { foreach (Process process in processes) process.Dispose(); }
-        }
-        return false;
-    }
+
+    private bool IsGameRunning(LocalGameProfile profile) =>
+        GetMonitoredProcessNames(profile).Any(name => _runningProcessNames.Contains(GameProcessNameRules.Normalize(name)));
 
     // 运行状态刷新时先枚举一次全部进程并缓存进程名集合；读写均在 UI 线程，引用整体替换避免读到半更新集合。
     private HashSet<string> _runningProcessNames = new(StringComparer.OrdinalIgnoreCase);
@@ -1530,11 +1577,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool CanCreateGame() =>
         IsAuthenticated && !string.IsNullOrWhiteSpace(NewGameName);
 
-    private bool CanLaunchGame(object? parameter)
-    {
-        if (parameter is not CloudGame game || !_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile)) return false;
-        return IsLaunchTargetValid(profile.EffectiveLaunchProfile);
-    }
+    private bool CanLaunchGame(object? parameter) => parameter is CloudGame;
 
     private static bool IsLaunchTargetValid(GameLaunchProfile? profile)
     {

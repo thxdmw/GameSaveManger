@@ -3,11 +3,12 @@ using GameSaveManager.Application.Launching;
 
 namespace GameSaveManager.Infrastructure.Launching;
 
-/// <summary>通过 Windows Shell 直接请求启动游戏入口，不经由 Explorer 或命令解释器中转。</summary>
+/// <summary>通过 Windows Shell 启动游戏，并只把与目标 EXE 或游戏目录相关的进程视为游戏进程。</summary>
 public sealed class WindowsGameLaunchService(IGameProcessDetectionService? processDetectionService = null) : IGameLaunchService
 {
     private readonly IGameProcessDetectionService _processDetectionService = processDetectionService ?? new WindowsGameProcessDetectionService();
-    public Task<GameLaunchResult> LaunchAsync(
+
+    public async Task<GameLaunchResult> LaunchAsync(
         GameLaunchProfile profile,
         string? installDirectory,
         CancellationToken cancellationToken)
@@ -18,26 +19,43 @@ public sealed class WindowsGameLaunchService(IGameProcessDetectionService? proce
         ProcessStartInfo startInfo = CreateStartInfo(profile);
         ProcessSnapshot before = _processDetectionService.CaptureSnapshot();
         DateTimeOffset requestedAt = DateTimeOffset.UtcNow;
-        using Process? process = Process.Start(startInfo)
+        using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Windows 未接受游戏启动请求。");
 
-        return CreateResultAsync(process, before, profile, installDirectory, requestedAt, startInfo.WorkingDirectory, cancellationToken);
+        string? detectionDirectory = string.IsNullOrWhiteSpace(installDirectory)
+            ? string.IsNullOrWhiteSpace(startInfo.WorkingDirectory) ? null : startInfo.WorkingDirectory
+            : installDirectory;
+        IReadOnlyList<string> expectedNames = GameProcessNameRules.GetEffectiveNames(profile);
+        IReadOnlyList<DetectedGameProcess> detected = await _processDetectionService.DetectNewProcessesAsync(
+            before,
+            detectionDirectory,
+            expectedNames,
+            TimeSpan.FromSeconds(15),
+            cancellationToken);
+
+        int? launchedProcessId = TryGetProcessId(process);
+        DetectedGameProcess[] relevant = detected.Where(candidate =>
+            candidate.IsInsideGameDirectory ||
+            expectedNames.Contains(candidate.ProcessName, StringComparer.OrdinalIgnoreCase) ||
+            profile.TargetType == GameLaunchTargetType.Executable && candidate.ProcessId == launchedProcessId)
+            .ToArray();
+        DetectedGameProcess[] running = relevant.Where(candidate => candidate.IsStillRunning).ToArray();
+        string? warning = running.Length > 0
+            ? null
+            : relevant.Length > 0
+                ? "与启动配置匹配的游戏进程已经退出，游戏可能显示了启动错误。"
+                : "未检测到与目标 EXE 或游戏目录匹配的运行进程；不会把其他系统进程记录为游戏进程。";
+
+        return new GameLaunchResult(
+            true,
+            launchedProcessId,
+            requestedAt,
+            profile.Target,
+            startInfo.WorkingDirectory,
+            relevant,
+            warning);
     }
 
-    private async Task<GameLaunchResult> CreateResultAsync(Process process, ProcessSnapshot before, GameLaunchProfile profile, string? installDirectory, DateTimeOffset requestedAt, string workingDirectory, CancellationToken cancellationToken)
-    {
-        string? detectionDirectory = string.IsNullOrWhiteSpace(installDirectory) ? (string.IsNullOrWhiteSpace(workingDirectory) ? null : workingDirectory) : installDirectory;
-        IReadOnlyList<DetectedGameProcess> detected = await _processDetectionService.DetectNewProcessesAsync(before, detectionDirectory, profile.MonitoredProcessNames, TimeSpan.FromSeconds(15), cancellationToken);
-        DetectedGameProcess[] runningCandidates = detected.Where(candidate => candidate.IsStillRunning).ToArray();
-        bool confirmed = runningCandidates.Any(candidate => candidate.IsInsideGameDirectory || profile.MonitoredProcessNames.Any(name => string.Equals(Path.GetFileNameWithoutExtension(name), candidate.ProcessName, StringComparison.OrdinalIgnoreCase)))
-            || runningCandidates.Length == 1;
-        string? warning = confirmed ? null : detected.Count == 0
-            ? "未在 15 秒内检测到游戏进程。"
-            : runningCandidates.Length > 1
-                ? "检测到多个候选进程，请在启动设置中选择实际游戏进程。"
-                : "检测到的候选进程均已退出，游戏可能快速退出。";
-        return new GameLaunchResult(true, TryGetProcessId(process), requestedAt, profile.Target, workingDirectory, detected, warning);
-    }
     private static ProcessStartInfo CreateStartInfo(GameLaunchProfile profile) => profile.TargetType switch
     {
         GameLaunchTargetType.Executable => CreateExecutableStartInfo(profile),
@@ -56,8 +74,8 @@ public sealed class WindowsGameLaunchService(IGameProcessDetectionService? proce
             FileName = target,
             Arguments = profile.Arguments ?? string.Empty,
             WorkingDirectory = workingDirectory,
-            UseShellExecute = true,
-            Verb = profile.RunAsAdministrator ? "runas" : "open"
+            UseShellExecute = profile.RunAsAdministrator,
+            Verb = profile.RunAsAdministrator ? "runas" : string.Empty
         };
     }
 
@@ -67,8 +85,9 @@ public sealed class WindowsGameLaunchService(IGameProcessDetectionService? proce
         return new ProcessStartInfo
         {
             FileName = target,
+            WorkingDirectory = Path.GetDirectoryName(target) ?? string.Empty,
             UseShellExecute = true,
-            Verb = "open"
+            Verb = profile.RunAsAdministrator ? "runas" : "open"
         };
     }
 
@@ -76,9 +95,7 @@ public sealed class WindowsGameLaunchService(IGameProcessDetectionService? proce
     {
         if (!Uri.TryCreate(profile.Target, UriKind.Absolute, out Uri? target) ||
             (target.Scheme is not "steam" and not "com.epicgames.launcher"))
-        {
             throw new InvalidOperationException("只允许启动 Steam 或 Epic 游戏 URI。");
-        }
 
         return new ProcessStartInfo(profile.Target) { UseShellExecute = true, Verb = "open" };
     }

@@ -9,6 +9,7 @@
         <SolidColorBrush x:Key="Text" Color="#F4F8FF"/>
         <SolidColorBrush x:Key="Muted" Color="#96A8C0"/>
         <SolidColorBrush x:Key="Border" Color="#20324A"/>
+        <SolidColorBrush x:Key="TimelineLine" Color="#6F96C4"/>
         <SolidColorBrush x:Key="ButtonBackground" Color="#17263A"/>
         <SolidColorBrush x:Key="ButtonHover" Color="#25456C"/>
         <SolidColorBrush x:Key="PrimaryBrush" Color="#287DFF"/>
