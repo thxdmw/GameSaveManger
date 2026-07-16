@@ -33,10 +33,11 @@
                                 <TextBlock Foreground="{DynamicResource Text}" FontSize="20" FontWeight="SemiBold" Text="{Binding SelectedGame.Name, TargetNullValue=选择一款游戏}" TextTrimming="CharacterEllipsis"/>
                                 <TextBlock Margin="0,7,0,0" Foreground="{DynamicResource Muted}" Text="{Binding SelectedGame.Provider, TargetNullValue=云端游戏库}"/>
                                 <TextBlock Margin="0,9,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="在同步中心配置存档路径和同步。"/>
-                                <StackPanel Margin="0,14,0,0" Orientation="Horizontal">
-                                    <Button Width="86" Style="{StaticResource Primary}" Command="{Binding LaunchGameCommand}" CommandParameter="{Binding SelectedGame}" Content="启动"/>
-                                    <Button Margin="10,0,0,0" Width="132" Style="{StaticResource Primary}" Command="{Binding NavigateCommand}" CommandParameter="同步中心" Content="▣  管理存档"/>
-                                </StackPanel>
+                                <Grid Margin="0,14,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <Button Style="{StaticResource Primary}" Command="{Binding LaunchGameCommand}" CommandParameter="{Binding SelectedGame}" Content="启动"/>
+                                    <Button Grid.Column="2" Style="{StaticResource Primary}" Command="{Binding NavigateCommand}" CommandParameter="同步中心" Content="▣  管理存档"/>
+                                </Grid>
                             </StackPanel>
                         </Grid>
                     </Border>
