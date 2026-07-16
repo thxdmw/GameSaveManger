@@ -81,11 +81,12 @@ internal static class LudusaviManifestVerification
             Ensure(LudusaviManifestDetector.DetectFromManifestFile(cycleGame, cycleManifest).Count == 0,
                 "Alias 循环必须被拒绝。");
 
+            CreateFile(Path.Combine(installDirectory, "ManifestFolder", "slot.sav"));
             File.WriteAllText(secondaryManifest, """
                 installDir:
-                  TestGame: {}
+                  ManifestFolder: {}
                 files:
-                  "<base>/saves/*.sav": {}
+                  "<base>/<game>/*.sav": {}
                 """);
             Ensure(LudusaviManifestDetector.Detect(localGame, CancellationToken.None).Count == 1,
                 "游戏目录中的二级 Manifest 应优先生效。");

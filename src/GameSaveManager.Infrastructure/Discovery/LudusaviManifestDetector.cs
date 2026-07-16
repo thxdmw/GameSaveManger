@@ -18,7 +18,7 @@ internal static class LudusaviManifestDetector
     {
         string secondaryPath = Path.Combine(game.InstallDirectory, ".ludusavi.yaml");
         ManifestMatch? match = File.Exists(secondaryPath)
-            ? TryLoadIndex(secondaryPath)?.Find(game)
+            ? TryLoadIndex(secondaryPath)?.FindSecondary(game)
             : null;
         match ??= _index.Value.Find(game);
         return match is null ? [] : Detect(game, match, cancellationToken);
@@ -43,7 +43,7 @@ internal static class LudusaviManifestDetector
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!IsRuleAllowed(rule, game.Provider)) continue;
-            foreach (string directory in ResolveDirectories(rule.Path, game, cancellationToken))
+            foreach (string directory in ResolveDirectories(rule.Path, game, match, cancellationToken))
             {
                 SaveLocationCandidate? candidate = SaveLocationCandidateFactory.Create(
                     directory,
@@ -174,6 +174,7 @@ internal static class LudusaviManifestDetector
     private static IReadOnlyList<string> ResolveDirectories(
         string rule,
         GameIdentity game,
+        ManifestMatch match,
         CancellationToken cancellationToken)
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -183,7 +184,7 @@ internal static class LudusaviManifestDetector
         {
             ["home"] = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ["root"] = FindStoreRoot(game.InstallDirectory) ?? string.Empty,
-            ["game"] = Path.GetFileName(game.InstallDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+            ["game"] = ResolveGamePlaceholder(game, match),
             ["base"] = game.InstallDirectory,
             ["storeGameId"] = game.ProviderGameId ?? string.Empty,
             ["storeUserId"] = "*",
@@ -221,6 +222,17 @@ internal static class LudusaviManifestDetector
         {
             return [];
         }
+    }
+
+    private static string ResolveGamePlaceholder(GameIdentity game, ManifestMatch match)
+    {
+        if (!string.IsNullOrWhiteSpace(match.MatchedInstallDirectory))
+            return match.MatchedInstallDirectory;
+        string actualDirectory = Path.GetFileName(
+            game.InstallDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        return !string.IsNullOrWhiteSpace(actualDirectory)
+            ? actualDirectory
+            : Normalize(game.Name);
     }
 
     private static IReadOnlyList<string> ExpandGlob(string allowedRoot, string relativePattern, CancellationToken cancellationToken)
@@ -354,7 +366,10 @@ internal static class LudusaviManifestDetector
 
     private sealed record ManifestFileRule(string Path, IReadOnlyList<ManifestCondition> Conditions);
     private sealed record ManifestCondition(string? Os, string? Store);
-    private sealed record ManifestMatch(ManifestEntry Entry, int Confidence);
+    private sealed record ManifestMatch(
+        ManifestEntry Entry,
+        int Confidence,
+        string? MatchedInstallDirectory);
     private sealed record ManifestEntry(
         string Name,
         IReadOnlyList<string> SteamIds,
@@ -367,6 +382,16 @@ internal static class LudusaviManifestDetector
     private sealed class ManifestIndex(IReadOnlyList<ManifestEntry> entries)
     {
         public int Count => entries.Count;
+
+        public ManifestMatch? FindSecondary(GameIdentity game)
+        {
+            if (entries.Count != 1)
+                return Find(game);
+            ManifestEntry? resolved = ResolveAliases(entries[0]);
+            return resolved is null
+                ? null
+                : new ManifestMatch(resolved, 100, resolved.InstallDirectories.FirstOrDefault());
+        }
 
         public ManifestMatch? Find(GameIdentity game)
         {
@@ -392,6 +417,17 @@ internal static class LudusaviManifestDetector
             }
             if (entry is null) return null;
 
+            string installDirectory = entry.InstallDirectories.FirstOrDefault(name =>
+                string.Equals(
+                    Normalize(name),
+                    Normalize(Path.GetFileName(Path.TrimEndingDirectorySeparator(game.InstallDirectory))),
+                    StringComparison.Ordinal));
+            entry = ResolveAliases(entry);
+            return entry is null ? null : new ManifestMatch(entry, confidence, installDirectory);
+        }
+
+        private ManifestEntry? ResolveAliases(ManifestEntry entry)
+        {
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             while (entry.AliasTarget is { Length: > 0 } target)
             {
@@ -399,7 +435,7 @@ internal static class LudusaviManifestDetector
                 entry = entries.FirstOrDefault(item => string.Equals(item.Name, target, StringComparison.OrdinalIgnoreCase));
                 if (entry is null) return null;
             }
-            return new ManifestMatch(entry, confidence);
+            return entry;
         }
     }
 }
