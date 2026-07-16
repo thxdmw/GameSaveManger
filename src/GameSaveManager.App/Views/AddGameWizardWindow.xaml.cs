@@ -6,13 +6,19 @@ namespace GameSaveManager.App.Views;
 
 public partial class AddGameWizardWindow : Window
 {
+    private bool _completed;
+
     public AddGameWizardWindow(MainViewModel viewModel)
     {
         InitializeComponent();
-        viewModel.AddGameWizard.Step = 1;
+        viewModel.BeginAddGameWizard();
         DataContext = viewModel.AddGameWizard;
         viewModel.GameCreated += ViewModel_OnGameCreated;
-        Closed += (_, _) => viewModel.GameCreated -= ViewModel_OnGameCreated;
+        Closed += (_, _) =>
+        {
+            viewModel.GameCreated -= ViewModel_OnGameCreated;
+            viewModel.EndAddGameWizard(_completed);
+        };
     }
 
 
@@ -60,6 +66,7 @@ public partial class AddGameWizardWindow : Window
     }
     private void ViewModel_OnGameCreated(object? sender, EventArgs e)
     {
+        _completed = true;
         if (IsVisible) DialogResult = true;
     }
 }

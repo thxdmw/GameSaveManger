@@ -79,6 +79,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isAuthenticated;
     private string _authenticatedUsername = string.Empty;
     private bool _isAutoSyncEnabled;
+    private bool _isAddGameWizardActive;
+    private AddGameWizardReturnState? _addGameWizardReturnState;
     private bool _isSyncing;
     private string _syncProgressText = "等待同步";
     private double _syncProgressValue;
@@ -426,9 +428,94 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (SetField(ref _selectedDiscoveredGame, value) && value is not null)
             {
                 NewGameName = value.Name;
-                if (!string.IsNullOrWhiteSpace(value.ProcessName)) AutoSnapshotProcessName = value.ProcessName;
+                AutoSnapshotExecutablePath = value.ExecutablePath ?? string.Empty;
+                AutoSnapshotProcessName = value.ProcessName ?? string.Empty;
+                if (_isAddGameWizardActive)
+                {
+                    AddGameWizard.WorkingDirectory = value.InstallDirectory;
+                    AddGameWizard.Arguments = string.Empty;
+                    AddGameWizard.MonitoredProcessName = value.ProcessName ?? string.Empty;
+                    AddGameWizard.LaunchValidated = false;
+                    ClearPendingSaveConfiguration();
+                }
             }
         }
+    }
+
+    public void BeginAddGameWizard()
+    {
+        _addGameWizardReturnState = new AddGameWizardReturnState(
+            SelectedGame,
+            SelectedDiscoveredGame,
+            NewGameName,
+            SaveDirectory,
+            IsSaveDirectoryConfirmed,
+            AutoSnapshotExecutablePath,
+            AutoSnapshotProcessName,
+            SaveLocationCandidates.ToArray(),
+            SelectedSaveLocationCandidate,
+            AdditionalSaveRoots.ToArray(),
+            RegistrySaveRules.ToArray(),
+            _previewedSaveDirectory,
+            _previewedSaveDirectoryFingerprint,
+            SaveDirectoryPreviewText,
+            FileCount,
+            LogicalSizeText);
+        _isAddGameWizardActive = true;
+        AddGameWizard.Reset();
+        NewGameName = string.Empty;
+        SelectedDiscoveredGame = null;
+        AutoSnapshotExecutablePath = string.Empty;
+        AutoSnapshotProcessName = string.Empty;
+        ClearPendingSaveConfiguration();
+        StatusText = "请选择要添加的游戏来源。";
+    }
+
+    public void EndAddGameWizard(bool completed)
+    {
+        _isAddGameWizardActive = false;
+        if (_learningBefore is not null || _learningCancellation is not null)
+            CancelSaveLearning();
+        if (!completed && _addGameWizardReturnState is { } state)
+        {
+            SelectedGame = null;
+            SelectedGame = state.SelectedGame;
+            SelectedDiscoveredGame = state.SelectedDiscoveredGame;
+            NewGameName = state.NewGameName;
+            AutoSnapshotExecutablePath = state.ExecutablePath;
+            AutoSnapshotProcessName = state.ProcessName;
+            SaveLocationCandidates.Clear();
+            foreach (SaveLocationCandidate candidate in state.SaveLocationCandidates)
+                SaveLocationCandidates.Add(candidate);
+            SelectedSaveLocationCandidate = state.SelectedSaveLocationCandidate;
+            SaveDirectory = state.SaveDirectory;
+            _previewedSaveDirectory = state.PreviewedSaveDirectory;
+            _previewedSaveDirectoryFingerprint = state.PreviewedSaveDirectoryFingerprint;
+            SaveDirectoryPreviewText = state.SaveDirectoryPreviewText;
+            FileCount = state.FileCount;
+            LogicalSizeText = state.LogicalSizeText;
+            IsSaveDirectoryConfirmed = state.IsSaveDirectoryConfirmed;
+            AdditionalSaveRoots.Clear();
+            foreach (SaveRootRule root in state.AdditionalSaveRoots)
+                AdditionalSaveRoots.Add(root);
+            RegistrySaveRules.Clear();
+            foreach (RegistrySaveRule rule in state.RegistrySaveRules)
+                RegistrySaveRules.Add(rule);
+        }
+        _addGameWizardReturnState = null;
+    }
+
+    private void ClearPendingSaveConfiguration()
+    {
+        SelectedSaveLocationCandidate = null;
+        SaveLocationCandidates.Clear();
+        SaveDirectory = string.Empty;
+        AdditionalSaveRoots.Clear();
+        SelectedAdditionalSaveRoot = null;
+        RegistrySaveRules.Clear();
+        SelectedRegistrySaveRule = null;
+        IsSaveDirectoryConfirmed = false;
+        InvalidateSavePreview("请选择当前游戏的存档目录并重新预览。");
     }
 
     public ICommand RegisterCommand { get; }
@@ -555,6 +642,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void NavigateTo(object? page)
     {
         string target = page?.ToString() ?? "首页";
+        if (string.Equals(target, "同步中心", StringComparison.Ordinal))
+            target = SelectedGame is null ? "游戏库" : "游戏详情";
         CurrentPage = target;
         StatusText = target == "首页" ? "已返回同步概览。" : $"已切换到{target}。";
     }
@@ -1230,8 +1319,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             IReadOnlyList<DiscoveredGame> games = await _gameDiscoveryService.DiscoverAsync(CancellationToken.None);
             DiscoveredGames.Clear();
             foreach (DiscoveredGame game in games) DiscoveredGames.Add(game);
-            ApplyDiscoveredIdentity(SelectedGame);
-            SelectedDiscoveredGame ??= DiscoveredGames.FirstOrDefault();
+            if (_isAddGameWizardActive)
+            {
+                SelectedDiscoveredGame = null;
+                SelectedDiscoveredGame = DiscoveredGames.FirstOrDefault();
+            }
+            else
+            {
+                ApplyDiscoveredIdentity(SelectedGame);
+                SelectedDiscoveredGame ??= DiscoveredGames.FirstOrDefault();
+            }
             StatusText = $"已发现 {DiscoveredGames.Count} 个安装游戏。已自动关联当前云端游戏的 EXE；存档目录仍需手动确认。";
         }
         catch (Exception exception) { ShowError("扫描本机游戏失败", exception); }
@@ -1653,6 +1750,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private GameIdentity GetCurrentGameIdentity()
     {
+        if (_isAddGameWizardActive)
+            return SelectedDiscoveredGame?.Identity
+                ?? new GameIdentity(NewGameName, GameIdentity.Custom, null, string.Empty, null, null);
         if (SelectedGame is not null)
         {
             DiscoveredGame? discovered = FindDiscoveredGame(SelectedGame);
@@ -2007,6 +2107,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
             else if (command is DelegateCommand delegateCommand) delegateCommand.RaiseCanExecuteChanged();
         }
     }
+
+    private sealed record AddGameWizardReturnState(
+        CloudGame? SelectedGame,
+        DiscoveredGame? SelectedDiscoveredGame,
+        string NewGameName,
+        string SaveDirectory,
+        bool IsSaveDirectoryConfirmed,
+        string ExecutablePath,
+        string ProcessName,
+        IReadOnlyList<SaveLocationCandidate> SaveLocationCandidates,
+        SaveLocationCandidate? SelectedSaveLocationCandidate,
+        IReadOnlyList<SaveRootRule> AdditionalSaveRoots,
+        IReadOnlyList<RegistrySaveRule> RegistrySaveRules,
+        string? PreviewedSaveDirectory,
+        string? PreviewedSaveDirectoryFingerprint,
+        string SaveDirectoryPreviewText,
+        int FileCount,
+        string LogicalSizeText);
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;

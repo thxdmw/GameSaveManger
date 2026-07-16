@@ -31,7 +31,8 @@
                         </StackPanel>
                         <TextBlock Margin="0,10,0,0" Foreground="{DynamicResource Muted}" Text="{Binding SaveDirectoryPreviewText}" TextWrapping="Wrap"/>
                         <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource Muted}" Text="{Binding SaveDirectoryConfirmationText}"/>
-                        <ListBox Margin="0,12,0,0" MaxHeight="180" ItemsSource="{Binding SaveLocationCandidates}"
+                        <ListBox Margin="0,12,0,0" MaxHeight="180" Style="{StaticResource ThemedListBox}"
+                                 ItemContainerStyle="{StaticResource ThemedListBoxItem}" ItemsSource="{Binding SaveLocationCandidates}"
                                  SelectedItem="{Binding SelectedSaveLocationCandidate}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>

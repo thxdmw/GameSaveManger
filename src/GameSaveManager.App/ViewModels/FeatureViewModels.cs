@@ -164,6 +164,16 @@ public sealed class AddGameWizardViewModel(MainViewModel owner) : FeatureViewMod
         get => _monitoredProcessName;
         set { if (_monitoredProcessName != value) { _monitoredProcessName = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MonitoredProcessName))); } }
     }
+    public void Reset()
+    {
+        Step = 1;
+        LaunchValidated = false;
+        EnableAutomaticBackup = false;
+        WorkingDirectory = string.Empty;
+        Arguments = string.Empty;
+        RunAsAdministrator = false;
+        MonitoredProcessName = string.Empty;
+    }
     public MainViewModel Host => Owner;
     public SaveConfigurationViewModel SaveConfiguration => Owner.SaveConfiguration;
     public event PropertyChangedEventHandler? PropertyChanged;

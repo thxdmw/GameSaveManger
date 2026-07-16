@@ -46,7 +46,7 @@ public partial class LibraryView : UserControl
     {
         if (GetMenuGame(sender) is not { } game || DataContext is not MainViewModel viewModel) return;
         if (viewModel.SelectGameCommand.CanExecute(game)) viewModel.SelectGameCommand.Execute(game);
-        if (viewModel.NavigateCommand.CanExecute("同步中心")) viewModel.NavigateCommand.Execute("同步中心");
+        if (viewModel.NavigateCommand.CanExecute("游戏详情")) viewModel.NavigateCommand.Execute("游戏详情");
     }
 
     private void DeleteGameMenuItem_OnClick(object sender, RoutedEventArgs e)

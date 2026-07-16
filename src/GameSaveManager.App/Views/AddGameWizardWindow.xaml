@@ -86,7 +86,9 @@
                                     <Button Margin="0,0,10,10" Style="{StaticResource ButtonStyle}" Click="ChooseSaveDirectoryButton_OnClick" Content="手动选择"/>
                                     <Button Margin="0,0,10,10" Style="{StaticResource ButtonStyle}" Command="{Binding Host.StartSaveLearningCommand}" Content="运行游戏学习"/>
                                 </WrapPanel>
-                                <ListBox Margin="0,8,0,0" MaxHeight="260" ItemsSource="{Binding Host.SaveLocationCandidates}" SelectedItem="{Binding Host.SelectedSaveLocationCandidate}">
+                                <ListBox Margin="0,8,0,0" MaxHeight="260" Style="{StaticResource ThemedListBox}"
+                                         ItemContainerStyle="{StaticResource ThemedListBoxItem}"
+                                         ItemsSource="{Binding Host.SaveLocationCandidates}" SelectedItem="{Binding Host.SelectedSaveLocationCandidate}">
                                     <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="8"><TextBlock Foreground="{DynamicResource Text}" Text="{Binding Path}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/><TextBlock Foreground="{DynamicResource Muted}" FontSize="12" Text="{Binding Reason}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Reason}"/></StackPanel></DataTemplate></ListBox.ItemTemplate>
                                 </ListBox>
                             </StackPanel>
