@@ -1,0 +1,44 @@
+<Window x:Class="GameSaveManager.App.Views.ThemedDialogWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Width="540" Height="270" MinWidth="460" SizeToContent="Manual"
+        WindowStartupLocation="CenterOwner" WindowStyle="None" AllowsTransparency="True"
+        ResizeMode="NoResize" ShowInTaskbar="False" Background="Transparent" FontFamily="Segoe UI">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="0" CornerRadius="14"/>
+    </shell:WindowChrome.WindowChrome>
+    <Window.Resources>
+        <Style x:Key="DialogCloseButton" TargetType="Button">
+            <Setter Property="Width" Value="42"/><Setter Property="Height" Value="38"/>
+            <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/><Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="root" Background="{TemplateBinding Background}" CornerRadius="0,13,0,0"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="root" Property="Background" Value="#B2394A"/><Setter Property="Foreground" Value="White"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+        </Style>
+    </Window.Resources>
+    <Border Background="{DynamicResource AppBackground}" BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="14">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/><RowDefinition Height="72"/></Grid.RowDefinitions>
+            <Border Background="{DynamicResource SidebarBackground}" CornerRadius="14,14,0,0" MouseLeftButtonDown="TitleBar_OnMouseLeftButtonDown">
+                <Grid Margin="18,0,0,0">
+                    <TextBlock x:Name="TitleText" VerticalAlignment="Center" Foreground="{DynamicResource Text}" FontWeight="SemiBold" FontSize="14"/>
+                    <Button HorizontalAlignment="Right" Style="{StaticResource DialogCloseButton}" Click="CancelButton_OnClick" Content="✕"/>
+                </Grid>
+            </Border>
+            <Grid Grid.Row="1" Margin="26,22,26,12">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="52"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Border Width="38" Height="38" VerticalAlignment="Top" Background="{DynamicResource NavActive}" BorderBrush="{DynamicResource PrimaryBrush}" BorderThickness="1" CornerRadius="19">
+                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryBorder}" FontSize="21" FontWeight="Bold" Text="?"/>
+                </Border>
+                <TextBlock x:Name="MessageText" Grid.Column="1" VerticalAlignment="Center" Foreground="{DynamicResource Text}" FontSize="15" LineHeight="23" TextWrapping="Wrap"/>
+            </Grid>
+            <Border Grid.Row="2" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" CornerRadius="0,0,14,14">
+                <StackPanel Margin="20,0" HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal">
+                    <Button x:Name="CancelActionButton" MinWidth="86" Height="40" Margin="0,0,10,0" Style="{StaticResource ButtonStyle}" Click="CancelButton_OnClick"/>
+                    <Button x:Name="SecondaryActionButton" MinWidth="104" Height="40" Margin="0,0,10,0" Style="{StaticResource ButtonStyle}" Click="SecondaryButton_OnClick"/>
+                    <Button x:Name="PrimaryActionButton" MinWidth="120" Height="40" Style="{StaticResource Primary}" Click="PrimaryButton_OnClick"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

@@ -92,6 +92,7 @@
                                     </StackPanel>
                                 </Grid>
                             </Border>
+                            <Button Style="{StaticResource GameCardButton}" Command="{Binding DataContext.SelectGameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
                             <Button Width="62" Height="28" Margin="0,0,12,10" HorizontalAlignment="Right" VerticalAlignment="Bottom" Style="{StaticResource Primary}" Command="{Binding DataContext.LaunchGameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Content="启动"/>
                         </Grid>
                     </DataTemplate></ItemsControl.ItemTemplate>

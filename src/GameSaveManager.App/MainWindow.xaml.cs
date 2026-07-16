@@ -78,18 +78,19 @@ public partial class MainWindow : Window
     private void MainWindow_OnClosing(object? sender, CancelEventArgs e)
     {
         if (_allowClose) return;
-        MessageBoxResult choice = MessageBox.Show(
+        Views.ThemedDialogResult choice = Views.ThemedDialogWindow.ShowThemed(
             this,
-            "选择“是”将最小化到系统托盘并继续自动同步；选择“否”将退出程序。",
             "关闭 GameSave Manager",
-            MessageBoxButton.YesNoCancel,
-            MessageBoxImage.Question);
-        if (choice == MessageBoxResult.Yes)
+            "你可以将程序最小化到系统托盘并继续自动同步，也可以完全退出程序。",
+            "最小化到托盘",
+            "退出程序",
+            "取消");
+        if (choice == Views.ThemedDialogResult.Primary)
         {
             e.Cancel = true;
             HideToTray();
         }
-        else if (choice == MessageBoxResult.Cancel)
+        else if (choice == Views.ThemedDialogResult.Cancel)
         {
             e.Cancel = true;
         }
@@ -136,9 +137,9 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainViewModel viewModel || viewModel.SelectedSnapshot is null)
         {
-            MessageBox.Show(this, "请先在时间线中选择要删除的历史快照。", "GameSave Manager", MessageBoxButton.OK, MessageBoxImage.Information);
+            Views.ThemedDialogWindow.ShowThemed(this, "GameSave Manager", "请先在时间线中选择要删除的历史快照。", "知道了");
             return;
         }
-        if (MessageBox.Show(this, "删除后，该快照将不再出现在时间线中；未被其他快照引用的内容会进入云端清理流程。当前同步 HEAD 无法删除。是否继续？", "确认删除历史快照", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes && viewModel.DeleteSnapshotCommand.CanExecute(null)) viewModel.DeleteSnapshotCommand.Execute(null);
+        if (Views.ThemedDialogWindow.ShowThemed(this, "确认删除历史快照", "删除后，该快照将不再出现在时间线中；未被其他快照引用的内容会进入云端清理流程。当前同步 HEAD 无法删除。", "确认删除", "取消") == Views.ThemedDialogResult.Primary && viewModel.DeleteSnapshotCommand.CanExecute(null)) viewModel.DeleteSnapshotCommand.Execute(null);
     }
 }

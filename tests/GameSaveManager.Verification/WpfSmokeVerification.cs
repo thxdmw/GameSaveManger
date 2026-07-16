@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Windows;
 using WpfApplication = GameSaveManager.App.App;
 using GameSaveManager.App;
+using GameSaveManager.App.Views;
+using GameSaveManager.App.ViewModels;
 
 namespace GameSaveManager.Verification;
 
@@ -36,7 +38,10 @@ internal static class WpfSmokeVerification
         {
             var application = new WpfApplication();
             application.InitializeComponent();
-            var window = new MainWindow { DataContext = SmokeViewModelFactory.Create() };
+            MainViewModel viewModel = SmokeViewModelFactory.Create();
+            var window = new MainWindow { DataContext = viewModel };
+            var wizard = new AddGameWizardWindow(viewModel);
+            var dialog = new ThemedDialogWindow("验证", "验证主题对话框可以加载。", "确定", "取消");
 
             string[] errors = listener.Messages
                 .Where(message => message.Contains("error", StringComparison.OrdinalIgnoreCase))

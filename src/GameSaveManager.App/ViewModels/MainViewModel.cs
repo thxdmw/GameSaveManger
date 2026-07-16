@@ -493,8 +493,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             string token = await RequireDeviceTokenAsync(server);
             await RestoreLocalProfileAsync(server, token);
             await ReloadSnapshotsAsync(server, token);
-            CurrentPage = "游戏详情";
-            StatusText = $"已打开 {selected.Name} 的游戏详情。";
+            StatusText = $"已选择 {selected.Name}；可以查看最近快照或点击启动。";
         }
         catch (Exception exception) { ShowError("加载游戏快照失败", exception); }
     }

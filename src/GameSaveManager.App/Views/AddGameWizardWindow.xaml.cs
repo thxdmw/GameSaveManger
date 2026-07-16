@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 using GameSaveManager.App.ViewModels;
 
 namespace GameSaveManager.App.Views;
@@ -13,6 +14,13 @@ public partial class AddGameWizardWindow : Window
         Closed += (_, _) => viewModel.GameCreated -= ViewModel_OnGameCreated;
     }
 
+
+    private void TitleBar_OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+    }
+
+    private void CloseButton_OnClick(object sender, RoutedEventArgs e) => Close();
     private async void ChooseLocalGameExecutableButton_OnClick(object sender, RoutedEventArgs e)
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "游戏启动入口 (*.exe;*.lnk)|*.exe;*.lnk", CheckFileExists = true };

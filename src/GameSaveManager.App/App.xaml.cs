@@ -75,11 +75,7 @@ public partial class App : System.Windows.Application
                 CancellationToken.None);
             if (recoveryMessages.Count > 0)
             {
-                MessageBox.Show(
-                    string.Join(Environment.NewLine, recoveryMessages),
-                    "存档恢复检查",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
+                Views.ThemedDialogWindow.ShowThemed(null, "存档恢复检查", string.Join(Environment.NewLine, recoveryMessages), "知道了");
             }
 
             var window = new MainWindow
@@ -112,11 +108,7 @@ public partial class App : System.Windows.Application
         catch (Exception exception)
         {
             _appLogger?.Error("application.startup_failed", exception, "客户端启动失败。");
-            MessageBox.Show(
-                $"GameSave Manager 启动失败：{exception.Message}",
-                "启动失败",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            Views.ThemedDialogWindow.ShowThemed(null, "启动失败", $"GameSave Manager 启动失败：{exception.Message}", "退出");
             Shutdown(-1);
         }
     }
