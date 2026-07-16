@@ -43,6 +43,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IExecutableGameIdentityFactory _executableGameIdentityFactory;
     private readonly IRuntimeSaveLearningService _runtimeSaveLearningService;
     private readonly IGameLaunchService _gameLaunchService;
+    private readonly IGameLaunchProfileMerger _gameLaunchProfileMerger;
+    private readonly IShortcutResolver _shortcutResolver;
     private readonly ILocalGameProfileStore _localGameProfileStore;
     private readonly ICredentialStore _credentialStore;
     private readonly IDeviceIdentityProvider _deviceIdentityProvider;
@@ -51,6 +53,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IServerAddressStore _serverAddressStore;
     private readonly IManifestUpdateService _manifestUpdateService;
     private readonly IRegistrySaveSnapshotService _registrySaveSnapshotService;
+    private readonly Dictionary<string, string> _shortcutResolutionFailures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ShortcutResolution> _shortcutResolutions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _launchesInProgress = new(StringComparer.Ordinal);
 
     private string _serverAddress = "http://localhost:8080";
     private string _username = string.Empty;
@@ -111,6 +116,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IExecutableGameIdentityFactory executableGameIdentityFactory,
         IRuntimeSaveLearningService runtimeSaveLearningService,
         IGameLaunchService gameLaunchService,
+        IGameLaunchProfileMerger gameLaunchProfileMerger,
+        IShortcutResolver shortcutResolver,
         ILocalGameProfileStore localGameProfileStore,
         ICredentialStore credentialStore,
         IDeviceIdentityProvider deviceIdentityProvider,
@@ -132,6 +139,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _executableGameIdentityFactory = executableGameIdentityFactory;
         _runtimeSaveLearningService = runtimeSaveLearningService;
         _gameLaunchService = gameLaunchService;
+        _gameLaunchProfileMerger = gameLaunchProfileMerger;
+        _shortcutResolver = shortcutResolver;
         _localGameProfileStore = localGameProfileStore;
         _credentialStore = credentialStore;
         _deviceIdentityProvider = deviceIdentityProvider;
@@ -164,7 +173,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StopAutoSnapshotCommand = new AsyncCommand(StopAutoSnapshotAsync, () => SelectedGame is not null && IsAutoSyncEnabled);
         DiscoverGamesCommand = new AsyncCommand(DiscoverGamesAsync);
         SuggestSaveDirectoriesCommand = new AsyncCommand(SuggestSaveDirectoriesAsync);
-        ConfirmSaveDirectoryCommand = new AsyncCommand(ConfirmSaveDirectoryAsync, CanUseSaveDirectory);
+        ConfirmSaveDirectoryCommand = new AsyncCommand(ConfirmSaveDirectoryAsync, IsCurrentSavePreviewValid);
         PreviewSaveDirectoryCommand = new AsyncCommand(PreviewSaveDirectoryAsync, CanUseSaveDirectory);
         StartSaveLearningCommand = new AsyncCommand(StartSaveLearningAsync, CanStartSaveLearning);
         CompleteSaveLearningCommand = new AsyncCommand(CompleteSaveLearningAsync, () => _learningBefore is not null && !(_learningCancellation?.IsCancellationRequested ?? false));
@@ -282,6 +291,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string AccountSummaryText => IsAuthenticated ? $"当前账号：{AuthenticatedUsername}" : "尚未登录";
     public string CloudReadinessText => IsAuthenticated ? "云端同步已就绪" : "登录后启用云端同步";
     public string ThemeToggleText => IsLightTheme ? "切换至深色主题" : "切换至浅色主题";
+    public string LaunchDisabledReason => SelectedGame is null ? "请先选择游戏。" : GetLaunchDisabledReason(SelectedGame) ?? string.Empty;
     public string AutoSyncConfigurationText
     {
         get
@@ -317,6 +327,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 Snapshots.Clear();
                 SelectedSnapshot = null;
                 ApplyDiscoveredIdentity(value);
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LaunchDisabledReason)));
             }
         }
     }
@@ -337,7 +348,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         get => _selectedSaveLocationCandidate;
         set
         {
-            if (SetField(ref _selectedSaveLocationCandidate, value) && value is not null) SaveDirectory = value.Path;
+            if (SetField(ref _selectedSaveLocationCandidate, value))
+            {
+                InvalidateSavePreview("存档候选已变化，请重新预览。");
+                if (value is not null) SaveDirectory = value.Path;
+            }
         }
     }
     public SaveRootRule? SelectedAdditionalSaveRoot { get => _selectedAdditionalSaveRoot; set => SetField(ref _selectedAdditionalSaveRoot, value); }
@@ -653,6 +668,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 if (SelectedGame?.GameId == gameId) StatusText = $"自动同步失败：{exception.Message}";
             });
+            throw;
         }
     }
 
@@ -770,6 +786,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         int index = 2;
         do rootId = $"root{index++}"; while (AdditionalSaveRoots.Any(root => string.Equals(root.RootId, rootId, StringComparison.OrdinalIgnoreCase)));
         AdditionalSaveRoots.Add(new SaveRootRule(rootId, path, [], [], SaveLocationSource.Manual, 100, true));
+        InvalidateSavePreview("附加存档目录已变化，请重新预览主目录并确认全部规则。");
         AdditionalSaveRootPath = string.Empty;
         StatusText = $"已添加附加存档目录：{path}。下次同步会一并上传。";
         if (IsAuthenticated && SelectedGame is not null) { Uri server = ParseServerUri(); await RefreshAutomaticSyncConfigurationAsync(server, await RequireDeviceTokenAsync(server), await SaveLocalProfileAsync(server, IsAutoSyncEnabled)); }
@@ -784,6 +801,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             throw new InvalidOperationException("该注册表路径已经在同步列表中。");
         int index = 1; string ruleId; do ruleId = $"registry{index++}"; while (RegistrySaveRules.Any(rule => string.Equals(rule.RuleId, ruleId, StringComparison.OrdinalIgnoreCase)));
         RegistrySaveRules.Add(new RegistrySaveRule(ruleId, keyPath, true));
+        InvalidateSavePreview("注册表存档规则已变化，请重新预览并确认。");
         RegistrySaveKeyPath = string.Empty;
         StatusText = "已添加注册表存档路径；同步前会导出为受控 JSON。";
         return Task.CompletedTask;
@@ -793,6 +811,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (SelectedRegistrySaveRule is null) throw new InvalidOperationException("请先选择要移除的注册表路径。");
         RegistrySaveRules.Remove(SelectedRegistrySaveRule);
+        InvalidateSavePreview("注册表存档规则已变化，请重新预览并确认。");
         SelectedRegistrySaveRule = null;
         StatusText = "已移除注册表存档路径；保存或同步后会更新本机配置。";
         return Task.CompletedTask;
@@ -801,6 +820,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (SelectedAdditionalSaveRoot is null) throw new InvalidOperationException("请先选择要移除的附加存档目录。");
         AdditionalSaveRoots.Remove(SelectedAdditionalSaveRoot);
+        InvalidateSavePreview("附加存档目录已变化，请重新预览并确认全部规则。");
         SelectedAdditionalSaveRoot = null;
         StatusText = "已移除附加存档目录；保存或同步后会更新本机配置。";
         if (IsAuthenticated && SelectedGame is not null) { Uri server = ParseServerUri(); await RefreshAutomaticSyncConfigurationAsync(server, await RequireDeviceTokenAsync(server), await SaveLocalProfileAsync(server, IsAutoSyncEnabled)); }
@@ -810,13 +830,41 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
         await PrepareRegistrySnapshotsAsync(server, SelectedGame.GameId);
         GameIdentity identity = GetCurrentGameIdentity();
+        _localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? existingProfile);
+        GameLaunchProfile? launchProfile = _gameLaunchProfileMerger.Merge(
+            existingProfile?.EffectiveLaunchProfile,
+            identity,
+            AutoSnapshotExecutablePath,
+            AutoSnapshotProcessName);
+        string? identityExecutablePath = identity.ExecutablePath;
+        if (launchProfile is { TargetType: GameLaunchTargetType.Shortcut }
+            && _shortcutResolutions.TryGetValue(launchProfile.Target, out ShortcutResolution? shortcut)
+            && shortcut.Resolved)
+        {
+            launchProfile = launchProfile with
+            {
+                Arguments = string.IsNullOrWhiteSpace(launchProfile.Arguments) ? shortcut.Arguments : launchProfile.Arguments,
+                WorkingDirectory = string.IsNullOrWhiteSpace(launchProfile.WorkingDirectory)
+                    ? shortcut.WorkingDirectory
+                    : launchProfile.WorkingDirectory,
+                MonitoredProcessNames = GameProcessNameRules.GetEffectiveNames(
+                    launchProfile with
+                    {
+                        MonitoredProcessNames = launchProfile.MonitoredProcessNames
+                            .Concat([shortcut.TargetPath])
+                            .ToArray()
+                    },
+                    AutoSnapshotProcessName)
+            };
+            identityExecutablePath = shortcut.TargetPath;
+        }
         LocalGameProfile profile = new(
             GameSaveServerIdentity.CreateStableKey(server), SelectedGame.GameId,
             identity.Provider, identity.ProviderGameId, identity.InstallDirectory,
             SaveDirectory, AutoSnapshotProcessName, AutoSnapshotExecutablePath,
             SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual,
             SelectedSaveLocationCandidate?.Confidence ?? (IsSaveDirectoryConfirmed ? 100 : 0),
-            IsSaveDirectoryConfirmed, autoSnapshotEnabled && IsSaveDirectoryConfirmed, GetConfiguredSaveRoots(server, SelectedGame.GameId), RegistrySaveRules.ToArray(), identity.ExecutablePath, CreateLaunchProfile(identity));
+            IsSaveDirectoryConfirmed, autoSnapshotEnabled && IsSaveDirectoryConfirmed, GetConfiguredSaveRoots(server, SelectedGame.GameId), RegistrySaveRules.ToArray(), identityExecutablePath, launchProfile);
         await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
         _localGameProfiles[profile.GameId] = profile;
         RefreshGameRuntimeStatus();
@@ -988,9 +1036,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SaveDirectory, SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual, 100, false);
 
     private static string CreatePreviewFingerprint(SaveRootRule rule) => string.Join("|",
+        rule.RootId,
         Path.GetFullPath(rule.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+        rule.Source,
         string.Join(";", rule.IncludePatterns.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)),
         string.Join(";", rule.ExcludePatterns.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)));
+
+    private bool IsCurrentSavePreviewValid()
+    {
+        if (string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory)
+            || string.IsNullOrWhiteSpace(_previewedSaveDirectoryFingerprint)
+            || FileCount > GameSaveProtocolLimits.MaximumManifestFiles)
+            return false;
+        return string.Equals(
+            CreatePreviewFingerprint(BuildPrimarySaveRootRule()),
+            _previewedSaveDirectoryFingerprint,
+            StringComparison.Ordinal);
+    }
+
+    private void InvalidateSavePreview(string message)
+    {
+        IsSaveDirectoryConfirmed = false;
+        _previewedSaveDirectory = null;
+        _previewedSaveDirectoryFingerprint = null;
+        SaveDirectoryPreviewText = message;
+        RaiseCommandStates();
+    }
     private async Task PreviewSaveDirectoryAsync()
     {
         try
@@ -1005,6 +1076,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             string warnings = preview.Warnings.Count == 0 ? string.Empty : " 警告：" + string.Join("；", preview.Warnings);
             SaveDirectoryPreviewText = $"{preview.FileCount} 个文件，共 {FormatBytes(preview.TotalSize)}；最近修改：{preview.LatestWriteTimeUtc?.ToLocalTime():g}。" + warnings;
             StatusText = "目录预览完成；确认后才会保存并允许同步。";
+            RaiseCommandStates();
         }
         catch (Exception exception) { _previewedSaveDirectory = null; _previewedSaveDirectoryFingerprint = null; ShowError("预览存档目录失败", exception); }
     }
@@ -1012,7 +1084,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory)) throw new InvalidOperationException("请选择存在的存档目录。");
+            if (!IsCurrentSavePreviewValid())
+                throw new InvalidOperationException("当前存档目录或扫描规则尚未完成预览，请先检查内容。");
             IsSaveDirectoryConfirmed = true;
             if (SelectedSaveLocationCandidate is { } preview)
             {
@@ -1365,16 +1438,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public async Task AddLocalGameFromExecutableAsync(string executablePath)
     {
         string fullPath = Path.GetFullPath(executablePath);
-        GameIdentity identity = string.Equals(Path.GetExtension(fullPath), ".lnk", StringComparison.OrdinalIgnoreCase)
-            ? new GameIdentity(Path.GetFileNameWithoutExtension(fullPath), GameIdentity.Local, null, Path.GetDirectoryName(fullPath) ?? string.Empty, fullPath, null)
-            : await _executableGameIdentityFactory.CreateAsync(fullPath, CancellationToken.None);
+        GameIdentity identity;
+        if (string.Equals(Path.GetExtension(fullPath), ".lnk", StringComparison.OrdinalIgnoreCase))
+        {
+            ShortcutResolution resolution = await _shortcutResolver.ResolveAsync(fullPath, CancellationToken.None);
+            if (resolution.Resolved && resolution.TargetPath is { Length: > 0 } target)
+            {
+                GameIdentity resolvedIdentity = await _executableGameIdentityFactory.CreateAsync(target, CancellationToken.None);
+                identity = resolvedIdentity with { ExecutablePath = fullPath };
+                _shortcutResolutionFailures.Remove(fullPath);
+                _shortcutResolutions[fullPath] = resolution;
+            }
+            else
+            {
+                identity = new GameIdentity(Path.GetFileNameWithoutExtension(fullPath), GameIdentity.Local, null,
+                    Path.GetDirectoryName(fullPath) ?? string.Empty, fullPath, null);
+                _shortcutResolutionFailures[fullPath] = resolution.FailureReason ?? "快捷方式解析失败。";
+                _shortcutResolutions[fullPath] = resolution;
+            }
+        }
+        else identity = await _executableGameIdentityFactory.CreateAsync(fullPath, CancellationToken.None);
         var discovered = new DiscoveredGame(identity);
         if (!DiscoveredGames.Any(game => string.Equals(game.ExecutablePath, identity.ExecutablePath, StringComparison.OrdinalIgnoreCase))) DiscoveredGames.Add(discovered);
         SelectedDiscoveredGame = discovered;
         AutoSnapshotExecutablePath = identity.ExecutablePath ?? string.Empty;
         AutoSnapshotProcessName = identity.ProcessName ?? string.Empty;
         if (string.IsNullOrWhiteSpace(NewGameName)) NewGameName = identity.Name;
-        StatusText = "已读取本地游戏启动入口；确认名称后创建游戏，再配置存档保护。";
+        StatusText = _shortcutResolutionFailures.TryGetValue(fullPath, out string? failure)
+            ? $"已保存快捷方式，但启动配置待验证：{failure}"
+            : "已读取本地游戏启动入口；确认名称后创建游戏，再配置存档保护。";
     }
 
     private void ApplyDiscoveredIdentity(CloudGame? game)
@@ -1456,6 +1548,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         try
         {
+            _launchesInProgress.Add(game.GameId);
+            RaiseCommandStates();
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LaunchDisabledReason)));
             SelectedGame = game;
             SaveDirectory = profile.SaveDirectory;
             IsSaveDirectoryConfirmed = profile.UserConfirmed;
@@ -1522,6 +1617,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             ShowError("启动游戏失败", exception);
         }
+        finally
+        {
+            _launchesInProgress.Remove(game.GameId);
+            RaiseCommandStates();
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LaunchDisabledReason)));
+        }
     }
 
     private bool IsGameRunning(LocalGameProfile profile) =>
@@ -1535,6 +1636,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _runningProcessNames = SnapshotRunningProcessNames();
         RuntimeStatusVersion++;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutoSyncConfigurationText)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LaunchDisabledReason)));
     }
 
     private static HashSet<string> SnapshotRunningProcessNames()
@@ -1622,7 +1724,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool CanCreateGame() =>
         IsAuthenticated && !string.IsNullOrWhiteSpace(NewGameName);
 
-    private bool CanLaunchGame(object? parameter) => parameter is CloudGame;
+    private bool CanLaunchGame(object? parameter) =>
+        parameter is CloudGame game && GetLaunchDisabledReason(game) is null;
+
+    public string? GetLaunchDisabledReason(CloudGame game)
+    {
+        if (_launchesInProgress.Contains(game.GameId)) return "正在验证该游戏的启动状态。";
+        if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile)) return "尚未保存本机启动配置。";
+        GameLaunchProfile? launchProfile = profile.EffectiveLaunchProfile;
+        if (launchProfile is null) return "启动配置待验证。";
+        if (launchProfile.TargetType == GameLaunchTargetType.StoreUri)
+        {
+            if (!Uri.TryCreate(launchProfile.Target, UriKind.Absolute, out Uri? uri)
+                || (uri.Scheme is not "steam" and not "com.epicgames.launcher"))
+                return "平台启动地址无效。";
+            return null;
+        }
+        if (!File.Exists(launchProfile.Target)) return "启动入口文件不存在。";
+        if (!string.IsNullOrWhiteSpace(launchProfile.WorkingDirectory) && !Directory.Exists(launchProfile.WorkingDirectory))
+            return "游戏工作目录不存在。";
+        if (launchProfile.TargetType == GameLaunchTargetType.Shortcut
+            && _shortcutResolutionFailures.TryGetValue(launchProfile.Target, out string? failure))
+            return failure;
+        return null;
+    }
 
     private static bool IsLaunchTargetValid(GameLaunchProfile? profile)
     {

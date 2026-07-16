@@ -93,6 +93,8 @@ public partial class App : System.Windows.Application
                     new WindowsExecutableGameIdentityFactory(),
                     new WindowsRuntimeSaveLearningService(),
                     new WindowsGameLaunchService(),
+                    new GameLaunchProfileMerger(),
+                    new WindowsShortcutResolver(),
                     new SqliteLocalGameProfileStore(database),
                     new WindowsCredentialStore(),
                     new SqliteDeviceIdentityProvider(database),

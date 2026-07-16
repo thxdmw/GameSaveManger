@@ -3,7 +3,7 @@ using GameSaveManager.Application.Monitoring;
 
 namespace GameSaveManager.Infrastructure.Monitoring;
 
-/// <summary>所有目录 Watcher 只共用一个 dirty 标记，进程退出后由上层执行一次完整同步。</summary>
+/// <summary>使用 dirty 版本号和退避重试，确保失败或同步期间的新变化不会被误清理。</summary>
 public sealed class WindowsAutoSnapshotMonitor : IAutoSnapshotMonitor
 {
     private readonly SemaphoreSlim _callbackGate = new(1, 1);
@@ -13,8 +13,12 @@ public sealed class WindowsAutoSnapshotMonitor : IAutoSnapshotMonitor
     private Task? _loop;
     private AutoSnapshotProfile? _profile;
     private Func<CancellationToken, Task>? _onDirtyGameExitedAsync;
-    private volatile bool _dirty;
+    private long _dirtyVersion;
+    private long _cleanVersion;
     private volatile bool _wasRunning;
+    private bool _syncPending;
+    private int _consecutiveFailures;
+    private DateTimeOffset _nextRetryAt;
 
     public bool IsRunning => _lifetime is { IsCancellationRequested: false };
 
@@ -69,8 +73,12 @@ public sealed class WindowsAutoSnapshotMonitor : IAutoSnapshotMonitor
         {
             _profile = profile with { SaveDirectories = directories };
             _onDirtyGameExitedAsync = callback;
-            _dirty = false;
+            _dirtyVersion = 0;
+            _cleanVersion = 0;
             _wasRunning = IsAnyProcessRunning(profile.ProcessNames);
+            _syncPending = false;
+            _consecutiveFailures = 0;
+            _nextRetryAt = DateTimeOffset.MinValue;
             _watchers.AddRange(created);
             _lifetime = lifetime;
             _loop = MonitorLoopAsync(lifetime.Token);
@@ -92,8 +100,12 @@ public sealed class WindowsAutoSnapshotMonitor : IAutoSnapshotMonitor
             _loop = null;
             _profile = null;
             _onDirtyGameExitedAsync = null;
-            _dirty = false;
+            _dirtyVersion = 0;
+            _cleanVersion = 0;
             _wasRunning = false;
+            _syncPending = false;
+            _consecutiveFailures = 0;
+            _nextRetryAt = DateTimeOffset.MinValue;
         }
         if (lifetime is null) return;
         lifetime.Cancel();
@@ -113,21 +125,50 @@ public sealed class WindowsAutoSnapshotMonitor : IAutoSnapshotMonitor
             if (profile is null || callback is null) continue;
             bool running = IsAnyProcessRunning(profile.ProcessNames);
             if (running) { _wasRunning = true; continue; }
-            if (!_wasRunning || !_dirty) continue;
-            _wasRunning = false;
-            _dirty = false;
+            if (_wasRunning)
+            {
+                _wasRunning = false;
+                _syncPending = Volatile.Read(ref _dirtyVersion) > Volatile.Read(ref _cleanVersion);
+            }
+            if (!_syncPending || DateTimeOffset.UtcNow < _nextRetryAt) continue;
+            long versionBeingSynced = Volatile.Read(ref _dirtyVersion);
             await _callbackGate.WaitAsync(cancellationToken);
-            try { await callback(cancellationToken); }
+            try
+            {
+                await callback(cancellationToken);
+                Volatile.Write(ref _cleanVersion, versionBeingSynced);
+                _consecutiveFailures = 0;
+                _nextRetryAt = DateTimeOffset.MinValue;
+                _syncPending = Volatile.Read(ref _dirtyVersion) > versionBeingSynced;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _consecutiveFailures++;
+                _syncPending = true;
+                _nextRetryAt = DateTimeOffset.UtcNow + GetRetryDelay(_consecutiveFailures);
+                Trace.TraceWarning($"自动同步失败，将在 {_nextRetryAt:O} 后重试：{exception.GetType().Name}");
+            }
             finally { _callbackGate.Release(); }
         }
     }
 
-    private void MarkDirty(object? sender, EventArgs eventArgs) => _dirty = true;
+    private void MarkDirty(object? sender, EventArgs eventArgs) => Interlocked.Increment(ref _dirtyVersion);
     private void MarkDirtyOnWatcherError(object? sender, ErrorEventArgs eventArgs)
     {
         Trace.TraceWarning($"自动同步目录监控发生错误：{eventArgs.GetException().GetType().Name}");
-        _dirty = true;
+        Interlocked.Increment(ref _dirtyVersion);
     }
+
+    internal static TimeSpan GetRetryDelay(int failureCount) => failureCount switch
+    {
+        <= 1 => TimeSpan.FromSeconds(30),
+        2 => TimeSpan.FromMinutes(2),
+        _ => TimeSpan.FromMinutes(10)
+    };
 
     private static bool IsAnyProcessRunning(IReadOnlyList<string> processNames)
     {

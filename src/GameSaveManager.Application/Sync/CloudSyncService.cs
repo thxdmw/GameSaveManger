@@ -60,6 +60,8 @@ public sealed class CloudSyncService(
         progress?.Report(new CloudSyncProgress("扫描", 0, 0, "正在扫描存档并计算内容 Hash…"));
         IReadOnlyList<SnapshotFile> manifest =
             await manifestBuilder.BuildAsync(saveRoots, cancellationToken);
+        if (manifest.Count > GameSaveProtocolLimits.MaximumManifestFiles)
+            throw new InvalidOperationException(GameSaveProtocolLimits.ManifestFileLimitMessage);
 
         IReadOnlyList<ContentObjectDescriptor> objectDescriptors = manifest
             .Select(file => new ContentObjectDescriptor(file.Sha256, file.Size))

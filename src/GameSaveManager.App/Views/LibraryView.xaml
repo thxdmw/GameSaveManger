@@ -2,6 +2,7 @@
 <UserControl.Resources>
   <local:GameRuntimeStatusConverter x:Key="GameRuntimeStatusConverter"/>
   <local:GameProtectionStatusConverter x:Key="GameProtectionStatusConverter"/>
+  <local:GameLaunchDisabledReasonConverter x:Key="GameLaunchDisabledReasonConverter"/>
   <Style x:Key="GameCardContextMenuStyle" TargetType="ContextMenu">
     <Setter Property="MinWidth" Value="132"/><Setter Property="Padding" Value="4"/><Setter Property="Background" Value="{DynamicResource Panel}"/><Setter Property="BorderBrush" Value="{DynamicResource Border}"/><Setter Property="BorderThickness" Value="1"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu"><Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/></Border></ControlTemplate></Setter.Value></Setter>
@@ -33,7 +34,9 @@
       </Border>
       <Button Style="{StaticResource GameCardButton}" Command="{Binding DataContext.SelectGameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
       <StackPanel Margin="0,0,10,6" HorizontalAlignment="Right" VerticalAlignment="Bottom" Orientation="Horizontal">
-        <Button Width="62" Height="28" Style="{StaticResource Primary}" Command="{Binding DataContext.LaunchGameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Content="启动"/>
+        <Button Width="62" Height="28" Style="{StaticResource Primary}" Command="{Binding DataContext.LaunchGameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Content="启动">
+          <Button.ToolTip><MultiBinding Converter="{StaticResource GameLaunchDisabledReasonConverter}"><Binding/><Binding Path="DataContext" RelativeSource="{RelativeSource AncestorType=UserControl}"/><Binding Path="DataContext.RuntimeStatusVersion" RelativeSource="{RelativeSource AncestorType=UserControl}"/></MultiBinding></Button.ToolTip>
+        </Button>
         <Button Width="30" Height="28" Margin="6,0,0,0" Padding="0" Style="{StaticResource ButtonStyle}" Tag="{Binding}" Click="GameMenuButton_OnClick" Content="⋮">
           <Button.ContextMenu>
             <ContextMenu Style="{StaticResource GameCardContextMenuStyle}" DataContext="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource Self}}">

@@ -21,6 +21,8 @@ public sealed class SaveManifestBuilder(ISaveDirectoryScanner scanner, IFileHash
             foreach (ScannedSaveFile file in files.OrderBy(item => item.RelativePath, StringComparer.OrdinalIgnoreCase))
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (manifest.Count >= GameSaveProtocolLimits.MaximumManifestFiles)
+                    throw new InvalidOperationException(GameSaveProtocolLimits.ManifestFileLimitMessage);
                 string? sha256 = await hashCache.TryGetAsync(file.FullPath, file.Size, file.LastWriteTimeUtc, cancellationToken);
                 if (sha256 is null)
                 {
