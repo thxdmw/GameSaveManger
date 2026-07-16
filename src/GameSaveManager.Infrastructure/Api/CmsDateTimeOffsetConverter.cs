@@ -23,7 +23,7 @@ public sealed class CmsDateTimeOffsetConverter : JsonConverter<DateTimeOffset>
     {
         if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out long milliseconds))
         {
-            return DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
+            return DateTimeOffset.FromUnixTimeMilliseconds(milliseconds).ToLocalTime();
         }
 
         if (reader.TokenType != JsonTokenType.String)
@@ -43,7 +43,7 @@ public sealed class CmsDateTimeOffsetConverter : JsonConverter<DateTimeOffset>
                 DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
                 out DateTimeOffset offsetDateTime))
         {
-            return offsetDateTime;
+            return offsetDateTime.ToLocalTime();
         }
 
         if (DateTime.TryParseExact(
