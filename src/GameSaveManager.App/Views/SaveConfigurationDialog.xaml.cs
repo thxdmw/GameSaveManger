@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 using GameSaveManager.App.ViewModels;
 
 namespace GameSaveManager.App.Views;
@@ -10,6 +11,13 @@ public partial class SaveConfigurationDialog : Window
         InitializeComponent();
         DataContext = viewModel;
     }
+
+    private void TitleBar_OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+    }
+
+    private void CloseButton_OnClick(object sender, RoutedEventArgs e) => Close();
 
     private void ChooseDirectory_OnClick(object sender, RoutedEventArgs e)
     {

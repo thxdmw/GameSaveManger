@@ -7,6 +7,7 @@
             <TextBlock Margin="0,8,0,24" Foreground="{DynamicResource Muted}" Text="管理当前游戏的启动、存档保护和最近备份。"/>
             <Border Padding="24" Style="{StaticResource PanelStyle}">
                 <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Foreground="{DynamicResource Text}" FontSize="24" FontWeight="SemiBold" Text="{Binding SelectedGame.Name, Mode=OneWay}" TextTrimming="CharacterEllipsis"/>
@@ -19,6 +20,20 @@
                         <Button Height="40" Margin="0,0,10,0" Style="{StaticResource ButtonStyle}" Command="{Binding SyncCommand}" Content="立即备份"/>
                         <Button Height="40" Style="{StaticResource Primary}" Command="{Binding LaunchGameCommand}" CommandParameter="{Binding SelectedGame}" Content="启动游戏" ToolTip="{Binding LaunchDisabledReason}"/>
                     </StackPanel>
+                    <Border Grid.Row="1" Grid.ColumnSpan="2" Margin="0,20,0,0" Padding="14"
+                            Background="{DynamicResource ItemBackground}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="10">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock Foreground="{DynamicResource Muted}" Text="{Binding SelectedGameSyncProgressText}" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Column="1" Margin="16,0,0,0" Foreground="{DynamicResource Muted}"
+                                       Text="{Binding SelectedGameSyncProgressValue, StringFormat={}{0:0}%}"/>
+                            <ProgressBar Grid.Row="1" Grid.ColumnSpan="2" Margin="0,10,0,0"
+                                         Style="{StaticResource SyncProgressBar}"
+                                         Value="{Binding SelectedGameSyncProgressValue, Mode=OneWay}"/>
+                        </Grid>
+                    </Border>
                 </Grid>
             </Border>
             <Border Margin="0,18,0,0" Padding="24" Style="{StaticResource PanelStyle}">

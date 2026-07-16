@@ -90,5 +90,28 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="SyncProgressBar" TargetType="ProgressBar">
+            <Setter Property="Height" Value="9"/>
+            <Setter Property="Minimum" Value="0"/>
+            <Setter Property="Maximum" Value="100"/>
+            <Setter Property="Background" Value="{DynamicResource InputBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5" SnapsToDevicePixels="True">
+                            <Grid Margin="1">
+                                <Border x:Name="PART_Track" CornerRadius="4"/>
+                                <Border x:Name="PART_Indicator" HorizontalAlignment="Left"
+                                        Background="{TemplateBinding Foreground}" CornerRadius="4"/>
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Application.Resources>
 </Application>

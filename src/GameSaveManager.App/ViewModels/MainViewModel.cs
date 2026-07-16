@@ -57,6 +57,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly Dictionary<string, string> _shortcutResolutionFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ShortcutResolution> _shortcutResolutions = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _launchesInProgress = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, GameSyncUiState> _gameSyncUiStates = new(StringComparer.Ordinal);
 
     private string _serverAddress = "http://localhost:8080";
     private string _username = string.Empty;
@@ -315,11 +316,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string SelectedGameHealthText => SelectedGame is null
         ? "尚未选择游戏"
         : GetGameProtectionStatusText(SelectedGame);
-    public string SelectedGameLastSyncText => string.IsNullOrWhiteSpace(SyncSummaryText)
-        ? "暂无同步记录"
-        : SyncSummaryText;
-    public string SelectedGameLastErrorText =>
-        StatusText.Contains("失败", StringComparison.OrdinalIgnoreCase) ? StatusText : string.Empty;
+    public string SelectedGameLastSyncText =>
+        GetSelectedGameSyncState()?.Summary is { Length: > 0 } summary ? summary : "暂无同步记录";
+    public string SelectedGameLastErrorText => GetSelectedGameSyncState()?.Error ?? string.Empty;
+    public bool IsSelectedGameSyncing => GetSelectedGameSyncState()?.IsSyncing ?? false;
+    public string SelectedGameSyncProgressText =>
+        GetSelectedGameSyncState()?.ProgressText is { Length: > 0 } text ? text : "等待立即备份";
+    public double SelectedGameSyncProgressValue => GetSelectedGameSyncState()?.ProgressValue ?? 0;
     public string AuthenticatedUsername { get => _authenticatedUsername; private set => SetField(ref _authenticatedUsername, value); }
     public bool IsAutoSyncEnabled
     {
@@ -389,6 +392,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameHealthText)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameLastSyncText)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameLastErrorText)));
+                NotifySelectedGameSyncStateChanged();
             }
         }
     }
@@ -806,7 +810,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 SnapshotTrigger.GameExit, "游戏退出自动同步", false, cancellationToken);
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                if (SelectedGame?.GameId == gameId) ApplySyncResult(result);
+                ApplySyncResult(gameId, result);
             });
         }
         catch (OperationCanceledException) { }
@@ -815,6 +819,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _appLogger.Error("sync.automatic.failed", exception, $"游戏 {gameId} 的自动同步失败");
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                SetGameSyncError(gameId, $"自动同步失败：{exception.Message}");
                 if (SelectedGame?.GameId == gameId) StatusText = $"自动同步失败：{exception.Message}";
             });
             throw;
@@ -836,10 +841,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsSyncing = true;
         SyncProgressValue = 2;
         SyncProgressText = "正在等待同步任务…";
+        UpdateGameSyncState(gameId, state =>
+        {
+            state.IsSyncing = true;
+            state.ProgressValue = 2;
+            state.ProgressText = "正在等待同步任务…";
+            state.Error = string.Empty;
+        });
         try
         {
             await PrepareRegistrySnapshotsAsync(server, gameId, profile.EffectiveRegistrySaveRules);
-            IProgress<CloudSyncProgress> progress = new Progress<CloudSyncProgress>(ReportSyncProgress);
+            IProgress<CloudSyncProgress> progress = new Progress<CloudSyncProgress>(
+                item => ReportSyncProgress(gameId, item));
             return await _cloudSyncService.SyncAsync(server, token, gameId, roots, trigger, description,
                 linked.Token, keepLocalOnConflict, progress);
         }
@@ -847,10 +860,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (ReferenceEquals(_syncCancellation, linked)) _syncCancellation = null;
             IsSyncing = false;
+            UpdateGameSyncState(gameId, state => state.IsSyncing = false);
             _syncQueue.Release();
         }
     }
-    private void ReportSyncProgress(CloudSyncProgress progress)
+    private void ReportSyncProgress(string gameId, CloudSyncProgress progress)
     {
         void Apply()
         {
@@ -865,6 +879,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 "完成" => 100,
                 _ => SyncProgressValue
             };
+            UpdateGameSyncState(gameId, state =>
+            {
+                state.ProgressText = SyncProgressText;
+                state.ProgressValue = SyncProgressValue;
+            });
         }
         if (System.Windows.Application.Current.Dispatcher.CheckAccess()) Apply();
         else _ = System.Windows.Application.Current.Dispatcher.InvokeAsync(Apply);
@@ -874,21 +893,70 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _localGameProfiles.TryGetValue(gameId, out LocalGameProfile? profile)
             ? profile
             : throw new InvalidOperationException("请先保存并确认该游戏的本机存档配置。");
-    private void ApplySyncResult(CloudSyncResult result)
+    private void ApplySyncResult(string gameId, CloudSyncResult result)
     {
-        FileCount = result.FileCount;
-        LogicalSizeText = FormatBytes(result.LogicalSize);
-        StatusText = result.Status == CloudSyncStatus.RemoteAhead
+        string statusText = result.Status == CloudSyncStatus.RemoteAhead
             ? result.Message + " 请从时间线恢复云端快照，或明确选择保留本机版本。"
             : result.Message;
-        SyncSummaryText = result.Status == CloudSyncStatus.Success
+        string summary = result.Status == CloudSyncStatus.Success
             ? $"本次同步：{result.FileCount} 个文件，{FormatBytes(result.LogicalSize)}；上传 {result.UploadedObjectCount} 个内容对象；耗时 {result.Duration.TotalSeconds:0.0} 秒。"
             : $"同步未提交：检测到版本冲突；耗时 {result.Duration.TotalSeconds:0.0} 秒。可恢复云端版本或选择保留本机版本。";
-        SyncProgressText = result.Status == CloudSyncStatus.Success ? "同步完成" : "需要处理版本冲突";
-        if (result.Status == CloudSyncStatus.RemoteAhead) CurrentPage = "时间线";
-        if (result.Status == CloudSyncStatus.RemoteAhead)
-            SyncConflictDetected?.Invoke(this, EventArgs.Empty);
-        if (result.Status == CloudSyncStatus.Success) SyncProgressValue = 100;
+        string progressText = result.Status == CloudSyncStatus.Success ? "同步完成" : "需要处理版本冲突";
+        double progressValue = result.Status == CloudSyncStatus.Success ? 100 : SyncProgressValue;
+        UpdateGameSyncState(gameId, state =>
+        {
+            state.Summary = summary;
+            state.Error = result.Status == CloudSyncStatus.Success ? string.Empty : statusText;
+            state.ProgressText = progressText;
+            state.ProgressValue = progressValue;
+        });
+        if (SelectedGame?.GameId == gameId)
+        {
+            FileCount = result.FileCount;
+            LogicalSizeText = FormatBytes(result.LogicalSize);
+            StatusText = statusText;
+            SyncSummaryText = summary;
+            SyncProgressText = progressText;
+            SyncProgressValue = progressValue;
+            if (result.Status == CloudSyncStatus.RemoteAhead)
+            {
+                CurrentPage = "时间线";
+                SyncConflictDetected?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    private GameSyncUiState? GetSelectedGameSyncState() =>
+        SelectedGame is null || !_gameSyncUiStates.TryGetValue(SelectedGame.GameId, out GameSyncUiState? state)
+            ? null
+            : state;
+
+    private void UpdateGameSyncState(string gameId, Action<GameSyncUiState> update)
+    {
+        if (!_gameSyncUiStates.TryGetValue(gameId, out GameSyncUiState? state))
+        {
+            state = new GameSyncUiState();
+            _gameSyncUiStates[gameId] = state;
+        }
+        update(state);
+        if (SelectedGame?.GameId == gameId) NotifySelectedGameSyncStateChanged();
+    }
+
+    private void SetGameSyncError(string gameId, string message) =>
+        UpdateGameSyncState(gameId, state =>
+        {
+            state.Error = message;
+            state.ProgressText = "备份失败";
+            state.IsSyncing = false;
+        });
+
+    private void NotifySelectedGameSyncStateChanged()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameLastSyncText)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameLastErrorText)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelectedGameSyncing)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameSyncProgressText)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameSyncProgressValue)));
     }
     private string GetRegistryCacheDirectory(Uri server, string gameId) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GameSaveManager", "registry",
@@ -1433,6 +1501,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await _localGameProfileStore.DeleteAsync(serverKey, gameId, CancellationToken.None);
             await _cloudSyncService.DeleteLocalStateAsync(server, gameId, CancellationToken.None);
             _localGameProfiles.Remove(gameId);
+            _gameSyncUiStates.Remove(gameId);
             DeleteGeneratedGameData(server, gameId);
             Games.Remove(SelectedGame);
             Snapshots.Clear();
@@ -1470,6 +1539,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             IsAutoSyncEnabled = false;
             IsAuthenticated = false;
             AuthenticatedUsername = string.Empty;
+            _gameSyncUiStates.Clear();
             Games.Clear(); Snapshots.Clear(); Devices.Clear();
             SelectedGame = null; SelectedSnapshot = null; SelectedDevice = null;
             QuotaUsageText = "尚未加载存储容量";
@@ -1496,38 +1566,56 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task SyncAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (gameId is null) throw new InvalidOperationException("请先选择云端游戏");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
             await SaveLocalProfileAsync(server, IsAutoSyncEnabled);
-            CloudSyncResult result = await RunQueuedSyncAsync(server, token, SelectedGame.GameId, GetRequiredLocalProfile(SelectedGame.GameId),
+            CloudSyncResult result = await RunQueuedSyncAsync(server, token, gameId, GetRequiredLocalProfile(gameId),
                 SnapshotTrigger.Manual, "手动同步", false, CancellationToken.None);
-            ApplySyncResult(result);
-            await ReloadSnapshotsAsync(server, token);
+            ApplySyncResult(gameId, result);
+            await ReloadSnapshotsAsync(server, token, gameId);
             await ReloadQuotaAsync(server, token);
         }
-        catch (OperationCanceledException) { StatusText = "同步已取消；下次同步会安全复用已上传内容。"; }
-        catch (Exception exception) { ShowError("同步失败", exception); }
+        catch (OperationCanceledException)
+        {
+            if (gameId is not null) SetGameSyncError(gameId, "同步已取消；下次同步会安全复用已上传内容。");
+            StatusText = "同步已取消；下次同步会安全复用已上传内容。";
+        }
+        catch (Exception exception)
+        {
+            if (gameId is not null) SetGameSyncError(gameId, $"同步失败：{ClientOperationError.FromException(exception).UserMessage}");
+            ShowError("同步失败", exception);
+        }
     }
 
     private async Task KeepLocalConflictAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (gameId is null) throw new InvalidOperationException("请先选择云端游戏");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
             await SaveLocalProfileAsync(server, IsAutoSyncEnabled);
-            CloudSyncResult result = await RunQueuedSyncAsync(server, token, SelectedGame.GameId, GetRequiredLocalProfile(SelectedGame.GameId),
+            CloudSyncResult result = await RunQueuedSyncAsync(server, token, gameId, GetRequiredLocalProfile(gameId),
                 SnapshotTrigger.Manual, "多设备冲突：保留本机版本", true, CancellationToken.None);
-            ApplySyncResult(result);
-            await ReloadSnapshotsAsync(server, token);
+            ApplySyncResult(gameId, result);
+            await ReloadSnapshotsAsync(server, token, gameId);
             await ReloadQuotaAsync(server, token);
         }
-        catch (OperationCanceledException) { StatusText = "同步已取消。"; }
-        catch (Exception exception) { ShowError("保留本机版本失败", exception); }
+        catch (OperationCanceledException)
+        {
+            if (gameId is not null) SetGameSyncError(gameId, "同步已取消。");
+            StatusText = "同步已取消。";
+        }
+        catch (Exception exception)
+        {
+            if (gameId is not null) SetGameSyncError(gameId, $"保留本机版本失败：{ClientOperationError.FromException(exception).UserMessage}");
+            ShowError("保留本机版本失败", exception);
+        }
     }
 
     private async Task ReloadSnapshotsFromUiAsync()
@@ -1545,8 +1633,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task ReloadSnapshotsAsync(Uri server, string token)
     {
         if (SelectedGame is null) return;
+        await ReloadSnapshotsAsync(server, token, SelectedGame.GameId);
+    }
+
+    private async Task ReloadSnapshotsAsync(Uri server, string token, string gameId)
+    {
         IReadOnlyList<CloudSnapshotSummary> snapshots = await _apiClient.ListSnapshotsAsync(
-            server, token, SelectedGame.GameId, 100, CancellationToken.None);
+            server, token, gameId, 100, CancellationToken.None);
+        if (SelectedGame?.GameId != gameId) return;
         Snapshots.Clear();
         foreach (CloudSnapshotSummary snapshot in snapshots) Snapshots.Add(snapshot);
         SelectedSnapshot = Snapshots.FirstOrDefault();
@@ -1972,6 +2066,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             IsAuthenticated = false;
             AuthenticatedUsername = string.Empty;
+            _gameSyncUiStates.Clear();
             Games.Clear();
             SelectedGame = null;
             CurrentPage = "账户";
@@ -2132,5 +2227,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         RaiseCommandStates();
         return true;
+    }
+
+    private sealed class GameSyncUiState
+    {
+        public bool IsSyncing { get; set; }
+        public string ProgressText { get; set; } = "等待立即备份";
+        public double ProgressValue { get; set; }
+        public string Summary { get; set; } = string.Empty;
+        public string Error { get; set; } = string.Empty;
     }
 }
