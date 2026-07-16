@@ -15,6 +15,7 @@ using GameSaveManager.Application.Discovery;
 using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Files;
 using GameSaveManager.Application.Monitoring;
+using GameSaveManager.Application.Launching;
 using GameSaveManager.Application.Restores;
 using GameSaveManager.Application.Security;
 using GameSaveManager.Application.Settings;
@@ -41,6 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly ISaveLocationDetector _saveLocationDetector;
     private readonly IExecutableGameIdentityFactory _executableGameIdentityFactory;
     private readonly IRuntimeSaveLearningService _runtimeSaveLearningService;
+    private readonly IGameLaunchService _gameLaunchService;
     private readonly ILocalGameProfileStore _localGameProfileStore;
     private readonly ICredentialStore _credentialStore;
     private readonly IDeviceIdentityProvider _deviceIdentityProvider;
@@ -108,6 +110,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ISaveLocationDetector saveLocationDetector,
         IExecutableGameIdentityFactory executableGameIdentityFactory,
         IRuntimeSaveLearningService runtimeSaveLearningService,
+        IGameLaunchService gameLaunchService,
         ILocalGameProfileStore localGameProfileStore,
         ICredentialStore credentialStore,
         IDeviceIdentityProvider deviceIdentityProvider,
@@ -128,6 +131,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _saveLocationDetector = saveLocationDetector;
         _executableGameIdentityFactory = executableGameIdentityFactory;
         _runtimeSaveLearningService = runtimeSaveLearningService;
+        _gameLaunchService = gameLaunchService;
         _localGameProfileStore = localGameProfileStore;
         _credentialStore = credentialStore;
         _deviceIdentityProvider = deviceIdentityProvider;
@@ -1335,29 +1339,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return SelectedDiscoveredGame?.Identity ?? new GameIdentity(NewGameName, GameIdentity.Custom, null, string.Empty, null, null);
     }
 
-    private static void LaunchGame(GameIdentity game)
+    private async Task LaunchGameAsync(GameIdentity game)
     {
+        GameLaunchProfile launchProfile;
         if (string.Equals(game.Provider, GameIdentity.Steam, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(game.ProviderGameId))
         {
-            Process.Start(new ProcessStartInfo($"steam://run/{Uri.EscapeDataString(game.ProviderGameId)}") { UseShellExecute = true });
-            return;
+            launchProfile = new(GameLaunchTargetType.StoreUri, $"steam://run/{Uri.EscapeDataString(game.ProviderGameId)}", null, null, false, []);
         }
-        if (string.Equals(game.Provider, GameIdentity.Epic, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(game.ProviderGameId))
+        else if (string.Equals(game.Provider, GameIdentity.Epic, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(game.ProviderGameId))
         {
-            Process.Start(new ProcessStartInfo($"com.epicgames.launcher://apps/{Uri.EscapeDataString(game.ProviderGameId)}?action=launch&silent=true") { UseShellExecute = true });
-            return;
+            launchProfile = new(GameLaunchTargetType.StoreUri, $"com.epicgames.launcher://apps/{Uri.EscapeDataString(game.ProviderGameId)}?action=launch&silent=true", null, null, false, []);
         }
-        if (string.IsNullOrWhiteSpace(game.ExecutablePath) || !File.Exists(game.ExecutablePath)) throw new InvalidOperationException("未找到可启动的游戏 EXE。");
-        string executablePath = Path.GetFullPath(game.ExecutablePath);
-        // 通过资源管理器调用与用户双击 EXE 使用同一条 Windows Shell 启动链。
-        // 部分旧游戏会依赖该启动链提供的兼容性层或父进程上下文。
-        Process.Start(new ProcessStartInfo
+        else
         {
-            FileName = "explorer.exe",
-            Arguments = $"\"{executablePath}\"",
-            WorkingDirectory = Path.GetDirectoryName(executablePath)!,
-            UseShellExecute = true
-        });
+            if (string.IsNullOrWhiteSpace(game.ExecutablePath)) throw new InvalidOperationException("未找到可启动的游戏 EXE。");
+            launchProfile = new(GameLaunchTargetType.Executable, game.ExecutablePath, null, null, false, []);
+        }
+
+        await _gameLaunchService.LaunchAsync(launchProfile, game.InstallDirectory, CancellationToken.None);
     }
     private async Task LaunchGameAsync(object? parameter)
     {
@@ -1378,7 +1377,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsSaveDirectoryConfirmed = profile.UserConfirmed;
             AutoSnapshotProcessName = profile.ProcessName;
             AutoSnapshotExecutablePath = profile.ExecutablePath;
-            LaunchGame(new GameIdentity(game.Name, profile.Provider, profile.ProviderGameId, profile.InstallDirectory ?? string.Empty, profile.ExecutablePath, profile.ProcessName));
+            await LaunchGameAsync(new GameIdentity(game.Name, profile.Provider, profile.ProviderGameId, profile.InstallDirectory ?? string.Empty, profile.ExecutablePath, profile.ProcessName));
             StatusText = $"已启动 {game.Name}，运行状态会自动刷新。";
             await Task.Delay(300);
             RefreshGameRuntimeStatus();

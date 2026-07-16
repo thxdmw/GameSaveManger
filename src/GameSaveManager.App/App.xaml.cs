@@ -4,6 +4,7 @@ using GameSaveManager.App.ViewModels;
 using GameSaveManager.Application.Diagnostics;
 using GameSaveManager.Application.Discovery;
 using GameSaveManager.Application.Monitoring;
+using GameSaveManager.Application.Launching;
 using GameSaveManager.Application.Restores;
 using GameSaveManager.Application.Snapshots;
 using GameSaveManager.Application.Sync;
@@ -12,6 +13,7 @@ using GameSaveManager.Infrastructure.Diagnostics;
 using GameSaveManager.Infrastructure.Discovery;
 using GameSaveManager.Infrastructure.FileSystem;
 using GameSaveManager.Infrastructure.Monitoring;
+using GameSaveManager.Infrastructure.Launching;
 using GameSaveManager.Infrastructure.Persistence;
 using GameSaveManager.Infrastructure.Security;
 using GameSaveManager.Infrastructure.Startup;
@@ -94,6 +96,7 @@ public partial class App : System.Windows.Application
                     new WindowsSaveLocationDetector(),
                     new WindowsExecutableGameIdentityFactory(),
                     new WindowsRuntimeSaveLearningService(),
+                    new WindowsGameLaunchService(),
                     new SqliteLocalGameProfileStore(database),
                     new WindowsCredentialStore(),
                     new SqliteDeviceIdentityProvider(database),

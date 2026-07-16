@@ -11,6 +11,7 @@ using GameSaveManager.Infrastructure.Api;
 using GameSaveManager.Infrastructure.Discovery;
 using GameSaveManager.Infrastructure.FileSystem;
 using GameSaveManager.Infrastructure.Monitoring;
+using GameSaveManager.Infrastructure.Launching;
 using GameSaveManager.Infrastructure.Persistence;
 using GameSaveManager.Infrastructure.Security;
 
@@ -44,6 +45,7 @@ internal static class SmokeViewModelFactory
             new WindowsSaveLocationDetector(),
             new WindowsExecutableGameIdentityFactory(),
             new WindowsRuntimeSaveLearningService(),
+            new WindowsGameLaunchService(),
             new SqliteLocalGameProfileStore(database),
             new WindowsCredentialStore(),
             new SqliteDeviceIdentityProvider(database),
