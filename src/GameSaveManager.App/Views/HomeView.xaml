@@ -90,8 +90,8 @@
                                 <Grid>
                                     <Grid.RowDefinitions><RowDefinition Height="122"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                                     <Border CornerRadius="13,13,0,0">
-                                        <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#1A3C60"/><GradientStop Color="#172338" Offset=".6"/><GradientStop Color="#46354B" Offset="1"/></LinearGradientBrush></Border.Background>
-                                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#6CACFF" FontSize="20" FontWeight="Bold" Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                                        <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="{DynamicResource GameCardHeroStart}"/><GradientStop Color="{DynamicResource GameCardHeroMiddle}" Offset=".6"/><GradientStop Color="{DynamicResource GameCardHeroEnd}" Offset="1"/></LinearGradientBrush></Border.Background>
+                                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource GameCardAccent}" FontSize="20" FontWeight="Bold" Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
                                     </Border>
                                     <StackPanel Grid.Row="1" Margin="13,11">
                                         <TextBlock Foreground="{DynamicResource Text}" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>

@@ -63,6 +63,7 @@ Run("网络错误会转换为可操作的统一错误", GameSaveManager.Verifica
 await RunAsync("游戏进程检测会等待并确认稳定进程", GameSaveManager.Verification.GameProcessDetectionVerification.VerifyDelayedPollingAndStableProcessAsync);
 await RunAsync("游戏启动不会保存或确认无关系统进程", GameSaveManager.Verification.GameLaunchSafetyVerification.VerifySystemProcessIsNeverPersistedOrConfirmedAsync);
 Run("CMS 无时区日期与时间戳可以兼容解析", CmsDateTimeOffsetVerification.Verify);
+Run("客户端与服务端协议限制和 JSON 样例保持一致", GameSaveManager.Verification.ProtocolContractVerification.Verify);
 Run("Desktop UI starts without WPF binding errors", GameSaveManager.Verification.WpfSmokeVerification.VerifyMainWindowLoadsWithoutBindingErrors);
 
 if (failures.Count > 0)

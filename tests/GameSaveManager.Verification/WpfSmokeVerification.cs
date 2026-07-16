@@ -4,6 +4,7 @@ using WpfApplication = GameSaveManager.App.App;
 using GameSaveManager.App;
 using GameSaveManager.App.Views;
 using GameSaveManager.App.ViewModels;
+using GameSaveManager.App.Theming;
 
 namespace GameSaveManager.Verification;
 
@@ -41,6 +42,14 @@ internal static class WpfSmokeVerification
             MainViewModel viewModel = SmokeViewModelFactory.Create();
             var window = new MainWindow { DataContext = viewModel };
             var wizard = new AddGameWizardWindow(viewModel);
+            var saveConfiguration = new SaveConfigurationDialog(viewModel.SaveConfiguration);
+            var conflict = new ConflictResolutionDialog(viewModel);
+            ThemeManager.Apply(useLightTheme: true);
+            ThemeManager.Apply(useLightTheme: false);
+            window.Measure(new Size(1100, 700));
+            wizard.Measure(new Size(700, 620));
+            saveConfiguration.Measure(new Size(700, 600));
+            conflict.Measure(new Size(620, 460));
             var dialog = new ThemedDialogWindow("验证", "验证主题对话框可以加载。", "确定", "取消");
 
             string[] errors = listener.Messages

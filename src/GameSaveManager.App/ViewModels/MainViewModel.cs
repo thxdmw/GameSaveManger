@@ -196,13 +196,42 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RemoveAdditionalSaveRootCommand = new AsyncCommand(RemoveAdditionalSaveRootAsync);
         AddRegistrySaveRuleCommand = new AsyncCommand(AddRegistrySaveRuleAsync);
         RemoveRegistrySaveRuleCommand = new AsyncCommand(RemoveRegistrySaveRuleAsync);
+        Session = new ApplicationSession(
+            () => ServerAddress,
+            () => IsAuthenticated,
+            () => AuthenticatedUsername,
+            () => SelectedGame,
+            game => SelectedGame = game,
+            _credentialStore);
+        Account = new AccountViewModel(this);
+        GameLibrary = new GameLibraryViewModel(this);
+        GameDetail = new GameDetailViewModel(this);
+        SaveConfiguration = new SaveConfigurationViewModel(this);
+        Sync = new SyncViewModel(this);
+        Restore = new RestoreViewModel(this);
+        Settings = new SettingsViewModel(this);
+        GameLaunchSettings = new GameLaunchSettingsViewModel(this);
+        AddGameWizard = new AddGameWizardViewModel(this);
         FilteredGames = CollectionViewSource.GetDefaultView(Games);
         FilteredGames.Filter = MatchesGameSearch;
         Games.CollectionChanged += (_, _) => { FilteredGames.Refresh(); PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasGames))); };
+        Snapshots.CollectionChanged += (_, _) => PropertyChanged?.Invoke(
+            this, new PropertyChangedEventArgs(nameof(RecentSnapshots)));
     }
 
+    public ApplicationSession Session { get; }
+    public AccountViewModel Account { get; }
+    public GameLibraryViewModel GameLibrary { get; }
+    public GameDetailViewModel GameDetail { get; }
+    public SaveConfigurationViewModel SaveConfiguration { get; }
+    public SyncViewModel Sync { get; }
+    public RestoreViewModel Restore { get; }
+    public SettingsViewModel Settings { get; }
+    public GameLaunchSettingsViewModel GameLaunchSettings { get; }
+    public AddGameWizardViewModel AddGameWizard { get; }
     public ObservableCollection<CloudGame> Games { get; } = [];
     public ObservableCollection<CloudSnapshotSummary> Snapshots { get; } = [];
+    public IEnumerable<CloudSnapshotSummary> RecentSnapshots => Snapshots.Take(5);
     public ObservableCollection<DiscoveredGame> DiscoveredGames { get; } = [];
     public ObservableCollection<SaveLocationCandidate> SaveLocationCandidates { get; } = [];
     public ObservableCollection<SaveRootRule> AdditionalSaveRoots { get; } = [];
@@ -222,7 +251,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string AutoSnapshotProcessName { get => _autoSnapshotProcessName; set => SetField(ref _autoSnapshotProcessName, value); }
     public string AutoSnapshotExecutablePath { get => _autoSnapshotExecutablePath; private set => SetField(ref _autoSnapshotExecutablePath, value); }
     public int RuntimeStatusVersion { get => _runtimeStatusVersion; private set => SetField(ref _runtimeStatusVersion, value); }
-    public string StatusText { get => _statusText; private set => SetField(ref _statusText, value); }
+    public string StatusText
+    {
+        get => _statusText;
+        private set
+        {
+            if (!SetField(ref _statusText, value)) return;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GlobalStatusText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameLastErrorText)));
+        }
+    }
     public string ManifestUpdateStatusText { get => _manifestUpdateStatusText; private set => SetField(ref _manifestUpdateStatusText, value); }
     public int FileCount { get => _fileCount; private set => SetField(ref _fileCount, value); }
     public string LogicalSizeText { get => _logicalSizeText; private set => SetField(ref _logicalSizeText, value); }
@@ -270,6 +308,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThemeSelectionIndex)));
         }
     }
+    public string GlobalStatusText => StatusText;
+    public string SelectedGameHealthText => SelectedGame is null
+        ? "尚未选择游戏"
+        : GetGameProtectionStatusText(SelectedGame);
+    public string SelectedGameLastSyncText => string.IsNullOrWhiteSpace(SyncSummaryText)
+        ? "暂无同步记录"
+        : SyncSummaryText;
+    public string SelectedGameLastErrorText =>
+        StatusText.Contains("失败", StringComparison.OrdinalIgnoreCase) ? StatusText : string.Empty;
     public string AuthenticatedUsername { get => _authenticatedUsername; private set => SetField(ref _authenticatedUsername, value); }
     public bool IsAutoSyncEnabled
     {
@@ -283,7 +330,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IsSyncing { get => _isSyncing; private set => SetField(ref _isSyncing, value); }
     public string SyncProgressText { get => _syncProgressText; private set => SetField(ref _syncProgressText, value); }
     public double SyncProgressValue { get => _syncProgressValue; private set => SetField(ref _syncProgressValue, value); }
-    public string SyncSummaryText { get => _syncSummaryText; private set => SetField(ref _syncSummaryText, value); }
+    public string SyncSummaryText
+    {
+        get => _syncSummaryText;
+        private set
+        {
+            if (SetField(ref _syncSummaryText, value))
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameLastSyncText)));
+        }
+    }
     public string RestorePreviewText { get => _restorePreviewText; private set => SetField(ref _restorePreviewText, value); }
     public string SaveDirectoryPreviewText { get => _saveDirectoryPreviewText; private set => SetField(ref _saveDirectoryPreviewText, value); }
     public string ConnectionStatusText => IsAuthenticated ? "已登录" : "未登录";
@@ -328,6 +383,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 SelectedSnapshot = null;
                 ApplyDiscoveredIdentity(value);
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LaunchDisabledReason)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameHealthText)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameLastSyncText)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameLastErrorText)));
             }
         }
     }
@@ -417,6 +475,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public event EventHandler? PasswordClearRequested;
     public event EventHandler? GameCreated;
+    public event EventHandler? SyncConflictDetected;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>密码仅暂存于内存，并由 PasswordBox 调用此方法传入。</summary>
@@ -737,6 +796,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : $"同步未提交：检测到版本冲突；耗时 {result.Duration.TotalSeconds:0.0} 秒。可恢复云端版本或选择保留本机版本。";
         SyncProgressText = result.Status == CloudSyncStatus.Success ? "同步完成" : "需要处理版本冲突";
         if (result.Status == CloudSyncStatus.RemoteAhead) CurrentPage = "时间线";
+        if (result.Status == CloudSyncStatus.RemoteAhead)
+            SyncConflictDetected?.Invoke(this, EventArgs.Empty);
         if (result.Status == CloudSyncStatus.Success) SyncProgressValue = 100;
     }
     private string GetRegistryCacheDirectory(Uri server, string gameId) => Path.Combine(
@@ -836,6 +897,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
             identity,
             AutoSnapshotExecutablePath,
             AutoSnapshotProcessName);
+        if (existingProfile is null && launchProfile is not null)
+        {
+            launchProfile = launchProfile with
+            {
+                Arguments = string.IsNullOrWhiteSpace(AddGameWizard.Arguments)
+                    ? launchProfile.Arguments
+                    : AddGameWizard.Arguments.Trim(),
+                WorkingDirectory = string.IsNullOrWhiteSpace(AddGameWizard.WorkingDirectory)
+                    ? launchProfile.WorkingDirectory
+                    : AddGameWizard.WorkingDirectory.Trim(),
+                RunAsAdministrator = AddGameWizard.RunAsAdministrator,
+                MonitoredProcessNames = string.IsNullOrWhiteSpace(AddGameWizard.MonitoredProcessName)
+                    ? launchProfile.MonitoredProcessNames
+                    : [AddGameWizard.MonitoredProcessName.Trim()]
+            };
+        }
         string? identityExecutablePath = identity.ExecutablePath;
         if (launchProfile is { TargetType: GameLaunchTargetType.Shortcut }
             && _shortcutResolutions.TryGetValue(launchProfile.Target, out ShortcutResolution? shortcut)
@@ -1163,6 +1240,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (string.IsNullOrWhiteSpace(NewGameName)) throw new InvalidOperationException("请先输入游戏名称");
             string normalizedName = NewGameName.Trim();
+            string pendingSaveDirectory = SaveDirectory;
+            bool pendingDirectoryConfirmed = IsSaveDirectoryConfirmed;
+            string pendingExecutablePath = AutoSnapshotExecutablePath;
+            string pendingProcessName = AutoSnapshotProcessName;
+            SaveLocationCandidate? pendingCandidate = SelectedSaveLocationCandidate;
+            SaveRootRule[] pendingAdditionalRoots = AdditionalSaveRoots.ToArray();
+            RegistrySaveRule[] pendingRegistryRules = RegistrySaveRules.ToArray();
             if (Games.Any(game => string.Equals(game.Name.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new InvalidOperationException("已添加同名游戏；同一账号下游戏名称不能重复。");
@@ -1176,8 +1260,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : discoveredProvider;
             string? providerGameId = SelectedDiscoveredGame?.ProviderGameId;
             CloudGame game = await _apiClient.CreateGameAsync(server, token, normalizedName, provider, providerGameId, CancellationToken.None);
+            try
+            {
             await ReloadGamesAsync(server, token);
             SelectedGame = Games.FirstOrDefault(item => item.GameId == game.GameId);
+            SaveDirectory = pendingSaveDirectory;
+            IsSaveDirectoryConfirmed = pendingDirectoryConfirmed;
+            AutoSnapshotExecutablePath = pendingExecutablePath;
+            AutoSnapshotProcessName = pendingProcessName;
+            SelectedSaveLocationCandidate = pendingCandidate;
+            AdditionalSaveRoots.Clear();
+            foreach (SaveRootRule root in pendingAdditionalRoots) AdditionalSaveRoots.Add(root);
+            RegistrySaveRules.Clear();
+            foreach (RegistrySaveRule rule in pendingRegistryRules) RegistrySaveRules.Add(rule);
+            if (SelectedGame is not null && pendingDirectoryConfirmed)
+            {
+                bool enableAutomaticBackup = AddGameWizard.EnableAutomaticBackup
+                    && AddGameWizard.LaunchValidated;
+                LocalGameProfile profile = await SaveLocalProfileAsync(server, enableAutomaticBackup);
+                await RefreshAutomaticSyncConfigurationAsync(server, token, profile);
+                IsAutoSyncEnabled = enableAutomaticBackup
+                    && _autoSyncCoordinator.ActiveGameIds.Contains(SelectedGame.GameId);
+            }
             await ReloadSnapshotsAsync(server, token);
             await ReloadRetentionAsync(server, token);
             await ReloadQuotaAsync(server, token);
@@ -1185,6 +1289,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
             CurrentPage = "游戏详情";
             StatusText = $"已创建云端游戏：{game.Name}。请继续配置启动入口和存档保护。";
             GameCreated?.Invoke(this, EventArgs.Empty);
+            }
+            catch
+            {
+                try
+                {
+                    await _apiClient.DeleteGameAsync(
+                        server, token, game.GameId, CancellationToken.None);
+                    await _localGameProfileStore.DeleteAsync(
+                        GameSaveServerIdentity.CreateStableKey(server),
+                        game.GameId,
+                        CancellationToken.None);
+                    await _cloudSyncService.DeleteLocalStateAsync(
+                        server, game.GameId, CancellationToken.None);
+                }
+                catch (Exception compensationFailure)
+                {
+                    _appLogger.Error(
+                        "game.create.compensation.failed",
+                        compensationFailure,
+                        $"云端存在未完成游戏：{game.GameId}");
+                }
+                throw;
+            }
         }
         catch (Exception exception) { ShowError("创建游戏失败", exception); }
     }
@@ -1469,6 +1596,41 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : "已读取本地游戏启动入口；确认名称后创建游戏，再配置存档保护。";
     }
 
+    public async Task<bool> TestPendingGameLaunchAsync()
+    {
+        try
+        {
+            GameIdentity identity = GetCurrentGameIdentity();
+            GameLaunchProfile launchProfile = CreateLaunchProfile(identity)
+                ?? throw new InvalidOperationException("未找到有效的游戏启动配置。");
+            launchProfile = launchProfile with
+            {
+                Arguments = string.IsNullOrWhiteSpace(AddGameWizard.Arguments) ? null : AddGameWizard.Arguments.Trim(),
+                WorkingDirectory = string.IsNullOrWhiteSpace(AddGameWizard.WorkingDirectory)
+                    ? launchProfile.WorkingDirectory
+                    : AddGameWizard.WorkingDirectory.Trim(),
+                RunAsAdministrator = AddGameWizard.RunAsAdministrator,
+                MonitoredProcessNames = string.IsNullOrWhiteSpace(AddGameWizard.MonitoredProcessName)
+                    ? launchProfile.MonitoredProcessNames
+                    : [AddGameWizard.MonitoredProcessName.Trim()]
+            };
+            GameLaunchResult result = await _gameLaunchService.LaunchAsync(
+                launchProfile, identity.InstallDirectory, CancellationToken.None);
+            AddGameWizard.LaunchValidated = result.LaunchRequestSucceeded
+                && result.DetectedProcesses.Any(process => process.IsStillRunning);
+            StatusText = result.Warning is null
+                ? "测试启动成功，已发现可监控进程。"
+                : $"测试启动已完成：{result.Warning}";
+            return AddGameWizard.LaunchValidated;
+        }
+        catch (Exception exception)
+        {
+            AddGameWizard.LaunchValidated = false;
+            ShowError("测试启动失败", exception);
+            return false;
+        }
+    }
+
     private void ApplyDiscoveredIdentity(CloudGame? game)
     {
         if (game is null) return;
@@ -1703,6 +1865,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         _appLogger.Error("operation.failed", exception, operation);
         ClientOperationError error = ClientOperationError.FromException(exception);
+        if (error.Category == ErrorCategory.Authentication)
+        {
+            IsAuthenticated = false;
+            AuthenticatedUsername = string.Empty;
+            Games.Clear();
+            SelectedGame = null;
+            CurrentPage = "账户";
+            _ = ClearExpiredAuthenticationAsync();
+        }
+        if (error.Category == ErrorCategory.Cancelled)
+        {
+            StatusText = "操作已取消。";
+            return;
+        }
         string requestId = string.IsNullOrWhiteSpace(error.RequestId) ? string.Empty : $"（请求 ID：{error.RequestId}）";
         string retry = error.CanRetry
             ? error.SuggestedRetryDelay is { } delay && delay > TimeSpan.Zero
@@ -1710,6 +1886,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : " 可稍后重试。"
             : string.Empty;
         StatusText = $"{operation}：{error.UserMessage}{requestId}{retry}";
+    }
+
+    private async Task ClearExpiredAuthenticationAsync()
+    {
+        try
+        {
+            Uri server = ParseServerUri();
+            await _credentialStore.DeleteAsync(
+                CredentialTargets.ForDeviceToken(server), CancellationToken.None);
+            await _credentialStore.DeleteAsync(
+                CredentialTargets.ForAccountName(server), CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            _appLogger.Error("authentication.cleanup.failed", exception, "清理过期设备凭据失败");
+        }
     }
 
     private static string FormatBytes(long bytes)

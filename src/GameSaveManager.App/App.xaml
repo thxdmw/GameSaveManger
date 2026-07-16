@@ -17,6 +17,17 @@
         <SolidColorBrush x:Key="InputBackground" Color="#0A121D"/>
         <SolidColorBrush x:Key="NavActive" Color="#123C70"/>
         <SolidColorBrush x:Key="Success" Color="#41D993"/>
+        <SolidColorBrush x:Key="Danger" Color="#E85D70"/>
+        <SolidColorBrush x:Key="DangerHover" Color="#B2394A"/>
+        <SolidColorBrush x:Key="DangerSurface" Color="#3A1720"/>
+        <SolidColorBrush x:Key="Warning" Color="#F2B84B"/>
+        <SolidColorBrush x:Key="WarningSurface" Color="#382B14"/>
+        <SolidColorBrush x:Key="GameCardHeroStart" Color="#1A3C60"/>
+        <SolidColorBrush x:Key="GameCardHeroMiddle" Color="#172338"/>
+        <SolidColorBrush x:Key="GameCardHeroEnd" Color="#46354B"/>
+        <SolidColorBrush x:Key="GameCardAccent" Color="#6CACFF"/>
+        <SolidColorBrush x:Key="LogoSurface" Color="#102C4B"/>
+        <SolidColorBrush x:Key="LogoAccent" Color="#58CBFF"/>
         <SolidColorBrush x:Key="HeroStart" Color="#112E4B"/>
         <SolidColorBrush x:Key="HeroMiddle" Color="#132239"/>
         <SolidColorBrush x:Key="HeroEnd" Color="#5E4936"/>
@@ -26,6 +37,7 @@
         <Style x:Key="PanelStyle" TargetType="Border"><Setter Property="Background" Value="{DynamicResource Panel}"/><Setter Property="BorderBrush" Value="{DynamicResource Border}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="14"/></Style>
         <Style x:Key="ButtonStyle" TargetType="Button"><Setter Property="Height" Value="40"/><Setter Property="Padding" Value="16,0"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="Background" Value="{DynamicResource ButtonBackground}"/><Setter Property="BorderBrush" Value="{DynamicResource Border}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="root" CornerRadius="8" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"><ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="root" Property="Background" Value="{DynamicResource ButtonHover}"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter TargetName="root" Property="Opacity" Value=".78"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="root" Property="Opacity" Value="0.45"/><Setter Property="Cursor" Value="Arrow"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
         <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource ButtonStyle}"><Setter Property="Background" Value="{DynamicResource PrimaryBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource PrimaryBorder}"/><Setter Property="Foreground" Value="White"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource ButtonStyle}"><Setter Property="Background" Value="{DynamicResource DangerSurface}"/><Setter Property="BorderBrush" Value="{DynamicResource Danger}"/><Setter Property="Foreground" Value="{DynamicResource Danger}"/></Style>
         <Style x:Key="StatusBadge" TargetType="Border"><Setter Property="Padding" Value="8,3"/><Setter Property="CornerRadius" Value="8"/><Setter Property="Background" Value="{DynamicResource ItemBackground}"/><Setter Property="BorderBrush" Value="{DynamicResource Border}"/><Setter Property="BorderThickness" Value="1"/></Style><Style x:Key="Nav" TargetType="Button" BasedOn="{StaticResource ButtonStyle}"><Setter Property="Height" Value="48"/><Setter Property="Margin" Value="0,4"/><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/></Style>
         <Style x:Key="LinkButton" TargetType="Button"><Setter Property="Padding" Value="4"/><Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border Background="Transparent" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="TextBlock.TextDecorations" Value="Underline"/><Setter Property="Foreground" Value="{DynamicResource PrimaryBorder}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
         <!-- 游戏卡片仅改变边框与轻微透明度，避免默认按钮悬停填充色破坏封面。 -->

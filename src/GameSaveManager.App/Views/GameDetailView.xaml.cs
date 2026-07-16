@@ -8,6 +8,15 @@ public partial class GameDetailView : UserControl
 {
     public GameDetailView() => InitializeComponent();
 
+    private void OpenSaveConfigurationButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainViewModel viewModel) return;
+        new SaveConfigurationDialog(viewModel.SaveConfiguration)
+        {
+            Owner = Window.GetWindow(this)
+        }.ShowDialog();
+    }
+
     private async void ChooseLaunchExecutableButton_OnClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not MainViewModel viewModel || viewModel.SelectedGame is null) return;

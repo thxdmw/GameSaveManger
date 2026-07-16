@@ -15,31 +15,31 @@
     <Button Grid.Column="2" Style="{StaticResource ButtonStyle}" Click="ChooseSaveDirectoryButton_OnClick" Content="选择目录"/>
     <Button Grid.Column="4" Style="{StaticResource ButtonStyle}" Command="{Binding SuggestSaveDirectoriesCommand}" Content="查找常见目录"/>
 </Grid>
-<ListBox Margin="0,10,0,0" MinHeight="122" MaxHeight="300" Padding="6" Background="#0A1422" BorderBrush="#294667" BorderThickness="1" Foreground="#DCEBFF" ItemsSource="{Binding SaveLocationCandidates}" SelectedItem="{Binding SelectedSaveLocationCandidate}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+<ListBox Margin="0,10,0,0" MinHeight="122" MaxHeight="300" Padding="6" Background="{DynamicResource InputBackground}" BorderBrush="{DynamicResource Border}" BorderThickness="1" Foreground="{DynamicResource Text}" ItemsSource="{Binding SaveLocationCandidates}" SelectedItem="{Binding SelectedSaveLocationCandidate}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
     <ListBox.ItemContainerStyle>
         <Style TargetType="ListBoxItem">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#DCEBFF"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="0,0,0,6"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Style.Triggers>
-                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#1F4E88"/></Trigger>
-                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#163454"/></Trigger>
+                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{DynamicResource NavActive}"/></Trigger>
+                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{DynamicResource ButtonHover}"/></Trigger>
             </Style.Triggers>
         </Style>
     </ListBox.ItemContainerStyle>
     <ListBox.ItemTemplate>
         <DataTemplate>
-            <Border Padding="10" Background="Transparent" BorderBrush="#203A58" BorderThickness="1" CornerRadius="6">
+            <Border Padding="10" Background="Transparent" BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="6">
                 <StackPanel>
-                    <TextBlock Foreground="#F1F7FF" FontWeight="SemiBold" Text="{Binding Path}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/>
+                    <TextBlock Foreground="{DynamicResource Text}" FontWeight="SemiBold" Text="{Binding Path}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/>
                     <StackPanel Margin="0,5,0,0" Orientation="Horizontal">
-                        <TextBlock Foreground="#8FB1D8" FontSize="12" Text="可信度："/><TextBlock Foreground="#7FCEFF" FontSize="12" Text="{Binding Confidence}"/><TextBlock Foreground="#8FB1D8" FontSize="12" Text="%"/>
-                        <TextBlock Margin="14,0,0,0" Foreground="#8FB1D8" FontSize="12" Text="来源："/><TextBlock Foreground="#C9DDF5" FontSize="12" Text="{Binding Source}"/>
-                        <TextBlock Margin="14,0,0,0" Foreground="#8FB1D8" FontSize="12" Text="文件："/><TextBlock Foreground="#C9DDF5" FontSize="12" Text="{Binding FileCount}"/>
+                        <TextBlock Foreground="{DynamicResource Muted}" FontSize="12" Text="可信度："/><TextBlock Foreground="{DynamicResource GameCardAccent}" FontSize="12" Text="{Binding Confidence}"/><TextBlock Foreground="{DynamicResource Muted}" FontSize="12" Text="%"/>
+                        <TextBlock Margin="14,0,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="来源："/><TextBlock Foreground="{DynamicResource Text}" FontSize="12" Text="{Binding Source}"/>
+                        <TextBlock Margin="14,0,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="文件："/><TextBlock Foreground="{DynamicResource Text}" FontSize="12" Text="{Binding FileCount}"/>
                     </StackPanel>
-                    <TextBlock Margin="0,4,0,0" Foreground="#AFC6E2" FontSize="12" Text="{Binding Reason}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Reason}"/>
+                    <TextBlock Margin="0,4,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="{Binding Reason}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Reason}"/>
                 </StackPanel>
             </Border>
         </DataTemplate>
@@ -49,10 +49,10 @@
 <TextBlock Margin="0,18,0,7" Foreground="{DynamicResource Muted}" Text="附加存档目录（可选）"/>
 <TextBlock Margin="0,0,0,8" Foreground="{DynamicResource Muted}" FontSize="12" Text="适用于存档分散在多个目录的游戏；路径会分别标记，恢复时将回到各自原目录。" TextWrapping="Wrap"/>
 <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="110"/></Grid.ColumnDefinitions><TextBox Style="{StaticResource Input}" Text="{Binding AdditionalSaveRootPath, UpdateSourceTrigger=PropertyChanged}" ToolTip="附加存档目录"/><Button Grid.Column="2" Style="{StaticResource ButtonStyle}" Command="{Binding AddAdditionalSaveRootCommand}" Content="添加目录"/></Grid>
-<ListBox Margin="0,10,0,0" MaxHeight="116" Background="#0A1422" BorderBrush="#294667" BorderThickness="1" Foreground="#DCEBFF" ItemsSource="{Binding AdditionalSaveRoots}" SelectedItem="{Binding SelectedAdditionalSaveRoot}"><ListBox.ItemTemplate><DataTemplate><DockPanel Margin="8,5"><Button DockPanel.Dock="Right" Style="{StaticResource ButtonStyle}" Command="{Binding DataContext.RemoveAdditionalSaveRootCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Content="移除"/><TextBlock VerticalAlignment="Center" Foreground="#DCEBFF" Text="{Binding Path}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/></DockPanel></DataTemplate></ListBox.ItemTemplate></ListBox><TextBlock Margin="0,18,0,7" Foreground="{DynamicResource Muted}" Text="注册表存档（可选，仅 HKCU）"/>
+<ListBox Margin="0,10,0,0" MaxHeight="116" Background="{DynamicResource InputBackground}" BorderBrush="{DynamicResource Border}" BorderThickness="1" Foreground="{DynamicResource Text}" ItemsSource="{Binding AdditionalSaveRoots}" SelectedItem="{Binding SelectedAdditionalSaveRoot}"><ListBox.ItemTemplate><DataTemplate><DockPanel Margin="8,5"><Button DockPanel.Dock="Right" Style="{StaticResource ButtonStyle}" Command="{Binding DataContext.RemoveAdditionalSaveRootCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Content="移除"/><TextBlock VerticalAlignment="Center" Foreground="{DynamicResource Text}" Text="{Binding Path}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/></DockPanel></DataTemplate></ListBox.ItemTemplate></ListBox><TextBlock Margin="0,18,0,7" Foreground="{DynamicResource Muted}" Text="注册表存档（可选，仅 HKCU）"/>
 <TextBlock Margin="0,0,0,8" Foreground="{DynamicResource Muted}" FontSize="12" Text="会将明确配置的当前用户注册表键导出为 JSON；恢复前自动保留本机注册表安全备份。" TextWrapping="Wrap"/>
 <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="110"/></Grid.ColumnDefinitions><TextBox Style="{StaticResource Input}" Text="{Binding RegistrySaveKeyPath, UpdateSourceTrigger=PropertyChanged}" ToolTip="例如 HKCU\Software\厂商\游戏"/><Button Grid.Column="2" Style="{StaticResource ButtonStyle}" Command="{Binding AddRegistrySaveRuleCommand}" Content="添加注册表"/></Grid>
-<ListBox Margin="0,10,0,0" MaxHeight="116" Background="#0A1422" BorderBrush="#294667" BorderThickness="1" Foreground="#DCEBFF" ItemsSource="{Binding RegistrySaveRules}" SelectedItem="{Binding SelectedRegistrySaveRule}"><ListBox.ItemTemplate><DataTemplate><DockPanel Margin="8,5"><Button DockPanel.Dock="Right" Style="{StaticResource ButtonStyle}" Command="{Binding DataContext.RemoveRegistrySaveRuleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Content="移除"/><TextBlock VerticalAlignment="Center" Foreground="#DCEBFF" Text="{Binding KeyPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding KeyPath}"/></DockPanel></DataTemplate></ListBox.ItemTemplate></ListBox>
+<ListBox Margin="0,10,0,0" MaxHeight="116" Background="{DynamicResource InputBackground}" BorderBrush="{DynamicResource Border}" BorderThickness="1" Foreground="{DynamicResource Text}" ItemsSource="{Binding RegistrySaveRules}" SelectedItem="{Binding SelectedRegistrySaveRule}"><ListBox.ItemTemplate><DataTemplate><DockPanel Margin="8,5"><Button DockPanel.Dock="Right" Style="{StaticResource ButtonStyle}" Command="{Binding DataContext.RemoveRegistrySaveRuleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Content="移除"/><TextBlock VerticalAlignment="Center" Foreground="{DynamicResource Text}" Text="{Binding KeyPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding KeyPath}"/></DockPanel></DataTemplate></ListBox.ItemTemplate></ListBox>
 <StackPanel Margin="0,10,0,0" Orientation="Horizontal"><Button Style="{StaticResource ButtonStyle}" Command="{Binding StartSaveLearningCommand}" Content="启动游戏并学习"/><Button Margin="10,0,0,0" Style="{StaticResource ButtonStyle}" Command="{Binding CompleteSaveLearningCommand}" Content="完成学习"/><Button Margin="10,0,0,0" Style="{StaticResource ButtonStyle}" Command="{Binding CancelSaveLearningCommand}" Content="取消学习"/></StackPanel>
 <StackPanel Margin="0,18,0,0" Orientation="Horizontal">
                         <Button Style="{StaticResource ButtonStyle}" Margin="0,0,10,0" Command="{Binding LoadLocalProfileCommand}" Content="加载本机配置"/>

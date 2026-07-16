@@ -118,9 +118,23 @@ public partial class MainWindow : Window
 
     private void MainWindow_OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (_subscribedViewModel is not null) _subscribedViewModel.PasswordClearRequested -= ViewModel_OnPasswordClearRequested;
+        if (_subscribedViewModel is not null)
+        {
+            _subscribedViewModel.PasswordClearRequested -= ViewModel_OnPasswordClearRequested;
+            _subscribedViewModel.SyncConflictDetected -= ViewModel_OnSyncConflictDetected;
+        }
         _subscribedViewModel = e.NewValue as MainViewModel;
-        if (_subscribedViewModel is not null) _subscribedViewModel.PasswordClearRequested += ViewModel_OnPasswordClearRequested;
+        if (_subscribedViewModel is not null)
+        {
+            _subscribedViewModel.PasswordClearRequested += ViewModel_OnPasswordClearRequested;
+            _subscribedViewModel.SyncConflictDetected += ViewModel_OnSyncConflictDetected;
+        }
+    }
+
+    private void ViewModel_OnSyncConflictDetected(object? sender, EventArgs e)
+    {
+        if (sender is MainViewModel viewModel)
+            new Views.ConflictResolutionDialog(viewModel) { Owner = this }.ShowDialog();
     }
 
     private void PasswordBox_OnPasswordChanged(object sender, RoutedEventArgs e)
