@@ -85,6 +85,16 @@ internal static class AddGameWizardValidationVerification
             ExpectThrows<InvalidOperationException>(() => SaveRootTopologyValidator.Validate([
                 SaveRootRule.CreateDefault(driveRoot, SaveLocationSource.Manual, 100, false)
             ]));
+            foreach (DriveInfo drive in DriveInfo.GetDrives().Where(item => item.IsReady))
+            {
+                ExpectThrows<InvalidOperationException>(() => SaveRootTopologyValidator.Validate([
+                    SaveRootRule.CreateDefault(drive.RootDirectory.FullName,
+                        SaveLocationSource.Manual, 100, false)
+                ]));
+            }
+            ExpectThrows<InvalidOperationException>(() => SaveRootTopologyValidator.Validate([
+                SaveRootRule.CreateDefault(@"\\server\share\", SaveLocationSource.Manual, 100, false)
+            ]));
 
             string overflow = Path.Combine(root, "overflow");
             Directory.CreateDirectory(overflow);
@@ -94,6 +104,35 @@ internal static class AddGameWizardValidationVerification
                 SaveRootRule.CreateDefault(overflow, SaveLocationSource.Manual, 100, false),
                 CancellationToken.None);
             Ensure(capped.Count == 5001, "目录扫描达到协议上限加一后必须提前终止。");
+
+            SaveDirectoryScanResult excludedBudget = await new SaveDirectoryScanner().ScanWithBudgetAsync(
+                new SaveRootRule("excluded", overflow, ["**/*.never"], [],
+                    SaveLocationSource.Manual, 100, false),
+                new SaveDirectoryScanBudget(100, 10, 100, TimeSpan.FromSeconds(10)),
+                CancellationToken.None);
+            Ensure(excludedBudget.WasTruncated && excludedBudget.Files.Count == 0
+                && excludedBudget.VisitedFileCount == 10,
+                "大量被排除文件也必须受独立访问文件预算限制。");
+
+            MainViewModel failingViewModel = SmokeViewModelFactory.Create(new FailingProfileStore());
+            failingViewModel.SelectedGame = new GameSaveManager.Application.Api.CloudGame(
+                "persist-failure", "持久化失败验证", "CUSTOM", null);
+            failingViewModel.SaveDirectory = primary;
+            await InvokePrivateAsync(failingViewModel, "PreviewSaveDirectoryAsync");
+            await InvokePrivateAsync(failingViewModel, "ConfirmSaveDirectoryAsync");
+            Ensure(!failingViewModel.IsSaveDirectoryConfirmed,
+                "本地 Profile 持久化失败后 UI 不得提前显示已确认。");
+
+            var recordingStore = new RecordingProfileStore();
+            MainViewModel manualOnlyViewModel = SmokeViewModelFactory.Create(recordingStore);
+            manualOnlyViewModel.SelectedGame = new GameSaveManager.Application.Api.CloudGame(
+                "manual-only", "仅手动备份验证", "CUSTOM", null);
+            manualOnlyViewModel.SaveDirectory = primary;
+            await InvokePrivateAsync(manualOnlyViewModel, "PreviewSaveDirectoryAsync");
+            await InvokePrivateAsync(manualOnlyViewModel, "ConfirmSaveDirectoryAsync");
+            Ensure(manualOnlyViewModel.IsSaveDirectoryConfirmed
+                && recordingStore.SavedProfile is { EffectiveLaunchProfile: null, AutoSnapshotEnabled: false },
+                "旧云端游戏应允许只保存手动备份目录，并保持启动与自动备份禁用。");
         }
         finally
         {
@@ -127,5 +166,42 @@ internal static class AddGameWizardValidationVerification
         try { action(); }
         catch (TException) { return; }
         throw new InvalidOperationException($"预期抛出 {typeof(TException).Name}。");
+    }
+
+    private sealed class FailingProfileStore : ILocalGameProfileStore
+    {
+        public Task<LocalGameProfile?> GetAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
+            Task.FromResult<LocalGameProfile?>(null);
+
+        public Task SaveAsync(LocalGameProfile profile, CancellationToken cancellationToken) =>
+            Task.FromException(new IOException("模拟 SQLite 持久化失败。"));
+
+        public Task<IReadOnlyList<LocalGameProfile>> ListAsync(
+            string serverKey, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LocalGameProfile>>([]);
+
+        public Task DeleteAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+    }
+
+    private sealed class RecordingProfileStore : ILocalGameProfileStore
+    {
+        public LocalGameProfile? SavedProfile { get; private set; }
+
+        public Task<LocalGameProfile?> GetAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
+            Task.FromResult<LocalGameProfile?>(null);
+
+        public Task SaveAsync(LocalGameProfile profile, CancellationToken cancellationToken)
+        {
+            SavedProfile = profile;
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<LocalGameProfile>> ListAsync(
+            string serverKey, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LocalGameProfile>>([]);
+
+        public Task DeleteAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
     }
 }

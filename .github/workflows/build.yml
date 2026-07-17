@@ -75,6 +75,9 @@ jobs:
           foreach ($package in @('.\publish\framework-dependent', '.\publish\self-contained-win-x64')) {
             if (-not (Test-Path "$package\Assets\ludusavi-manifest.yaml")) { throw "$package 缺少 Ludusavi Manifest" }
             if (-not (Test-Path "$package\Assets\NOTICE-Ludusavi-manifest.txt")) { throw "$package 缺少 Ludusavi NOTICE" }
+            $executable = Resolve-Path "$package\GameSaveManager.exe"
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $executable).Hash.ToLowerInvariant()
+            "$hash  GameSaveManager.exe" | Set-Content -Encoding ascii "$package\SHA256SUMS.txt"
           }
 
       - name: 上传 .NET 构建日志

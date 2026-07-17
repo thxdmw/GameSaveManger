@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using System.Diagnostics;
 using System.Text.Json;
 using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Restores;
@@ -12,12 +13,13 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public Task<IReadOnlyList<RegistrySavePreview>> PreviewAsync(
+    public async Task<IReadOnlyList<RegistrySavePreview>> PreviewAsync(
         IReadOnlyList<RegistrySaveRule> rules,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<RegistrySavePreview> previews = rules.Select(rule => PreviewRule(rule, cancellationToken)).ToArray();
-        return Task.FromResult(previews);
+        return await Task.Run<IReadOnlyList<RegistrySavePreview>>(
+            () => rules.Select(rule => PreviewRule(rule, cancellationToken)).ToArray(),
+            cancellationToken);
     }
 
     public async Task ExportAsync(string directory, IReadOnlyList<RegistrySaveRule> rules, CancellationToken cancellationToken)
@@ -158,7 +160,7 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException
             or System.Security.SecurityException or IOException or InvalidOperationException
-            or ArgumentException or OverflowException)
+            or ArgumentException or OverflowException or TimeoutException)
         {
             return new RegistrySavePreview(rule, true, false, 0, 0, [], $"注册表预览失败：{exception.Message}");
         }
@@ -166,31 +168,9 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
 
     private static RegistryPreviewMetrics InspectNode(RegistryKey key, CancellationToken cancellationToken)
     {
-        int valueCount = 0;
-        long estimatedSize = 0;
-        var unsupportedKinds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string name in key.GetValueNames())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            RegistryValueKind kind = key.GetValueKind(name);
-            object? value = key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-            valueCount++;
-            estimatedSize = checked(estimatedSize + EstimateValueSize(name, value));
-            if (kind is not (RegistryValueKind.String or RegistryValueKind.ExpandString or RegistryValueKind.Binary
-                or RegistryValueKind.DWord or RegistryValueKind.QWord or RegistryValueKind.MultiString))
-                unsupportedKinds.Add(kind.ToString());
-        }
-        foreach (string childName in key.GetSubKeyNames())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            using RegistryKey? child = key.OpenSubKey(childName, writable: false);
-            if (child is null) throw new UnauthorizedAccessException($"无法读取注册表子键：{childName}");
-            RegistryPreviewMetrics childMetrics = InspectNode(child, cancellationToken);
-            valueCount = checked(valueCount + childMetrics.ValueCount);
-            estimatedSize = checked(estimatedSize + childMetrics.EstimatedSize + childName.Length * 2L);
-            unsupportedKinds.UnionWith(childMetrics.UnsupportedKinds);
-        }
-        return new RegistryPreviewMetrics(valueCount, estimatedSize, unsupportedKinds);
+        var inspection = new RegistryPreviewInspection();
+        inspection.Visit(key, depth: 0, cancellationToken);
+        return inspection.ToMetrics();
     }
 
     private static long EstimateValueSize(string name, object? value) => name.Length * 2L + (value switch
@@ -223,4 +203,60 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
     private sealed record RegistryChild(string Name, RegistryNode Node);
     private sealed record RegistryValueEntry(string Name, string Kind, JsonElement Value);
     private sealed record RegistryPreviewMetrics(int ValueCount, long EstimatedSize, HashSet<string> UnsupportedKinds);
+
+    private sealed class RegistryPreviewInspection
+    {
+        private const int MaximumDepth = 32;
+        private const int MaximumValues = 10_000;
+        private const int MaximumSubKeys = 10_000;
+        private const long MaximumEstimatedBytes = 64L * 1024 * 1024;
+        private static readonly TimeSpan MaximumDuration = TimeSpan.FromSeconds(30);
+        private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
+        private readonly HashSet<string> _unsupportedKinds = new(StringComparer.OrdinalIgnoreCase);
+        private int _valueCount;
+        private int _subKeyCount;
+        private long _estimatedSize;
+
+        public void Visit(RegistryKey key, int depth, CancellationToken cancellationToken)
+        {
+            CheckBudget(depth, cancellationToken);
+            foreach (string name in key.GetValueNames())
+            {
+                CheckBudget(depth, cancellationToken);
+                if (++_valueCount > MaximumValues)
+                    throw new InvalidOperationException($"注册表值超过 {MaximumValues} 个，禁止作为存档规则。");
+                RegistryValueKind kind = key.GetValueKind(name);
+                object? value = key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                _estimatedSize = checked(_estimatedSize + EstimateValueSize(name, value));
+                if (_estimatedSize > MaximumEstimatedBytes)
+                    throw new InvalidOperationException("注册表预计导出大小超过 64 MB，禁止作为存档规则。");
+                if (kind is not (RegistryValueKind.String or RegistryValueKind.ExpandString
+                    or RegistryValueKind.Binary or RegistryValueKind.DWord or RegistryValueKind.QWord
+                    or RegistryValueKind.MultiString))
+                    _unsupportedKinds.Add(kind.ToString());
+            }
+            foreach (string childName in key.GetSubKeyNames())
+            {
+                CheckBudget(depth, cancellationToken);
+                if (++_subKeyCount > MaximumSubKeys)
+                    throw new InvalidOperationException($"注册表子键超过 {MaximumSubKeys} 个，禁止作为存档规则。");
+                _estimatedSize = checked(_estimatedSize + childName.Length * 2L);
+                using RegistryKey? child = key.OpenSubKey(childName, writable: false);
+                if (child is null) throw new UnauthorizedAccessException($"无法读取注册表子键：{childName}");
+                Visit(child, depth + 1, cancellationToken);
+            }
+        }
+
+        public RegistryPreviewMetrics ToMetrics() =>
+            new(_valueCount, _estimatedSize, _unsupportedKinds);
+
+        private void CheckBudget(int depth, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (depth > MaximumDepth)
+                throw new InvalidOperationException($"注册表层级超过 {MaximumDepth} 层，禁止作为存档规则。");
+            if (_stopwatch.Elapsed > MaximumDuration)
+                throw new TimeoutException("注册表预览超过 30 秒，已停止扫描。");
+        }
+    }
 }

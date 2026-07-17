@@ -29,6 +29,25 @@ internal static class GameLaunchSafetyVerification
         Ensure(result.DetectedProcesses.Count == 0,
             "与目标名称和游戏目录均无关的进程不能作为游戏候选。");
         Ensure(result.Warning is not null, "只有无关进程时不能报告游戏启动成功。");
+
+        string shortcutDirectory = Path.Combine(Path.GetTempPath(), "GameSaveManager.Shortcut", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(shortcutDirectory);
+        string shortcut = Path.Combine(shortcutDirectory, "game.lnk");
+        await File.WriteAllBytesAsync(shortcut, [0]);
+        try
+        {
+            var shortcutProfile = new GameLaunchProfile(
+                GameLaunchTargetType.Shortcut, shortcut, "--user-extra", shortcutDirectory,
+                false, ["game"], "--inside-shortcut");
+            System.Diagnostics.ProcessStartInfo startInfo =
+                WindowsGameLaunchStartInfoFactory.Create(shortcutProfile);
+            Ensure(startInfo.Arguments == "--user-extra",
+                "启动 .lnk 时只能传递用户额外参数，不能重复快捷方式内部参数。");
+        }
+        finally
+        {
+            try { Directory.Delete(shortcutDirectory, recursive: true); } catch (IOException) { }
+        }
     }
 
     private static void Ensure(bool condition, string message)

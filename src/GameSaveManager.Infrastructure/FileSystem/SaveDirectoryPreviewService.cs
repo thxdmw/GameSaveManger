@@ -15,7 +15,9 @@ public sealed class SaveDirectoryPreviewService(ISaveDirectoryScanner scanner) :
         int maximumFiles,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<ScannedSaveFile> files = await scanner.ScanAsync(rule, maximumFiles, cancellationToken);
+        SaveDirectoryScanResult scan = await scanner.ScanWithBudgetAsync(
+            rule, SaveDirectoryScanBudget.CreateDefault(maximumFiles), cancellationToken);
+        IReadOnlyList<ScannedSaveFile> files = scan.Files;
         long total = files.Sum(file => file.Size);
         DateTime? latest = files.Count == 0 ? null : files.Max(file => file.LastWriteTimeUtc);
         string[] recent = files.OrderByDescending(file => file.LastWriteTimeUtc).Take(5).Select(file => file.RelativePath).ToArray();
@@ -24,9 +26,13 @@ public sealed class SaveDirectoryPreviewService(ISaveDirectoryScanner scanner) :
         if (files.Count == 0) warnings.Add("目录为空，确认后同步不会上传任何文件。");
         if (files.Count > GameSaveProtocolLimits.MaximumManifestFiles)
             warnings.Add(GameSaveProtocolLimits.ManifestFileLimitMessage);
+        if (scan.WasTruncated)
+            warnings.Add(scan.TruncationReason ?? "扫描达到安全预算，当前数字表示至少已发现的数量。");
         if (total >= 5L * 1024 * 1024 * 1024) warnings.Add("目录超过 5 GB，请确认没有包含无关内容。");
         else if (total >= 1024L * 1024 * 1024) warnings.Add("目录超过 1 GB，请确认没有包含无关内容。");
-        return new SaveDirectoryPreview(files.Count, total, latest, recent, largest, warnings, rule.IncludePatterns, rule.ExcludePatterns);
+        return new SaveDirectoryPreview(files.Count, total, latest, recent, largest, warnings,
+            rule.IncludePatterns, rule.ExcludePatterns, scan.WasTruncated,
+            scan.VisitedFileCount, scan.VisitedDirectoryCount);
     }
 
     public async Task<SaveProfilePreview> PreviewProfileAsync(
@@ -47,7 +53,8 @@ public sealed class SaveDirectoryPreviewService(ISaveDirectoryScanner scanner) :
                 GameSaveProtocolLimits.MaximumManifestFiles + 1 - totalFiles);
             SaveDirectoryPreview preview = await PreviewAsync(rule, remainingUntilOverflow, cancellationToken);
             previews.Add(new SaveRootPreview(rule, preview.FileCount, preview.TotalSize,
-                preview.LatestWriteTimeUtc, preview.Warnings));
+                preview.LatestWriteTimeUtc, preview.Warnings, preview.WasTruncated,
+                preview.VisitedFileCount, preview.VisitedDirectoryCount));
             totalFiles = checked(totalFiles + preview.FileCount);
             totalSize = checked(totalSize + preview.TotalSize);
             if (preview.LatestWriteTimeUtc is { } rootLatest

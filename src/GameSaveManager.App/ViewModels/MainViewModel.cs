@@ -993,15 +993,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
         await _registrySaveSnapshotService.ExportAsync(GetRegistryCacheDirectory(server, gameId), effectiveRules, CancellationToken.None);
     }
 
-    private IReadOnlyList<SaveRootRule> GetConfiguredSaveRoots(Uri server, string gameId)
+    private IReadOnlyList<SaveRootRule> GetConfiguredSaveRoots(Uri server, string gameId) =>
+        BuildConfiguredSaveRoots(server, gameId, IsSaveDirectoryConfirmed,
+            AdditionalSaveRoots.ToArray(), RegistrySaveRules.ToArray());
+
+    private IReadOnlyList<SaveRootRule> BuildConfiguredSaveRoots(
+        Uri server,
+        string gameId,
+        bool userConfirmed,
+        IReadOnlyList<SaveRootRule> additionalRoots,
+        IReadOnlyList<RegistrySaveRule> registryRules)
     {
         if (string.IsNullOrWhiteSpace(SaveDirectory)) return [];
         SaveLocationSource source = SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual;
-        int confidence = SelectedSaveLocationCandidate?.Confidence ?? (IsSaveDirectoryConfirmed ? 100 : 0);
-        var roots = new List<SaveRootRule> { SaveRootRule.CreateDefault(SaveDirectory, source, confidence, IsSaveDirectoryConfirmed) };
-        roots.AddRange(AdditionalSaveRoots);
+        int confidence = SelectedSaveLocationCandidate?.Confidence ?? (userConfirmed ? 100 : 0);
+        var roots = new List<SaveRootRule>
+        {
+            SaveRootRule.CreateDefault(SaveDirectory, source, confidence, userConfirmed)
+        };
+        roots.AddRange(additionalRoots);
         SaveRootTopologyValidator.Validate(roots);
-        if (RegistrySaveRules.Count > 0) roots.Add(new SaveRootRule("registry", GetRegistryCacheDirectory(server, gameId), ["*.json", "**/*.json"], [], SaveLocationSource.Manual, 100, true));
+        if (registryRules.Count > 0)
+            roots.Add(new SaveRootRule("registry", GetRegistryCacheDirectory(server, gameId),
+                ["*.json", "**/*.json"], [], SaveLocationSource.Manual, 100, true));
         return roots;
     }
 
@@ -1068,26 +1082,47 @@ public sealed class MainViewModel : INotifyPropertyChanged
         InvalidateSavePreview("包含/排除规则已变化，请重新预览完整配置并确认。");
         StatusText = "附加目录扫描规则已更新，重新预览前不会参与同步。";
     }
-    private async Task<LocalGameProfile> SaveLocalProfileAsync(Uri server, bool autoSnapshotEnabled)
+    private async Task<LocalGameProfile> SaveLocalProfileAsync(
+        Uri server,
+        bool autoSnapshotEnabled,
+        SaveProfileConfirmationDraft? confirmationDraft = null)
     {
         if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+        bool userConfirmed = confirmationDraft?.UserConfirmed ?? IsSaveDirectoryConfirmed;
+        IReadOnlyList<SaveRootRule> additionalRoots = confirmationDraft?.AdditionalRoots
+            ?? AdditionalSaveRoots.ToArray();
+        IReadOnlyList<RegistrySaveRule> registryRules = confirmationDraft?.RegistryRules
+            ?? RegistrySaveRules.ToArray();
         GameIdentity identity = GetCurrentGameIdentity();
         _localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? existingProfile);
         GameLaunchProfile? launchProfile = _isAddGameWizardActive
             ? BuildPendingLaunchProfile()
             : _gameLaunchProfileMerger.Merge(existingProfile?.EffectiveLaunchProfile, identity,
                 AutoSnapshotExecutablePath, AutoSnapshotProcessName);
-        string? validationError = ValidateLaunchProfile(launchProfile, requireResolvedShortcut: _isAddGameWizardActive);
-        if (validationError is not null) throw new InvalidOperationException(validationError);
-        await PrepareRegistrySnapshotsAsync(server, SelectedGame.GameId);
-        string? identityExecutablePath = identity.ExecutablePath;
+        bool requireResolvedShortcut = _isAddGameWizardActive;
+        if (launchProfile is { TargetType: GameLaunchTargetType.Shortcut })
+        {
+            ShortcutResolution latestResolution = await _shortcutResolver.ResolveAsync(
+                launchProfile.Target, CancellationToken.None);
+            _shortcutResolutions[launchProfile.Target] = latestResolution;
+            if (latestResolution.Resolved) _shortcutResolutionFailures.Remove(launchProfile.Target);
+            else _shortcutResolutionFailures[launchProfile.Target] =
+                latestResolution.FailureReason ?? "快捷方式解析失败。";
+            requireResolvedShortcut = true;
+        }
+        string? validationError = ValidateLaunchProfile(launchProfile, requireResolvedShortcut);
+        bool launchRequired = _isAddGameWizardActive || autoSnapshotEnabled;
+        if (validationError is not null && launchRequired) throw new InvalidOperationException(validationError);
+        if (validationError is not null) launchProfile = null;
+        await PrepareRegistrySnapshotsAsync(server, SelectedGame.GameId, registryRules);
+        string? identityExecutablePath = launchProfile is null ? null : identity.ExecutablePath;
         if (launchProfile is { TargetType: GameLaunchTargetType.Shortcut }
             && _shortcutResolutions.TryGetValue(launchProfile.Target, out ShortcutResolution? shortcut)
             && shortcut.Resolved)
         {
             launchProfile = launchProfile with
             {
-                Arguments = string.IsNullOrWhiteSpace(launchProfile.Arguments) ? shortcut.Arguments : launchProfile.Arguments,
+                ShortcutArguments = shortcut.Arguments,
                 WorkingDirectory = string.IsNullOrWhiteSpace(launchProfile.WorkingDirectory)
                     ? shortcut.WorkingDirectory
                     : launchProfile.WorkingDirectory,
@@ -1109,8 +1144,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             identity.Provider, identity.ProviderGameId, identity.InstallDirectory,
             SaveDirectory, AutoSnapshotProcessName, AutoSnapshotExecutablePath,
             SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual,
-            SelectedSaveLocationCandidate?.Confidence ?? (IsSaveDirectoryConfirmed ? 100 : 0),
-            IsSaveDirectoryConfirmed, autoSnapshotEnabled && IsSaveDirectoryConfirmed, GetConfiguredSaveRoots(server, SelectedGame.GameId), RegistrySaveRules.ToArray(), identityExecutablePath, launchProfile);
+            SelectedSaveLocationCandidate?.Confidence ?? (userConfirmed ? 100 : 0),
+            userConfirmed, autoSnapshotEnabled && userConfirmed && launchProfile is not null,
+            BuildConfiguredSaveRoots(server, SelectedGame.GameId, userConfirmed, additionalRoots, registryRules),
+            registryRules, identityExecutablePath, launchProfile);
         await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
         _localGameProfiles[profile.GameId] = profile;
         RefreshGameRuntimeStatus();
@@ -1176,6 +1213,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (_shortcutResolutionFailures.TryGetValue(profile.Target, out string? failure)) return failure;
             if (!_shortcutResolutions.TryGetValue(profile.Target, out ShortcutResolution? resolution) || !resolution.Resolved)
                 return "快捷方式尚未成功解析，请重新选择启动入口。";
+            if (string.IsNullOrWhiteSpace(resolution.TargetPath) || !File.Exists(resolution.TargetPath))
+                return "快捷方式指向的程序已经不存在，请重新选择启动入口。";
+            if (!string.IsNullOrWhiteSpace(resolution.WorkingDirectory)
+                && !Directory.Exists(resolution.WorkingDirectory))
+                return "快捷方式的工作目录已经不存在，请重新创建或选择快捷方式。";
         }
         return null;
     }
@@ -1362,6 +1404,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 return false;
             IReadOnlyList<SaveRootRule> roots = BuildPreviewSaveRoots();
             return roots.All(root => Directory.Exists(root.Path))
+                && SaveRootPreviews.Count == roots.Count
+                && SaveRootPreviews.All(preview => !preview.WasTruncated)
                 && RegistrySavePreviews.Count == RegistrySaveRules.Count
                 && RegistrySavePreviews.All(preview => preview.CanConfirm
                     && RegistrySaveRules.Any(rule => string.Equals(rule.RuleId, preview.Rule.RuleId, StringComparison.OrdinalIgnoreCase)
@@ -1411,7 +1455,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 .Select(item => $"{item.Rule.RuleId}：{item.Summary}"))
                 .ToArray();
             string warnings = allWarnings.Length == 0 ? string.Empty : " 警告：" + string.Join("；", allWarnings);
-            SaveDirectoryPreviewText = $"{preview.Roots.Count} 个目录，共 {preview.TotalFiles} 个文件、{FormatBytes(preview.TotalSize)}；最近修改：{preview.LatestWriteTimeUtc?.ToLocalTime():g}。" + warnings;
+            bool truncated = preview.Roots.Any(item => item.WasTruncated);
+            SaveDirectoryPreviewText = $"{preview.Roots.Count} 个目录，{(truncated ? "至少 " : "共 ")}{preview.TotalFiles} 个匹配文件、{FormatBytes(preview.TotalSize)}；最近修改：{preview.LatestWriteTimeUtc?.ToLocalTime():g}。" + warnings;
             StatusText = "完整存档配置预览完成；确认后所有目录和规则才允许同步。";
             AddGameWizard.RefreshValidation();
             RaiseCommandStates();
@@ -1428,14 +1473,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (!IsCurrentSavePreviewValid())
                 throw new InvalidOperationException("当前存档目录或扫描规则尚未完成预览，请先检查内容。");
-            for (int index = 0; index < AdditionalSaveRoots.Count; index++)
-                AdditionalSaveRoots[index] = AdditionalSaveRoots[index] with { UserConfirmed = true };
-            for (int index = 0; index < RegistrySaveRules.Count; index++)
-                RegistrySaveRules[index] = RegistrySaveRules[index] with { UserConfirmed = true };
+            SaveRootRule[] confirmedAdditionalRoots = AdditionalSaveRoots
+                .Select(root => root with { UserConfirmed = true }).ToArray();
+            RegistrySaveRule[] confirmedRegistryRules = RegistrySaveRules
+                .Select(rule => rule with { UserConfirmed = true }).ToArray();
+            var draft = new SaveProfileConfirmationDraft(
+                true, confirmedAdditionalRoots, confirmedRegistryRules);
+            if (SelectedGame is not null)
+                await SaveLocalProfileAsync(ParseServerUri(), IsAutoSyncEnabled, draft);
+            AdditionalSaveRoots.Clear();
+            foreach (SaveRootRule root in confirmedAdditionalRoots) AdditionalSaveRoots.Add(root);
+            RegistrySaveRules.Clear();
+            foreach (RegistrySaveRule rule in confirmedRegistryRules) RegistrySaveRules.Add(rule);
             IsSaveDirectoryConfirmed = true;
             StatusText = $"已确认完整存档配置：{SaveRootPreviews.Count} 个目录、{FileCount} 个文件，{LogicalSizeText}。现在可以同步。";
             AddGameWizard.RefreshValidation();
-            if (SelectedGame is not null) await SaveLocalProfileAsync(ParseServerUri(), false);
         }
         catch (Exception exception) { ShowError("确认存档目录失败", exception); }
     }
@@ -2329,6 +2381,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         string SaveDirectoryPreviewText,
         int FileCount,
         string LogicalSizeText);
+    private sealed record SaveProfileConfirmationDraft(
+        bool UserConfirmed,
+        IReadOnlyList<SaveRootRule> AdditionalRoots,
+        IReadOnlyList<RegistrySaveRule> RegistryRules);
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;

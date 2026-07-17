@@ -7,16 +7,21 @@ using System.Text;
 
 public sealed record SaveDirectoryPreview(int FileCount, long TotalSize, DateTime? LatestWriteTimeUtc,
     IReadOnlyList<string> RecentFiles, IReadOnlyList<string> LargestFiles, IReadOnlyList<string> Warnings,
-    IReadOnlyList<string> AppliedIncludes, IReadOnlyList<string> AppliedExcludes);
+    IReadOnlyList<string> AppliedIncludes, IReadOnlyList<string> AppliedExcludes,
+    bool WasTruncated = false, int VisitedFileCount = 0, int VisitedDirectoryCount = 0);
 
 public sealed record SaveRootPreview(
     SaveRootRule Rule,
     int FileCount,
     long TotalSize,
     DateTime? LatestWriteTimeUtc,
-    IReadOnlyList<string> Warnings)
+    IReadOnlyList<string> Warnings,
+    bool WasTruncated = false,
+    int VisitedFileCount = 0,
+    int VisitedDirectoryCount = 0)
 {
-    public string Summary => $"{FileCount} 个文件，{FormatBytes(TotalSize)}"
+    public string Summary => $"{(WasTruncated ? "至少 " : string.Empty)}{FileCount} 个匹配文件，{FormatBytes(TotalSize)}"
+        + $"；已访问 {VisitedFileCount} 个文件、{VisitedDirectoryCount} 个目录"
         + (Warnings.Count == 0 ? string.Empty : $"；{string.Join("；", Warnings)}");
 
     private static string FormatBytes(long bytes)
@@ -64,8 +69,7 @@ public static class SaveProfileFingerprint
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
     }
 
-    private static string NormalizePath(string path) => Path.GetFullPath(path)
-        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+    private static string NormalizePath(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path))
         .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
         .ToUpperInvariant();
 }

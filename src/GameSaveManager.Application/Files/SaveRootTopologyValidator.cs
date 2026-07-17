@@ -12,8 +12,8 @@ public static class SaveRootTopologyValidator
         var normalized = roots.Select(root => (Rule: root, Path: Normalize(root.Path))).ToArray();
         foreach ((SaveRootRule rule, string path) in normalized)
         {
-            if (!Directory.Exists(path)) throw new DirectoryNotFoundException($"存档目录不存在: {path}");
             ValidateProtectedDirectory(rule.RootId, path);
+            if (!Directory.Exists(path)) throw new DirectoryNotFoundException($"存档目录不存在: {path}");
         }
 
         for (int left = 0; left < normalized.Length; left++)
@@ -29,6 +29,8 @@ public static class SaveRootTopologyValidator
 
     private static void ValidateProtectedDirectory(string rootId, string path)
     {
+        if (Uri.TryCreate(path, UriKind.Absolute, out Uri? uri) && uri.IsUnc)
+            throw new InvalidOperationException($"{rootId} 不能选择网络 UNC 目录。");
         string? driveRoot = Path.GetPathRoot(path);
         if (!string.IsNullOrWhiteSpace(driveRoot) && Same(path, Normalize(driveRoot)))
             throw new InvalidOperationException($"{rootId} 不能选择磁盘根目录。");
@@ -63,6 +65,6 @@ public static class SaveRootTopologyValidator
         ancestor.EndsWith(Path.DirectorySeparatorChar) ? ancestor : ancestor + Path.DirectorySeparatorChar,
         StringComparison.OrdinalIgnoreCase);
 
-    private static string Normalize(string path) => Path.GetFullPath(path)
-        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    private static string Normalize(string path) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 }
