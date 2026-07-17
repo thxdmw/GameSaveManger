@@ -17,6 +17,7 @@ using GameSaveManager.Infrastructure.Monitoring;
 using GameSaveManager.Infrastructure.Launching;
 using GameSaveManager.Infrastructure.Persistence;
 using GameSaveManager.Infrastructure.Security;
+using GameSaveManager.Infrastructure.Updates;
 
 namespace GameSaveManager.Verification;
 
@@ -61,7 +62,11 @@ internal static class SmokeViewModelFactory
             new DisabledAutoStartService(),
             new TextFileServerAddressStore(Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", "smoke-server-address.txt")),
             new LudusaviManifestUpdateService(new HttpClient()),
-            registrySaveSnapshotService);
+            registrySaveSnapshotService,
+            new GitHubClientUpdateService(
+                new HttpClient(),
+                Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", "updates")),
+            new SqliteUpdatePreferenceStore(database));
     }
 
     private sealed class NullLogger : IAppLogger

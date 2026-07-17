@@ -68,6 +68,7 @@ Run("新增游戏来源切换不会复用上一款游戏配置", GameSaveManager
 await RunAsync("添加向导逐步门禁与多根聚合预览有效", GameSaveManager.Verification.AddGameWizardValidationVerification.VerifyStepGatesAndAggregatePreviewAsync);
 await RunAsync("注册表规则会在确认前执行真实可读性预览", GameSaveManager.Verification.RegistryPreviewVerification.VerifyRealRegistryPreviewAsync);
 Run("游戏详情同步摘要与进度按游戏隔离", GameSaveManager.Verification.GameDetailSyncStateVerification.VerifyPerGameSyncStateIsolation);
+await RunAsync("客户端更新会按通道选择版本并执行双重摘要校验", GameSaveManager.Verification.ClientUpdateVerification.VerifyAsync);
 Run("Desktop UI starts without WPF binding errors", GameSaveManager.Verification.WpfSmokeVerification.VerifyMainWindowLoadsWithoutBindingErrors);
 
 if (failures.Count > 0)

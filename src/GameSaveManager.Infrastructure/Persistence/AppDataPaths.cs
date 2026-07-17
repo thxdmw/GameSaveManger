@@ -11,6 +11,8 @@ public static class AppDataPaths
 
     public static string DatabasePath { get; } = Path.Combine(DataDirectory, "gamesave.db");
 
+    public static string UpdateDirectory { get; } = Path.Combine(RootDirectory, "updates");
+
     public static void EnsureCreated()
     {
         Directory.CreateDirectory(DataDirectory);

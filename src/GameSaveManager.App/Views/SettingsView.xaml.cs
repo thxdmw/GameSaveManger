@@ -21,4 +21,12 @@ public partial class SettingsView : System.Windows.Controls.UserControl
         bool enable = comboBox.SelectedIndex == 1;
         if (enable != viewModel.AutoStartEnabled && viewModel.ToggleAutoStartCommand.CanExecute(null)) viewModel.ToggleAutoStartCommand.Execute(null);
     }
+
+    private void UpdateCheckSelection_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not MainViewModel viewModel || sender is not ComboBox comboBox || comboBox.SelectedIndex < 0) return;
+        bool enable = comboBox.SelectedIndex == 1;
+        if (enable != viewModel.UpdateCheckOnStartup && viewModel.ToggleStartupUpdateCheckCommand.CanExecute(null))
+            viewModel.ToggleStartupUpdateCheckCommand.Execute(null);
+    }
 }

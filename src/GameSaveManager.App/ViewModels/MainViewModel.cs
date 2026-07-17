@@ -24,6 +24,7 @@ using GameSaveManager.Application.Settings;
 using GameSaveManager.Application.Snapshots;
 using GameSaveManager.Application.Sync;
 using GameSaveManager.Application.Startup;
+using GameSaveManager.Application.Updates;
 using GameSaveManager.Domain.Snapshots;
 
 namespace GameSaveManager.App.ViewModels;
@@ -55,6 +56,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IServerAddressStore _serverAddressStore;
     private readonly IManifestUpdateService _manifestUpdateService;
     private readonly IRegistrySaveSnapshotService _registrySaveSnapshotService;
+    private readonly IClientUpdateService _clientUpdateService;
+    private readonly IUpdatePreferenceStore _updatePreferenceStore;
     private readonly Dictionary<string, string> _shortcutResolutionFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ShortcutResolution> _shortcutResolutions = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _launchesInProgress = new(StringComparer.Ordinal);
@@ -108,6 +111,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private IReadOnlyList<FileMetadataSnapshot>? _learningBefore;
     private CancellationTokenSource? _learningCancellation;
     private CloudDevice? _selectedDevice;
+    private ClientUpdatePreferences _updatePreferences = ClientUpdatePreferences.Default;
+    private ClientUpdateRelease? _availableUpdate;
+    private PreparedClientUpdate? _preparedUpdate;
+    private CancellationTokenSource? _updateDownloadCancellation;
+    private string _updateStatusText = "尚未检查客户端更新。";
+    private bool _isUpdateBusy;
+    private bool _isUpdateDownloading;
+    private double _updateDownloadProgress;
 
     public MainViewModel(
         SaveManifestBuilder manifestBuilder,
@@ -131,7 +142,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IAutoStartService autoStartService,
         IServerAddressStore serverAddressStore,
         IManifestUpdateService manifestUpdateService,
-        IRegistrySaveSnapshotService registrySaveSnapshotService)
+        IRegistrySaveSnapshotService registrySaveSnapshotService,
+        IClientUpdateService clientUpdateService,
+        IUpdatePreferenceStore updatePreferenceStore)
     {
         _manifestBuilder = manifestBuilder;
         _saveDirectoryPreviewService = saveDirectoryPreviewService;
@@ -155,6 +168,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _serverAddressStore = serverAddressStore;
         _manifestUpdateService = manifestUpdateService;
         _registrySaveSnapshotService = registrySaveSnapshotService;
+        _clientUpdateService = clientUpdateService;
+        _updatePreferenceStore = updatePreferenceStore;
         _autoStartEnabled = autoStartService.IsEnabled();
         _runtimeStatusTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
         _runtimeStatusTimer.Tick += (_, _) => RefreshGameRuntimeStatus();
@@ -198,6 +213,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ToggleThemeCommand = new DelegateCommand(_ => ToggleTheme());
         ToggleAutoStartCommand = new AsyncCommand(ToggleAutoStartAsync);
         UpdateManifestCommand = new AsyncCommand(UpdateManifestAsync);
+        CheckForUpdateCommand = new AsyncCommand(() => CheckForUpdatesAsync(true), () => !IsUpdateBusy);
+        DownloadUpdateCommand = new AsyncCommand(DownloadUpdateAsync, () => CanDownloadUpdate);
+        CancelUpdateDownloadCommand = new DelegateCommand(_ => _updateDownloadCancellation?.Cancel(), _ => IsUpdateDownloading);
+        InstallUpdateCommand = new DelegateCommand(_ => UpdateInstallationRequested?.Invoke(this, EventArgs.Empty), _ => CanInstallUpdate);
+        ToggleStartupUpdateCheckCommand = new AsyncCommand(ToggleStartupUpdateCheckAsync, () => !IsUpdateBusy);
         AddAdditionalSaveRootCommand = new AsyncCommand(AddAdditionalSaveRootAsync);
         RemoveAdditionalSaveRootCommand = new AsyncCommand(RemoveAdditionalSaveRootAsync);
         AddRegistrySaveRuleCommand = new AsyncCommand(AddRegistrySaveRuleAsync);
@@ -235,6 +255,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool HasGames => Games.Count > 0;
     public string ClientVersionText { get; } = GetClientVersionText();
     public string ClientReleaseChannelText { get; } = GetClientReleaseChannelText();
+    public string UpdateStatusText { get => _updateStatusText; private set => SetField(ref _updateStatusText, value); }
+    public bool IsUpdateBusy { get => _isUpdateBusy; private set { if (SetField(ref _isUpdateBusy, value)) NotifyUpdateStateChanged(); } }
+    public bool IsUpdateDownloading { get => _isUpdateDownloading; private set { if (SetField(ref _isUpdateDownloading, value)) NotifyUpdateStateChanged(); } }
+    public double UpdateDownloadProgress { get => _updateDownloadProgress; private set => SetField(ref _updateDownloadProgress, value); }
+    public bool UpdateCheckOnStartup => _updatePreferences.CheckOnStartup;
+    public int UpdateCheckOnStartupSelectionIndex => UpdateCheckOnStartup ? 1 : 0;
+    public bool CanDownloadUpdate => _availableUpdate is not null && _preparedUpdate is null && !IsUpdateBusy;
+    public bool CanInstallUpdate => _preparedUpdate is not null && !IsUpdateBusy;
+    public bool HasAvailableUpdate => _availableUpdate is not null;
+    public bool HasPreparedUpdate => _preparedUpdate is not null;
     public bool IsSaveConfigurationPreviewValid => IsCurrentSavePreviewValid();
     public bool PendingLaunchTargetIsValid => GetPendingLaunchProfileValidationError() is null;
 
@@ -580,10 +610,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand AddRegistrySaveRuleCommand { get; }
     public ICommand RemoveRegistrySaveRuleCommand { get; }
     public ICommand UpdateManifestCommand { get; }
+    public ICommand CheckForUpdateCommand { get; }
+    public ICommand DownloadUpdateCommand { get; }
+    public ICommand CancelUpdateDownloadCommand { get; }
+    public ICommand InstallUpdateCommand { get; }
+    public ICommand ToggleStartupUpdateCheckCommand { get; }
 
     public event EventHandler? PasswordClearRequested;
     public event EventHandler? GameCreated;
     public event EventHandler? SyncConflictDetected;
+    public event EventHandler? UpdateInstallationRequested;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>密码仅暂存于内存，并由 PasswordBox 调用此方法传入。</summary>
@@ -593,6 +629,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>启动时尝试恢复已保存的设备会话；失效 Token 只清理凭据，不影响本机文件。</summary>
     public async Task InitializeAsync()
     {
+        await LoadUpdatePreferencesAsync();
+        _ = CheckForUpdatesOnStartupAsync();
         try
         {
             string? savedServerAddress = await _serverAddressStore.ReadAsync(CancellationToken.None);
@@ -658,6 +696,180 @@ public sealed class MainViewModel : INotifyPropertyChanged
         status.UpdatedAt is null
             ? $"规则版本：{status.Version}（使用内置离线规则）"
             : $"规则版本：{status.Version}，更新于 {status.UpdatedAt.Value.LocalDateTime:g}";
+
+    private async Task LoadUpdatePreferencesAsync()
+    {
+        try
+        {
+            _updatePreferences = await _updatePreferenceStore.LoadAsync(CancellationToken.None);
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UpdateCheckOnStartup)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UpdateCheckOnStartupSelectionIndex)));
+        }
+        catch (Exception exception)
+        {
+            _appLogger.Error("update.preferences.read_failed", exception, "读取更新检查偏好失败");
+            _updatePreferences = ClientUpdatePreferences.Default;
+            UpdateStatusText = "无法读取更新偏好，本次仍可手动检查。";
+        }
+    }
+
+    private async Task CheckForUpdatesOnStartupAsync()
+    {
+        if (!UpdateCheckOnStartup) return;
+        if (_updatePreferences.LastCheckedAtUtc is { } lastChecked
+            && DateTimeOffset.UtcNow - lastChecked < TimeSpan.FromHours(12))
+        {
+            if (SemanticVersion.TryParse(_updatePreferences.LastAvailableVersion, out SemanticVersion? known)
+                && known is not null
+                && known.CompareTo(SemanticVersion.Parse(ClientVersionText)) > 0)
+                UpdateStatusText = $"最近检查发现 {known}；点击“检查更新”刷新下载信息。";
+            else
+                UpdateStatusText = $"最近检查于 {lastChecked.LocalDateTime:g}，当前没有已知新版本。";
+            return;
+        }
+        await CheckForUpdatesAsync(false);
+    }
+
+    private async Task CheckForUpdatesAsync(bool manual)
+    {
+        if (IsUpdateBusy) return;
+        IsUpdateBusy = true;
+        UpdateDownloadProgress = 0;
+        UpdateStatusText = "正在通过 GitHub 检查客户端更新…";
+        try
+        {
+            bool includePrerelease = !string.Equals(ClientReleaseChannelText, "稳定", StringComparison.Ordinal);
+            ClientUpdateRelease? release = await _clientUpdateService.CheckForUpdateAsync(
+                ClientVersionText,
+                includePrerelease,
+                CancellationToken.None);
+            _availableUpdate = release;
+            _preparedUpdate = null;
+            DateTimeOffset checkedAt = DateTimeOffset.UtcNow;
+            _updatePreferences = _updatePreferences with
+            {
+                LastCheckedAtUtc = checkedAt,
+                LastAvailableVersion = release?.Version
+            };
+            string preferenceWarning = string.Empty;
+            try
+            {
+                await _updatePreferenceStore.SaveAsync(_updatePreferences, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                _appLogger.Error("update.preferences.write_failed", exception, "保存更新检查时间失败");
+                preferenceWarning = "（检查结果未能写入本地）";
+            }
+            UpdateStatusText = (release is null
+                ? $"当前已是最新版本；检查于 {checkedAt.LocalDateTime:g}。"
+                : $"发现新版本 {release.Version}（{FormatBytes(release.Installer.Size)}，{(release.Prerelease ? "预发布" : "稳定版")}）。")
+                + preferenceWarning;
+        }
+        catch (Exception exception)
+        {
+            _appLogger.Error("update.check.failed", exception, "检查客户端更新失败");
+            UpdateStatusText = manual
+                ? $"检查更新失败：{exception.Message}"
+                : "后台检查更新失败；不影响存档功能，可稍后手动重试。";
+        }
+        finally
+        {
+            IsUpdateBusy = false;
+            NotifyUpdateStateChanged();
+        }
+    }
+
+    private async Task DownloadUpdateAsync()
+    {
+        if (_availableUpdate is null || IsUpdateBusy) return;
+        _updateDownloadCancellation?.Dispose();
+        _updateDownloadCancellation = new CancellationTokenSource();
+        IsUpdateBusy = true;
+        IsUpdateDownloading = true;
+        UpdateDownloadProgress = 0;
+        UpdateStatusText = $"正在下载并校验 {_availableUpdate.Version}…";
+        var progress = new Progress<ClientUpdateDownloadProgress>(value =>
+        {
+            UpdateDownloadProgress = value.Percentage;
+            UpdateStatusText = $"正在下载 {_availableUpdate.Version}：{value.Percentage:0}%（{FormatBytes(value.BytesReceived)} / {FormatBytes(value.TotalBytes)}）";
+        });
+        try
+        {
+            _preparedUpdate = await _clientUpdateService.DownloadUpdateAsync(
+                _availableUpdate,
+                progress,
+                _updateDownloadCancellation.Token);
+            UpdateDownloadProgress = 100;
+            UpdateStatusText = $"版本 {_preparedUpdate.Release.Version} 已下载，SHA-256 校验通过；可以启动安装。";
+        }
+        catch (OperationCanceledException)
+        {
+            UpdateStatusText = "更新下载已取消，未保留未完成文件。";
+        }
+        catch (Exception exception)
+        {
+            _appLogger.Error("update.download.failed", exception, "下载客户端更新失败");
+            UpdateStatusText = $"下载更新失败：{exception.Message}";
+        }
+        finally
+        {
+            IsUpdateDownloading = false;
+            IsUpdateBusy = false;
+            _updateDownloadCancellation.Dispose();
+            _updateDownloadCancellation = null;
+            NotifyUpdateStateChanged();
+        }
+    }
+
+    private async Task ToggleStartupUpdateCheckAsync()
+    {
+        try
+        {
+            ClientUpdatePreferences updated = _updatePreferences with { CheckOnStartup = !UpdateCheckOnStartup };
+            await _updatePreferenceStore.SaveAsync(updated, CancellationToken.None);
+            _updatePreferences = updated;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UpdateCheckOnStartup)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UpdateCheckOnStartupSelectionIndex)));
+            UpdateStatusText = UpdateCheckOnStartup
+                ? "已启用启动后后台检查；最多每 12 小时访问一次 GitHub。"
+                : "已关闭启动后后台检查；仍可随时手动检查。";
+        }
+        catch (Exception exception)
+        {
+            _appLogger.Error("update.preferences.write_failed", exception, "保存更新检查偏好失败");
+            UpdateStatusText = $"保存更新偏好失败：{exception.Message}";
+        }
+    }
+
+    public bool TryLaunchPreparedUpdate()
+    {
+        if (_preparedUpdate is null) return false;
+        try
+        {
+            _clientUpdateService.LaunchInstaller(_preparedUpdate);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _appLogger.Error("update.install.launch_failed", exception, "启动更新安装器失败");
+            UpdateStatusText = $"无法启动更新安装器：{exception.Message}";
+            return false;
+        }
+    }
+
+    private void NotifyUpdateStateChanged()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanDownloadUpdate)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanInstallUpdate)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasAvailableUpdate)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasPreparedUpdate)));
+        foreach (ICommand command in new[] { CheckForUpdateCommand, DownloadUpdateCommand, CancelUpdateDownloadCommand, InstallUpdateCommand, ToggleStartupUpdateCheckCommand })
+        {
+            if (command is AsyncCommand asyncCommand) asyncCommand.RaiseCanExecuteChanged();
+            else if (command is DelegateCommand delegateCommand) delegateCommand.RaiseCanExecuteChanged();
+        }
+    }
     /// <summary>切换导航页面；每个页面复用同一份同步与本地配置状态。</summary>
     private void NavigateTo(object? page)
     {

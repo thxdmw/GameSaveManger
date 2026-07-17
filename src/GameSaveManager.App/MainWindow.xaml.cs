@@ -122,13 +122,31 @@ public partial class MainWindow : Window
         {
             _subscribedViewModel.PasswordClearRequested -= ViewModel_OnPasswordClearRequested;
             _subscribedViewModel.SyncConflictDetected -= ViewModel_OnSyncConflictDetected;
+            _subscribedViewModel.UpdateInstallationRequested -= ViewModel_OnUpdateInstallationRequested;
         }
         _subscribedViewModel = e.NewValue as MainViewModel;
         if (_subscribedViewModel is not null)
         {
             _subscribedViewModel.PasswordClearRequested += ViewModel_OnPasswordClearRequested;
             _subscribedViewModel.SyncConflictDetected += ViewModel_OnSyncConflictDetected;
+            _subscribedViewModel.UpdateInstallationRequested += ViewModel_OnUpdateInstallationRequested;
         }
+    }
+
+    private void ViewModel_OnUpdateInstallationRequested(object? sender, EventArgs e)
+    {
+        if (sender is not MainViewModel viewModel) return;
+        Views.ThemedDialogResult choice = Views.ThemedDialogWindow.ShowThemed(
+            this,
+            "安装客户端更新",
+            "更新安装包已经过 GitHub 资产摘要和 SHA256SUMS.txt 双重校验。当前预发布包尚未完成 Windows 代码签名；继续后客户端会完全退出并打开安装向导。",
+            "退出并安装",
+            null,
+            "取消");
+        if (choice != Views.ThemedDialogResult.Primary || !viewModel.TryLaunchPreparedUpdate()) return;
+        _allowClose = true;
+        _trayIcon.Visible = false;
+        Close();
     }
 
     private void ViewModel_OnSyncConflictDetected(object? sender, EventArgs e)

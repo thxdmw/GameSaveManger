@@ -8,6 +8,7 @@ using GameSaveManager.Application.Launching;
 using GameSaveManager.Application.Restores;
 using GameSaveManager.Application.Snapshots;
 using GameSaveManager.Application.Sync;
+using GameSaveManager.Application.Updates;
 using GameSaveManager.Infrastructure.Api;
 using GameSaveManager.Infrastructure.Diagnostics;
 using GameSaveManager.Infrastructure.Discovery;
@@ -17,6 +18,7 @@ using GameSaveManager.Infrastructure.Launching;
 using GameSaveManager.Infrastructure.Persistence;
 using GameSaveManager.Infrastructure.Security;
 using GameSaveManager.Infrastructure.Startup;
+using GameSaveManager.Infrastructure.Updates;
 
 namespace GameSaveManager.App;
 
@@ -102,7 +104,9 @@ public partial class App : System.Windows.Application
                     new WindowsAutoStartService(),
                     new TextFileServerAddressStore(),
                     new LudusaviManifestUpdateService(_httpClient),
-                    registrySaveSnapshotService)
+                    registrySaveSnapshotService,
+                    new GitHubClientUpdateService(_httpClient),
+                    new SqliteUpdatePreferenceStore(database))
             };
             window.Show();
             if (window.DataContext is MainViewModel viewModel) await viewModel.InitializeAsync();
