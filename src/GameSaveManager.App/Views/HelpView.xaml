@@ -1,5 +1,249 @@
-<UserControl x:Class="GameSaveManager.App.Views.HelpView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-<ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="34,28,34,32"><TextBlock Foreground="{DynamicResource Text}" FontSize="30" FontWeight="Bold" Text="使用说明"/><TextBlock Margin="0,8,0,26" Foreground="{DynamicResource Muted}" Text="从添加游戏到安全恢复，只需要完成以下步骤。"/>
-<Border Padding="26" Style="{StaticResource PanelStyle}"><StackPanel><TextBlock Foreground="{DynamicResource PrimaryBrush}" FontSize="15" FontWeight="SemiBold" Text="第一步"/><TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Text}" FontSize="21" FontWeight="SemiBold" Text="添加需要管理的游戏"/><TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Text="进入“游戏库”，扫描 Steam、Epic、GOG 的安装信息，或直接输入游戏名称创建云端游戏。"/><Separator Margin="0,22" Background="{DynamicResource Border}"/><TextBlock Foreground="{DynamicResource PrimaryBrush}" FontSize="15" FontWeight="SemiBold" Text="第二步"/><TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Text}" FontSize="21" FontWeight="SemiBold" Text="配置真实存档目录"/><TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Text="从首页或游戏库进入“游戏详情”，配置启动入口并预览、确认存档目录。系统会使用 SQLite Hash Cache 加速后续扫描。"/><Separator Margin="0,22" Background="{DynamicResource Border}"/><TextBlock Foreground="{DynamicResource PrimaryBrush}" FontSize="15" FontWeight="SemiBold" Text="第三步"/><TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Text}" FontSize="21" FontWeight="SemiBold" Text="同步、恢复与冲突处理"/><TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Text="手动同步会创建不可变快照。恢复时先下载并校验对象，再保留当前存档的安全备份。两台设备同时修改时，在时间线选择“冲突时保留本机版本”，两个版本都会被保留。"/></StackPanel></Border>
-<Grid Margin="0,22,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Padding="20" Style="{StaticResource PanelStyle}"><StackPanel><TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="常见问题"/><TextBlock Margin="0,12,0,0" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Text="为什么不能直接删除存档？恢复采用 staging 目录和校验流程，避免文件复制中断造成损坏。"/></StackPanel></Border><Border Grid.Column="2" Padding="20" Style="{StaticResource PanelStyle}"><StackPanel><TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="下一步"/><Button Margin="0,12,0,0" Style="{StaticResource Primary}" Command="{Binding NavigateCommand}" CommandParameter="游戏库" Content="添加第一款游戏"/></StackPanel></Border></Grid></StackPanel></ScrollViewer>
+<UserControl x:Class="GameSaveManager.App.Views.HelpView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="HelpSectionTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            <Setter Property="FontSize" Value="19"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="HelpItemTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="HelpBody" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,6,0,0"/>
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="LineHeight" Value="22"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="FeatureGuideToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Height" Value="48"/>
+            <Setter Property="Padding" Value="18,0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Background" Value="{DynamicResource ButtonBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Root" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ButtonHover}"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource PrimaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource PrimaryBrush}"/>
+                                <Setter TargetName="Root" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="34,28,34,32">
+            <TextBlock Foreground="{DynamicResource Text}" FontSize="30" FontWeight="Bold" Text="使用说明"/>
+            <TextBlock Margin="0,8,0,26" Foreground="{DynamicResource Muted}"
+                       Text="从登录、添加游戏到备份和跨设备恢复，按下面的流程即可完成。"/>
+
+            <Border Padding="26" Style="{StaticResource PanelStyle}">
+                <StackPanel>
+                    <TextBlock Foreground="{DynamicResource PrimaryBrush}" FontSize="15" FontWeight="SemiBold" Text="第一步"/>
+                    <TextBlock Margin="0,8,0,0" Style="{StaticResource HelpSectionTitle}" Text="登录账号并添加游戏"/>
+                    <TextBlock Style="{StaticResource HelpBody}"
+                               Text="先在“账户”页填写服务端地址并登录。然后点击顶部或“游戏库”中的“添加游戏”，扫描 Steam、Epic、GOG，或选择本地 EXE/LNK。六步向导会依次确认启动入口、监控进程、存档位置、目录预览和保护方式，最后一步才创建云端游戏。"/>
+
+                    <Separator Margin="0,22" Background="{DynamicResource Border}"/>
+                    <TextBlock Foreground="{DynamicResource PrimaryBrush}" FontSize="15" FontWeight="SemiBold" Text="第二步"/>
+                    <TextBlock Margin="0,8,0,0" Style="{StaticResource HelpSectionTitle}" Text="确认真实存档位置"/>
+                    <TextBlock Style="{StaticResource HelpBody}"
+                               Text="可以使用自动检测、手动选择或“运行游戏学习”。先生成预览，核对文件数量、大小和目录，再点击确认。未确认的目录不会参与备份；复杂游戏还可以在“修改存档配置”中添加多个目录、扫描规则或 HKCU 注册表项。"/>
+
+                    <Separator Margin="0,22" Background="{DynamicResource Border}"/>
+                    <TextBlock Foreground="{DynamicResource PrimaryBrush}" FontSize="15" FontWeight="SemiBold" Text="第三步"/>
+                    <TextBlock Margin="0,8,0,0" Style="{StaticResource HelpSectionTitle}" Text="创建备份并观察进度"/>
+                    <TextBlock Style="{StaticResource HelpBody}"
+                               Text="在“游戏详情”点击“立即备份”。客户端会完整扫描已确认目录、计算或复用 SHA-256、只上传云端缺失的内容，并提交不可变快照。进度区域会显示当前阶段、百分比和结果摘要。也可以开启“退出后自动备份”，让客户端在游戏进程结束后自动执行同一流程。"/>
+
+                    <Separator Margin="0,22" Background="{DynamicResource Border}"/>
+                    <TextBlock Foreground="{DynamicResource PrimaryBrush}" FontSize="15" FontWeight="SemiBold" Text="第四步"/>
+                    <TextBlock Margin="0,8,0,0" Style="{StaticResource HelpSectionTitle}" Text="在时间线恢复或迁移到新电脑"/>
+                    <TextBlock Style="{StaticResource HelpBody}"
+                               Text="新电脑登录同一账号后，为同一游戏配置本机存档目录，再到“时间线”选择云端快照。建议先查看恢复内容，然后恢复所选快照。客户端会先下载并校验全部文件、保留当前存档的安全备份，再切换目录；不会先删除真实存档。"/>
+                </StackPanel>
+            </Border>
+
+            <Grid Margin="0,22,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border Padding="20" Style="{StaticResource PanelStyle}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource HelpSectionTitle}" Text="多设备冲突怎么办？"/>
+                        <TextBlock Style="{StaticResource HelpBody}"
+                                   Text="当另一台设备已推进云端版本时，普通上传会被阻止。选择“恢复云端版本”可把云端存档安全恢复到本机；选择“保留本机并创建新版本”会在保留云端历史的同时提交本机内容。"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Padding="20" Style="{StaticResource PanelStyle}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource HelpSectionTitle}" Text="关闭窗口后还会备份吗？"/>
+                        <TextBlock Style="{StaticResource HelpBody}"
+                                   Text="关闭时选择“最小化到托盘”，已启用游戏的进程监听会继续运行；选择“退出程序”则停止后台监听。双击托盘图标可重新打开客户端。"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Border Margin="0,22,0,0" Padding="20" Style="{StaticResource PanelStyle}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="180"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource HelpSectionTitle}" Text="准备开始"/>
+                        <TextBlock Style="{StaticResource HelpBody}" Text="还没有游戏时，从游戏库打开六步向导。"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Height="40" Style="{StaticResource Primary}"
+                            Command="{Binding NavigateCommand}" CommandParameter="游戏库" Content="前往游戏库"/>
+                </Grid>
+            </Border>
+
+            <!-- 详细功能说明默认折叠，避免影响首次阅读主流程。 -->
+            <ToggleButton x:Name="FeatureGuideToggle" Margin="0,26,0,0"
+                          Style="{StaticResource FeatureGuideToggleStyle}" IsChecked="False">
+                <Grid>
+                    <TextBlock VerticalAlignment="Center" Text="功能说明 · 客户端按钮与入口"/>
+                    <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="18">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="⌄"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsChecked, ElementName=FeatureGuideToggle}" Value="True">
+                                        <Setter Property="Text" Value="⌃"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+            </ToggleButton>
+
+            <Border Margin="0,12,0,0" Padding="24">
+                <Border.Style>
+                    <Style TargetType="Border" BasedOn="{StaticResource PanelStyle}">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsChecked, ElementName=FeatureGuideToggle}" Value="True">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel>
+                    <TextBlock Style="{StaticResource HelpSectionTitle}" Text="顶部栏与窗口按钮"/>
+                    <TextBlock Margin="0,12,0,0" Style="{StaticResource HelpItemTitle}" Text="搜索游戏"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="按游戏名称或平台筛选首页和游戏库中的卡片；清空输入即可恢复全部游戏。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="＋ 添加游戏"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="在任意主页面打开六步添加向导；完成最后一步前不会创建云端记录。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="账号状态 / 登录、退出登录"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="账号状态按钮进入“账户”页；右侧动作按钮会根据当前状态执行登录入口或退出登录。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="最小化 / 最大化 / 关闭"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="控制主窗口。关闭会询问是最小化到系统托盘、完全退出还是取消；自动备份需要客户端或托盘进程保持运行。"/>
+
+                    <Separator Margin="0,24" Background="{DynamicResource Border}"/>
+                    <TextBlock Style="{StaticResource HelpSectionTitle}" Text="侧栏与首页"/>
+                    <TextBlock Margin="0,12,0,0" Style="{StaticResource HelpItemTitle}" Text="首页 / 游戏库 / 时间线 / 设备 / 账户 / 设置 / 使用说明"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="切换对应功能页面。游戏详情不是独立侧栏项，需要从首页“管理存档”或游戏库卡片菜单进入。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="首页：启动"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="使用已验证的启动入口运行当前选中游戏；配置缺失、验证未通过或游戏已运行时会禁用并显示原因。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="首页：管理存档"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="进入当前选中游戏的详情页，查看启动配置、存档保护、备份进度和最近快照。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="首页：查看全部 / 添加游戏"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="进入游戏库；没有任何游戏时，“添加游戏”用于开始导入。点击首页游戏卡片只会选中游戏，不会直接启动。"/>
+
+                    <Separator Margin="0,24" Background="{DynamicResource Border}"/>
+                    <TextBlock Style="{StaticResource HelpSectionTitle}" Text="游戏库与添加向导"/>
+                    <TextBlock Margin="0,12,0,0" Style="{StaticResource HelpItemTitle}" Text="游戏卡片 / 启动 / ⋮"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="点击卡片选中游戏；“启动”运行游戏；“⋮”打开菜单。“存档管理”进入游戏详情，“删除”会先确认，再删除云端游戏、自动监听、同步状态和该游戏的本地配置。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="扫描 Steam / Epic / GOG"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="读取已安装平台的本地信息并列出可导入游戏，不会立即创建云端游戏。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="选择本地 EXE 或快捷方式"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="选择自定义游戏启动入口；快捷方式会解析目标、参数和工作目录。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="测试启动"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="按当前入口、工作目录、参数和权限启动一次，验证配置并识别需要监控的实际进程。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="自动检测 / 手动选择 / 运行游戏学习"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="分别通过规则建议目录、直接指定目录，或比较运行前后的文件变化来生成存档候选；候选仍需预览并确认。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="生成预览 / 确认目录"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="扫描候选并显示文件数量、大小与警告；确认后才允许该目录参与备份。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="上一步 / 下一步 / 取消 / 创建并完成"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="在六步间移动、放弃本次添加，或在最终检查后创建云端游戏并保存本机启动与存档配置。"/>
+
+                    <Separator Margin="0,24" Background="{DynamicResource Border}"/>
+                    <TextBlock Style="{StaticResource HelpSectionTitle}" Text="游戏详情与存档配置"/>
+                    <TextBlock Margin="0,12,0,0" Style="{StaticResource HelpItemTitle}" Text="立即备份"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="立即扫描全部已确认存档并上传新快照。按钮执行期间可通过进度条、阶段文字和结果摘要观察状态。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="启动游戏 / 选择游戏 EXE"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="启动当前游戏；或重新选择并保存本机启动入口与监控进程。每台电脑可以有不同的安装路径。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="修改存档配置"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="打开配置窗口，可重新检测、预览并确认主目录，添加附加目录，配置 Include/Exclude 扫描规则，以及添加或删除 HKCU 注册表规则。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="启用 / 停止退出后自动备份"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="保存自动备份开关并开始或停止监听游戏进程。启用要求启动验证通过、监控进程有效且所有存档目录均已确认。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="查看全部时间线"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="进入当前游戏的完整云端快照列表。"/>
+
+                    <Separator Margin="0,24" Background="{DynamicResource Border}"/>
+                    <TextBlock Style="{StaticResource HelpSectionTitle}" Text="时间线与冲突处理"/>
+                    <TextBlock Margin="0,12,0,0" Style="{StaticResource HelpItemTitle}" Text="刷新时间线"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="重新从服务端加载当前游戏的快照列表和状态。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="查看恢复内容"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="读取所选快照 Manifest，先显示将恢复的文件数量和总大小，不修改本地存档。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="导出 ZIP"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="下载并校验所选快照，将其导出为 ZIP 文件，不替换当前存档。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="删除历史快照"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="确认后删除所选历史快照。当前 HEAD 受保护，不能按普通历史快照删除。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="冲突时保留本机版本"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="仅在 HEAD 冲突时使用：以最新远端 HEAD 为父版本提交本机存档，不删除已有云端历史。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="恢复所选快照"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="确认后执行校验、staging、安全备份和目录切换，将所选云端版本恢复到本机。"/>
+
+                    <Separator Margin="0,24" Background="{DynamicResource Border}"/>
+                    <TextBlock Style="{StaticResource HelpSectionTitle}" Text="设备、账户与设置"/>
+                    <TextBlock Margin="0,12,0,0" Style="{StaticResource HelpItemTitle}" Text="刷新容量 / 刷新设备"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="重新读取账号的云端空间用量或已登录设备列表。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="撤销所选设备 / 账户管理"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="使所选设备 Token 失效，或跳转到账户页。撤销其他设备不会删除快照。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="注册 / 登录 / 退出登录"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="在当前服务端创建账号会话、获取设备 Token，或清除当前服务端的本机登录凭据。不同服务端的会话与本地状态相互隔离。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="主题 / 开机启动"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="切换深色或浅色界面；控制是否在当前 Windows 用户登录后启动客户端并恢复已启用游戏的监听。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="检查更新（存档识别规则）"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="使用 ETag 和 SHA-256 检查并原子更新 Ludusavi Manifest；失败时继续使用内置或上一份有效规则。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="加载策略 / 立即清理 / 保存策略"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="读取当前游戏的快照保留策略、按策略立即清理历史快照，或保存是否自动清理、最多保留数量和保留天数。当前 HEAD 永远保留。"/>
+                    <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="查看许可证"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="查看客户端使用的第三方存档识别数据及其许可证信息。"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>
