@@ -113,7 +113,7 @@ jobs:
         shell: pwsh
         run: |
           $commit = '${{ github.sha }}'
-          "版本：1.0.0`n提交：$commit`n构建时间（UTC）：$([DateTime]::UtcNow.ToString('O'))" |
+          "版本：0.1.0`n提交：$commit`n构建时间（UTC）：$([DateTime]::UtcNow.ToString('O'))" |
             Set-Content -Encoding utf8 .\publish\RELEASE-METADATA.txt
           Copy-Item .\publish\RELEASE-METADATA.txt .\publish\framework-dependent\RELEASE-METADATA.txt
           Copy-Item .\publish\RELEASE-METADATA.txt .\publish\self-contained-win-x64\RELEASE-METADATA.txt

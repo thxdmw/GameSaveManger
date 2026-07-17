@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-& (Join-Path $PSScriptRoot "publish-windows.ps1") -Runtime $Runtime
+& (Join-Path $PSScriptRoot "publish-windows.ps1") -Runtime $Runtime -Version $Version
 if ($LASTEXITCODE -ne 0)
 {
     throw "Client publish failed; installer generation was stopped."
@@ -36,3 +36,17 @@ if ($LASTEXITCODE -ne 0)
 {
     throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
 }
+
+$installerPath = Join-Path $repositoryRoot "artifacts\installer\GameSaveManager-Setup-$Version.exe"
+if (-not (Test-Path -LiteralPath $installerPath))
+{
+    throw "Installer was not generated at the expected path: $installerPath"
+}
+
+$installerFile = Get-Item -LiteralPath $installerPath
+$installerHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installerFile.FullName).Hash.ToLowerInvariant()
+$checksumPath = Join-Path $installerFile.DirectoryName "SHA256SUMS.txt"
+"$installerHash  $($installerFile.Name)" | Set-Content -LiteralPath $checksumPath -Encoding ascii
+Write-Host "Installer: $($installerFile.FullName)"
+Write-Host "SHA-256: $installerHash"
+Write-Host "Checksum file: $checksumPath"

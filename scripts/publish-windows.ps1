@@ -6,6 +6,8 @@ param(
     [string] $Runtime = "win-x64",
     [ValidateSet("SelfContained", "FrameworkDependent")]
     [string] $DeploymentMode = "SelfContained",
+    [ValidatePattern('^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$')]
+    [string] $Version = "0.1.0",
     [string] $OutputDirectory
 )
 
@@ -26,6 +28,9 @@ dotnet publish $project `
     --self-contained $selfContained `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:Version=$Version `
+    -p:FileVersion="$Version.0" `
+    -p:InformationalVersion=$Version `
     -p:DebugType=None `
     -p:DebugSymbols=false `
     --output $OutputDirectory
@@ -34,3 +39,23 @@ if ($LASTEXITCODE -ne 0)
 {
     throw "dotnet publish failed with exit code $LASTEXITCODE"
 }
+
+$assetSourceDirectory = Join-Path $repositoryRoot "src\GameSaveManager.Infrastructure\Discovery\Assets"
+$assetOutputDirectory = Join-Path $OutputDirectory "Assets"
+[IO.Directory]::CreateDirectory($assetOutputDirectory) | Out-Null
+$requiredAssetNames = @("ludusavi-manifest.yaml", "NOTICE-Ludusavi-manifest.txt")
+foreach ($requiredAssetName in $requiredAssetNames)
+{
+    $sourceAsset = Join-Path $assetSourceDirectory $requiredAssetName
+    $publishedAsset = Join-Path $assetOutputDirectory $requiredAssetName
+    if (-not (Test-Path -LiteralPath $sourceAsset))
+    {
+        throw "Required source asset is missing: $sourceAsset"
+    }
+    Copy-Item -LiteralPath $sourceAsset -Destination $publishedAsset -Force
+    if (-not (Test-Path -LiteralPath $publishedAsset))
+    {
+        throw "Published client is incomplete; required asset is missing: $publishedAsset"
+    }
+}
+Write-Host "Required Ludusavi assets verified."

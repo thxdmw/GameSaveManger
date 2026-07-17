@@ -208,7 +208,7 @@ dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verifi
 安装 Inno Setup 6 后生成安装包：
 
 ```powershell
-.\scripts\build-installer.ps1 -Version 1.0.0
+.\scripts\build-installer.ps1 -Version 0.1.0
 ```
 
 详细参数和验收步骤见 [构建说明](docs/build.md) 与 [Windows 发布说明](docs/release-windows.md)。正式公开分发前仍需完成代码签名、升级/卸载和异常恢复验收。
