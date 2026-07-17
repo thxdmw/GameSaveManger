@@ -35,11 +35,15 @@ windows-latest
     ↓
 dotnet restore
     ↓
-dotnet build -c Debug --no-restore
+dotnet build -c Debug / Release --no-restore
+    ↓
+dotnet test -c Release --no-build
     ↓
 GameSaveManager.Verification
     ↓
-上传 restore/build/verification 日志 artifact
+生成两种 Windows 发布目录并校验第三方资源
+    ↓
+上传日志和发布包 artifact
 ```
 
 当前 Verification 覆盖：
@@ -53,6 +57,8 @@ GameSaveManager.Verification
 - `server_key + game_id` 同步 HEAD 隔离。
 
 GitHub Actions 使用 GitHub 官方维护的 checkout/setup-dotnet/upload-artifact Action。PR 在自动构建和基础边界验证通过前保持 Draft，不直接合并。
+
+推送与 `Directory.Build.props` 一致的 `v主版本.次版本.修订版本` 标签后，`.github/workflows/release.yml` 会执行同一套 Release 验证，调用 Inno Setup 生成安装包和 SHA-256 校验和，并创建 GitHub 预发布。详细步骤见 [版本管理与发布流程](versioning.md)。
 
 ## 注释规范
 

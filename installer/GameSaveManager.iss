@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.0"
+  #error "必须由 build-installer.ps1 提供 MyAppVersion"
 #endif
 #ifndef PublishDir
   #define PublishDir "..\artifacts\publish\win-x64"

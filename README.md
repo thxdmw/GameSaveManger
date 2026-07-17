@@ -2,7 +2,7 @@
 
 GameSave Manager 是面向 Windows 的游戏存档管理客户端，使用 .NET 10、WPF 和 C# 构建。客户端通过完整目录扫描、内容寻址和不可变云端快照管理游戏存档，重点保证上传、冲突处理和恢复过程不会静默覆盖用户数据。
 
-> 项目已具备完整的客户端主流程，但仍处于发布验收阶段。正式用于重要存档前，请先在目标 CMS、对象存储和真实游戏环境中完成 [TODO.md](TODO.md) 中的端到端验收。
+> `0.1.0` 预发布版已经提供 Windows 安装包，项目仍处于发布验收阶段。正式用于重要存档前，请先在目标 CMS、对象存储和真实游戏环境中完成 [TODO.md](TODO.md) 中的端到端验收。
 
 ## 当前功能
 
@@ -208,10 +208,10 @@ dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verifi
 安装 Inno Setup 6 后生成安装包：
 
 ```powershell
-.\scripts\build-installer.ps1 -Version 0.1.0
+.\scripts\build-installer.ps1
 ```
 
-详细参数和验收步骤见 [构建说明](docs/build.md) 与 [Windows 发布说明](docs/release-windows.md)。正式公开分发前仍需完成代码签名、升级/卸载和异常恢复验收。
+脚本会自动读取根目录 `Directory.Build.props`，不再从命令行传入版本号。详细参数和验收步骤见 [构建说明](docs/build.md)、[Windows 发布说明](docs/release-windows.md) 与 [版本管理流程](docs/versioning.md)。当前安装包可在 [GitHub 预发布页](https://github.com/thxdmw/GameSaveManger/releases) 下载；正式公开分发前仍需完成代码签名、升级/卸载和异常恢复验收。
 
 ## 后续任务
 

@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <!-- 客户端版本的唯一来源。发布新版本时只修改这里。 -->
+    <GameSaveManagerVersionPrefix>0.1.0</GameSaveManagerVersionPrefix>
+    <GameSaveManagerVersionSuffix></GameSaveManagerVersionSuffix>
+    <GameSaveManagerReleaseChannel>预发布</GameSaveManagerReleaseChannel>
+
+    <Version Condition="'$(GameSaveManagerVersionSuffix)' == ''">$(GameSaveManagerVersionPrefix)</Version>
+    <Version Condition="'$(GameSaveManagerVersionSuffix)' != ''">$(GameSaveManagerVersionPrefix)-$(GameSaveManagerVersionSuffix)</Version>
+    <FileVersion>$(GameSaveManagerVersionPrefix).0</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'GameSaveManager.App'">
+    <AssemblyMetadata Include="ReleaseChannel" Value="$(GameSaveManagerReleaseChannel)" />
+  </ItemGroup>
+</Project>

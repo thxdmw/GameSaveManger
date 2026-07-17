@@ -1,6 +1,5 @@
 [CmdletBinding()]
 param(
-    [string] $Version = "0.1.0",
     [ValidateSet("win-x64", "win-arm64")]
     [string] $Runtime = "win-x64",
     [string] $InnoSetupCompiler
@@ -8,7 +7,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-& (Join-Path $PSScriptRoot "publish-windows.ps1") -Runtime $Runtime -Version $Version
+. (Join-Path $PSScriptRoot "release-common.ps1")
+$releaseInfo = Get-GameSaveManagerReleaseInfo -RepositoryRoot $repositoryRoot
+$Version = $releaseInfo.Version
+& (Join-Path $PSScriptRoot "publish-windows.ps1") -Runtime $Runtime
 if ($LASTEXITCODE -ne 0)
 {
     throw "Client publish failed; installer generation was stopped."

@@ -12,23 +12,23 @@
 在仓库根目录执行自包含发布：
 
 ```powershell
-.\scripts\publish-windows.ps1 -Version 0.1.0
+.\scripts\publish-windows.ps1
 ```
 
 输出目录为 `artifacts\publish\win-x64`。生成依赖 Runtime 的发布物：
 
 ```powershell
-.\scripts\publish-windows.ps1 -DeploymentMode FrameworkDependent -Version 0.1.0
+.\scripts\publish-windows.ps1 -DeploymentMode FrameworkDependent
 ```
 
 输出目录为 `artifacts\publish\win-x64-framework-dependent`。发布脚本没有启用 trimming：WPF、SQLite 原生库和系统凭据调用对动态加载较敏感，先保证可用性和可诊断性，再根据真实发布物做专项裁剪验证。
 
 ## 生成安装包
 
-先安装 Inno Setup 6，然后执行。脚本会把同一个版本同时写入客户端程序集和安装包：
+先安装 Inno Setup 6，然后执行。脚本会从根目录 `Directory.Build.props` 读取唯一版本号，并把它写入客户端程序集和安装包：
 
 ```powershell
-.\scripts\build-installer.ps1 -Version 0.1.0
+.\scripts\build-installer.ps1
 ```
 
 安装包会输出到 `artifacts\installer`，脚本同时生成可随安装包发布的 `SHA256SUMS.txt`。安装范围为当前 Windows 用户，不需要管理员权限；程序文件位于 `%LOCALAPPDATA%\Programs\GameSaveManager`，游戏存档、SQLite、日志及凭据仍分别使用应用数据目录和 Windows Credential Manager。
@@ -37,9 +37,10 @@
 
 ```powershell
 .\scripts\build-installer.ps1 `
-  -Version 0.1.0 `
   -InnoSetupCompiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
+
+版本号调整、标签校验和 GitHub 自动预发布步骤见 [版本管理与发布流程](versioning.md)。
 
 ## 发布前检查
 

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using System.Windows.Data;
@@ -232,6 +233,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<CloudDevice> Devices { get; } = [];
     public ICollectionView FilteredGames { get; }
     public bool HasGames => Games.Count > 0;
+    public string ClientVersionText { get; } = GetClientVersionText();
+    public string ClientReleaseChannelText { get; } = GetClientReleaseChannelText();
     public bool IsSaveConfigurationPreviewValid => IsCurrentSavePreviewValid();
     public bool PendingLaunchTargetIsValid => GetPendingLaunchProfileValidationError() is null;
 
@@ -2303,6 +2306,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
         int unit = 0;
         while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
         return $"{value:0.##} {units[unit]}";
+    }
+
+    private static string GetClientVersionText()
+    {
+        Assembly assembly = typeof(MainViewModel).Assembly;
+        string? informationalVersion = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informationalVersion))
+            return informationalVersion.Split('+', 2)[0];
+        return assembly.GetName().Version?.ToString(3) ?? "未知";
+    }
+
+    private static string GetClientReleaseChannelText()
+    {
+        return typeof(MainViewModel).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => string.Equals(
+                attribute.Key,
+                "ReleaseChannel",
+                StringComparison.Ordinal))?
+            .Value ?? "未知";
     }
 
     private bool CanCreateGame() =>

@@ -1,0 +1,86 @@
+name: GameSave Manager 预发布
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在的版本标签，例如 v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gamesave-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: 校验并发布 Windows 安装包
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: 检出版本标签
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: 配置 .NET 10 SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 校验版本、标签和发布说明
+        id: version
+        shell: pwsh
+        run: .\scripts\test-release-version.ps1 -Tag $env:RELEASE_TAG
+
+      - name: 还原、构建和验证
+        shell: pwsh
+        run: |
+          dotnet restore .\GameSaveManager.sln
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build .\GameSaveManager.sln -c Release --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test .\GameSaveManager.sln -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 安装 Inno Setup 6
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: 生成安装包和校验和
+        shell: pwsh
+        run: .\scripts\build-installer.ps1
+
+      - name: 创建或更新 GitHub 预发布
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $notes = ".\docs\release-notes-$version.md"
+          $installer = ".\artifacts\installer\GameSaveManager-Setup-$version.exe"
+          $checksums = ".\artifacts\installer\SHA256SUMS.txt"
+          foreach ($path in @($notes, $installer, $checksums)) {
+            if (-not (Test-Path -LiteralPath $path)) { throw "发布文件不存在：$path" }
+          }
+
+          gh release view $env:RELEASE_TAG *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+          if ($releaseExists) {
+            gh release edit $env:RELEASE_TAG --title "GameSave Manager $version" --notes-file $notes --prerelease
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            gh release upload $env:RELEASE_TAG $installer $checksums $notes --clobber
+          }
+          else {
+            gh release create $env:RELEASE_TAG $installer $checksums $notes `
+              --verify-tag --prerelease --title "GameSave Manager $version" --notes-file $notes
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

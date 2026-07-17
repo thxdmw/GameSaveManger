@@ -6,13 +6,13 @@ param(
     [string] $Runtime = "win-x64",
     [ValidateSet("SelfContained", "FrameworkDependent")]
     [string] $DeploymentMode = "SelfContained",
-    [ValidatePattern('^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$')]
-    [string] $Version = "0.1.0",
     [string] $OutputDirectory
 )
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "release-common.ps1")
+$releaseInfo = Get-GameSaveManagerReleaseInfo -RepositoryRoot $repositoryRoot
 $project = Join-Path $repositoryRoot "src\GameSaveManager.App\GameSaveManager.App.csproj"
 if ([string]::IsNullOrWhiteSpace($OutputDirectory))
 {
@@ -21,16 +21,13 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory))
 }
 
 $selfContained = if ($DeploymentMode -eq "SelfContained") { "true" } else { "false" }
-Write-Host "Publishing GameSave Manager with $DeploymentMode to $OutputDirectory"
+Write-Host "Publishing GameSave Manager $($releaseInfo.Version) with $DeploymentMode to $OutputDirectory"
 dotnet publish $project `
     --configuration $Configuration `
     --runtime $Runtime `
     --self-contained $selfContained `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:Version=$Version `
-    -p:FileVersion="$Version.0" `
-    -p:InformationalVersion=$Version `
     -p:DebugType=None `
     -p:DebugSymbols=false `
     --output $OutputDirectory

@@ -5,22 +5,28 @@ on:
     branches: [master, main]
     paths:
       - 'GameSaveManager.sln'
+      - 'Directory.Build.props'
       - 'ARCHITECTURE.md'
       - 'docs/*.md'
+      - 'installer/**'
+      - 'scripts/**'
       - 'src/**'
       - 'tests/**'
-      - '.github/workflows/build.yml'
+      - '.github/workflows/*.yml'
   pull_request:
     paths:
       - 'GameSaveManager.sln'
+      - 'Directory.Build.props'
       - 'ARCHITECTURE.md'
       - 'docs/*.md'
+      - 'installer/**'
+      - 'scripts/**'
       - 'src/GameSaveManager.App/**'
       - 'src/GameSaveManager.Application/**'
       - 'src/GameSaveManager.Domain/**'
       - 'src/GameSaveManager.Infrastructure/**'
       - 'tests/GameSaveManager.Verification/**'
-      - '.github/workflows/build.yml'
+      - '.github/workflows/*.yml'
   workflow_dispatch:
 
 permissions:
@@ -68,9 +74,9 @@ jobs:
       - name: 发布并检查第三方资源
         shell: pwsh
         run: |
-          dotnet publish .\src\GameSaveManager.App\GameSaveManager.App.csproj -c Release -r win-x64 --self-contained false -o .\publish\framework-dependent *>&1 | Tee-Object -FilePath dotnet-publish.log
+          .\scripts\publish-windows.ps1 -DeploymentMode FrameworkDependent -OutputDirectory .\publish\framework-dependent *>&1 | Tee-Object -FilePath dotnet-publish.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet publish .\src\GameSaveManager.App\GameSaveManager.App.csproj -c Release -r win-x64 --self-contained true -o .\publish\self-contained-win-x64 *>&1 | Tee-Object -FilePath dotnet-publish-self-contained.log
+          .\scripts\publish-windows.ps1 -DeploymentMode SelfContained -OutputDirectory .\publish\self-contained-win-x64 *>&1 | Tee-Object -FilePath dotnet-publish-self-contained.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($package in @('.\publish\framework-dependent', '.\publish\self-contained-win-x64')) {
             if (-not (Test-Path "$package\Assets\ludusavi-manifest.yaml")) { throw "$package 缺少 Ludusavi Manifest" }
@@ -112,8 +118,10 @@ jobs:
       - name: 压缩并校验完整发布包
         shell: pwsh
         run: |
+          . .\scripts\release-common.ps1
+          $releaseInfo = Get-GameSaveManagerReleaseInfo -RepositoryRoot $PWD
           $commit = '${{ github.sha }}'
-          "版本：0.1.0`n提交：$commit`n构建时间（UTC）：$([DateTime]::UtcNow.ToString('O'))" |
+          "版本：$($releaseInfo.Version)`n发布通道：$($releaseInfo.ReleaseChannel)`n提交：$commit`n构建时间（UTC）：$([DateTime]::UtcNow.ToString('O'))" |
             Set-Content -Encoding utf8 .\publish\RELEASE-METADATA.txt
           Copy-Item .\publish\RELEASE-METADATA.txt .\publish\framework-dependent\RELEASE-METADATA.txt
           Copy-Item .\publish\RELEASE-METADATA.txt .\publish\self-contained-win-x64\RELEASE-METADATA.txt
