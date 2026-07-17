@@ -12,6 +12,14 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    public Task<IReadOnlyList<RegistrySavePreview>> PreviewAsync(
+        IReadOnlyList<RegistrySaveRule> rules,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<RegistrySavePreview> previews = rules.Select(rule => PreviewRule(rule, cancellationToken)).ToArray();
+        return Task.FromResult(previews);
+    }
+
     public async Task ExportAsync(string directory, IReadOnlyList<RegistrySaveRule> rules, CancellationToken cancellationToken)
     {
         if (rules.Count == 0) return;
@@ -19,9 +27,14 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
         foreach (RegistrySaveRule rule in rules)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string subKey = GetCurrentUserSubKey(rule);
+            string subKey = GetCurrentUserSubKey(rule, requireConfirmed: true);
             using RegistryKey? key = Registry.CurrentUser.OpenSubKey(subKey, writable: false);
-            RegistryNode node = key is null ? new RegistryNode([], []) : ReadNode(key, cancellationToken);
+            if (key is null) throw new InvalidOperationException($"注册表键不存在：{rule.KeyPath}");
+            RegistryPreviewMetrics metrics = InspectNode(key, cancellationToken);
+            if (metrics.UnsupportedKinds.Count > 0)
+                throw new InvalidDataException(
+                    $"注册表键包含不支持的数据类型：{string.Join("、", metrics.UnsupportedKinds)}");
+            RegistryNode node = ReadNode(key, cancellationToken);
             string temporary = GetDocumentPath(directory, rule) + ".tmp";
             await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(new RegistryDocument(rule.KeyPath, node), JsonOptions), cancellationToken);
             File.Move(temporary, GetDocumentPath(directory, rule), overwrite: true);
@@ -50,7 +63,7 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
 
         foreach (RegistrySaveRule rule in rules)
         {
-            _ = GetCurrentUserSubKey(rule);
+            _ = GetCurrentUserSubKey(rule, requireConfirmed: true);
             await ReadAndValidateDocumentAsync(snapshotDirectory, rule, cancellationToken);
         }
 
@@ -78,7 +91,7 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
         {
             cancellationToken.ThrowIfCancellationRequested();
             RegistryDocument document = await ReadAndValidateDocumentAsync(directory, rule, cancellationToken);
-            string subKey = GetCurrentUserSubKey(rule);
+            string subKey = GetCurrentUserSubKey(rule, requireConfirmed: true);
             Registry.CurrentUser.DeleteSubKeyTree(subKey, throwOnMissingSubKey: false);
             using RegistryKey target = Registry.CurrentUser.CreateSubKey(subKey, writable: true)
                 ?? throw new IOException($"无法创建注册表键: {rule.KeyPath}");
@@ -132,9 +145,68 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
         _ => entry.Value.GetString() ?? string.Empty
     };
 
-    private static string GetCurrentUserSubKey(RegistrySaveRule rule)
+    private static RegistrySavePreview PreviewRule(RegistrySaveRule rule, CancellationToken cancellationToken)
     {
-        if (!rule.UserConfirmed || string.IsNullOrWhiteSpace(rule.RuleId) || rule.RuleId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        try
+        {
+            string subKey = GetCurrentUserSubKey(rule, requireConfirmed: false);
+            using RegistryKey? key = Registry.CurrentUser.OpenSubKey(subKey, writable: false);
+            if (key is null) return new RegistrySavePreview(rule, false, false, 0, 0, [], null);
+            RegistryPreviewMetrics metrics = InspectNode(key, cancellationToken);
+            return new RegistrySavePreview(rule, true, true, metrics.ValueCount, metrics.EstimatedSize,
+                metrics.UnsupportedKinds.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray(), null);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException
+            or System.Security.SecurityException or IOException or InvalidOperationException
+            or ArgumentException or OverflowException)
+        {
+            return new RegistrySavePreview(rule, true, false, 0, 0, [], $"注册表预览失败：{exception.Message}");
+        }
+    }
+
+    private static RegistryPreviewMetrics InspectNode(RegistryKey key, CancellationToken cancellationToken)
+    {
+        int valueCount = 0;
+        long estimatedSize = 0;
+        var unsupportedKinds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string name in key.GetValueNames())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RegistryValueKind kind = key.GetValueKind(name);
+            object? value = key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+            valueCount++;
+            estimatedSize = checked(estimatedSize + EstimateValueSize(name, value));
+            if (kind is not (RegistryValueKind.String or RegistryValueKind.ExpandString or RegistryValueKind.Binary
+                or RegistryValueKind.DWord or RegistryValueKind.QWord or RegistryValueKind.MultiString))
+                unsupportedKinds.Add(kind.ToString());
+        }
+        foreach (string childName in key.GetSubKeyNames())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using RegistryKey? child = key.OpenSubKey(childName, writable: false);
+            if (child is null) throw new UnauthorizedAccessException($"无法读取注册表子键：{childName}");
+            RegistryPreviewMetrics childMetrics = InspectNode(child, cancellationToken);
+            valueCount = checked(valueCount + childMetrics.ValueCount);
+            estimatedSize = checked(estimatedSize + childMetrics.EstimatedSize + childName.Length * 2L);
+            unsupportedKinds.UnionWith(childMetrics.UnsupportedKinds);
+        }
+        return new RegistryPreviewMetrics(valueCount, estimatedSize, unsupportedKinds);
+    }
+
+    private static long EstimateValueSize(string name, object? value) => name.Length * 2L + (value switch
+    {
+        null => 0,
+        byte[] bytes => bytes.LongLength,
+        string text => text.Length * 2L,
+        string[] values => values.Sum(item => item.Length * 2L),
+        int => sizeof(int),
+        long => sizeof(long),
+        _ => value.ToString()?.Length * 2L ?? 0
+    });
+
+    private static string GetCurrentUserSubKey(RegistrySaveRule rule, bool requireConfirmed)
+    {
+        if ((requireConfirmed && !rule.UserConfirmed) || string.IsNullOrWhiteSpace(rule.RuleId) || rule.RuleId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             throw new InvalidOperationException("注册表规则必须具有已确认的安全标识。");
         const string longPrefix = "HKEY_CURRENT_USER\\";
         const string shortPrefix = "HKCU\\";
@@ -150,4 +222,5 @@ public sealed class WindowsRegistrySaveSnapshotService : IRegistrySaveSnapshotSe
     private sealed record RegistryNode(IReadOnlyList<RegistryValueEntry> Values, IReadOnlyList<RegistryChild> Children);
     private sealed record RegistryChild(string Name, RegistryNode Node);
     private sealed record RegistryValueEntry(string Name, string Kind, JsonElement Value);
+    private sealed record RegistryPreviewMetrics(int ValueCount, long EstimatedSize, HashSet<string> UnsupportedKinds);
 }

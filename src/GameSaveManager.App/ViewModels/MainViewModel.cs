@@ -227,11 +227,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<SaveRootRule> AdditionalSaveRoots { get; } = [];
     public ObservableCollection<RegistrySaveRule> RegistrySaveRules { get; } = [];
     public ObservableCollection<SaveRootPreview> SaveRootPreviews { get; } = [];
+    public ObservableCollection<RegistrySavePreview> RegistrySavePreviews { get; } = [];
     public ObservableCollection<CloudDevice> Devices { get; } = [];
     public ICollectionView FilteredGames { get; }
     public bool HasGames => Games.Count > 0;
     public bool IsSaveConfigurationPreviewValid => IsCurrentSavePreviewValid();
-    public bool PendingLaunchTargetIsValid => IsLaunchTargetValid(CreateLaunchProfile(GetCurrentGameIdentity()));
+    public bool PendingLaunchTargetIsValid => GetPendingLaunchProfileValidationError() is null;
 
     public string ServerAddress { get => _serverAddress; set => SetField(ref _serverAddress, value); }
     public string Username { get => _username; set => SetField(ref _username, value); }
@@ -462,6 +463,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             AdditionalSaveRoots.ToArray(),
             RegistrySaveRules.ToArray(),
             SaveRootPreviews.ToArray(),
+            RegistrySavePreviews.ToArray(),
             _previewedSaveDirectory,
             _previewedSaveDirectoryFingerprint,
             SaveDirectoryPreviewText,
@@ -510,6 +512,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SaveRootPreviews.Clear();
             foreach (SaveRootPreview preview in state.SaveRootPreviews)
                 SaveRootPreviews.Add(preview);
+            RegistrySavePreviews.Clear();
+            foreach (RegistrySavePreview preview in state.RegistrySavePreviews)
+                RegistrySavePreviews.Add(preview);
         }
         _addGameWizardReturnState = null;
     }
@@ -522,6 +527,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         AdditionalSaveRoots.Clear();
         SelectedAdditionalSaveRoot = null;
         RegistrySaveRules.Clear();
+        RegistrySavePreviews.Clear();
         SelectedRegistrySaveRule = null;
         IsSaveDirectoryConfirmed = false;
         InvalidateSavePreview("请选择当前游戏的存档目录并重新预览。");
@@ -994,6 +1000,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         int confidence = SelectedSaveLocationCandidate?.Confidence ?? (IsSaveDirectoryConfirmed ? 100 : 0);
         var roots = new List<SaveRootRule> { SaveRootRule.CreateDefault(SaveDirectory, source, confidence, IsSaveDirectoryConfirmed) };
         roots.AddRange(AdditionalSaveRoots);
+        SaveRootTopologyValidator.Validate(roots);
         if (RegistrySaveRules.Count > 0) roots.Add(new SaveRootRule("registry", GetRegistryCacheDirectory(server, gameId), ["*.json", "**/*.json"], [], SaveLocationSource.Manual, 100, true));
         return roots;
     }
@@ -1003,9 +1010,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (string.IsNullOrWhiteSpace(AdditionalSaveRootPath) || !Directory.Exists(AdditionalSaveRootPath))
             throw new InvalidOperationException("请填写存在的附加存档目录。");
         string path = Path.GetFullPath(AdditionalSaveRootPath);
-        if (string.Equals(path, Path.GetFullPath(SaveDirectory), StringComparison.OrdinalIgnoreCase)
-            || AdditionalSaveRoots.Any(root => string.Equals(root.Path, path, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("该存档目录已经在同步列表中。");
+        var topologyRoots = new List<SaveRootRule> { BuildPrimarySaveRootRule() };
+        topologyRoots.AddRange(AdditionalSaveRoots);
+        topologyRoots.Add(new SaveRootRule("pending", path, [], [], SaveLocationSource.Manual, 100, false));
+        SaveRootTopologyValidator.Validate(topologyRoots);
         string rootId;
         int index = 2;
         do rootId = $"root{index++}"; while (AdditionalSaveRoots.Any(root => string.Equals(root.RootId, rootId, StringComparison.OrdinalIgnoreCase)));
@@ -1063,30 +1071,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task<LocalGameProfile> SaveLocalProfileAsync(Uri server, bool autoSnapshotEnabled)
     {
         if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
-        await PrepareRegistrySnapshotsAsync(server, SelectedGame.GameId);
         GameIdentity identity = GetCurrentGameIdentity();
         _localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? existingProfile);
-        GameLaunchProfile? launchProfile = _gameLaunchProfileMerger.Merge(
-            existingProfile?.EffectiveLaunchProfile,
-            identity,
-            AutoSnapshotExecutablePath,
-            AutoSnapshotProcessName);
-        if (existingProfile is null && launchProfile is not null)
-        {
-            launchProfile = launchProfile with
-            {
-                Arguments = string.IsNullOrWhiteSpace(AddGameWizard.Arguments)
-                    ? launchProfile.Arguments
-                    : AddGameWizard.Arguments.Trim(),
-                WorkingDirectory = string.IsNullOrWhiteSpace(AddGameWizard.WorkingDirectory)
-                    ? launchProfile.WorkingDirectory
-                    : AddGameWizard.WorkingDirectory.Trim(),
-                RunAsAdministrator = AddGameWizard.RunAsAdministrator,
-                MonitoredProcessNames = AddGameWizard.GetConfirmedMonitoredProcessNames().Count == 0
-                    ? launchProfile.MonitoredProcessNames
-                    : AddGameWizard.GetConfirmedMonitoredProcessNames()
-            };
-        }
+        GameLaunchProfile? launchProfile = _isAddGameWizardActive
+            ? BuildPendingLaunchProfile()
+            : _gameLaunchProfileMerger.Merge(existingProfile?.EffectiveLaunchProfile, identity,
+                AutoSnapshotExecutablePath, AutoSnapshotProcessName);
+        string? validationError = ValidateLaunchProfile(launchProfile, requireResolvedShortcut: _isAddGameWizardActive);
+        if (validationError is not null) throw new InvalidOperationException(validationError);
+        await PrepareRegistrySnapshotsAsync(server, SelectedGame.GameId);
         string? identityExecutablePath = identity.ExecutablePath;
         if (launchProfile is { TargetType: GameLaunchTargetType.Shortcut }
             && _shortcutResolutions.TryGetValue(launchProfile.Target, out ShortcutResolution? shortcut)
@@ -1122,6 +1115,69 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _localGameProfiles[profile.GameId] = profile;
         RefreshGameRuntimeStatus();
         return profile;
+    }
+
+    private GameLaunchProfile BuildPendingLaunchProfile()
+    {
+        GameLaunchProfile profile = CreateLaunchProfile(GetCurrentGameIdentity())
+            ?? throw new InvalidOperationException("未找到有效的游戏启动配置。");
+        IReadOnlyList<string> confirmedProcesses = AddGameWizard.GetConfirmedMonitoredProcessNames();
+        IReadOnlyList<string> monitoredProcesses = confirmedProcesses.Count > 0
+            ? confirmedProcesses
+            : string.IsNullOrWhiteSpace(AddGameWizard.MonitoredProcessName)
+                ? profile.MonitoredProcessNames
+                : [AddGameWizard.MonitoredProcessName.Trim()];
+        return profile with
+        {
+            Arguments = string.IsNullOrWhiteSpace(AddGameWizard.Arguments) ? profile.Arguments : AddGameWizard.Arguments.Trim(),
+            WorkingDirectory = string.IsNullOrWhiteSpace(AddGameWizard.WorkingDirectory)
+                ? profile.WorkingDirectory
+                : AddGameWizard.WorkingDirectory.Trim(),
+            RunAsAdministrator = AddGameWizard.RunAsAdministrator,
+            MonitoredProcessNames = monitoredProcesses
+        };
+    }
+
+    private string? GetPendingLaunchProfileValidationError()
+    {
+        try { return ValidateLaunchProfile(BuildPendingLaunchProfile(), requireResolvedShortcut: true); }
+        catch (Exception exception) when (exception is InvalidOperationException or ArgumentException or IOException)
+        {
+            return exception.Message;
+        }
+    }
+
+    private string? ValidateLaunchProfile(GameLaunchProfile? profile, bool requireResolvedShortcut)
+    {
+        if (profile is null || string.IsNullOrWhiteSpace(profile.Target)) return "请选择有效的启动入口。";
+        if (profile.Arguments?.Length > 4096) return "游戏启动参数不能超过 4096 个字符。";
+        if (!string.IsNullOrWhiteSpace(profile.WorkingDirectory) && !Directory.Exists(profile.WorkingDirectory))
+            return "游戏工作目录不存在。";
+        foreach (string processName in profile.MonitoredProcessNames)
+        {
+            string normalized = GameProcessNameRules.Normalize(processName);
+            if (normalized.Length == 0 || GameProcessNameRules.IsUnsafeGenericName(normalized)
+                || !string.Equals(Path.GetFileName(processName.Trim()), processName.Trim(), StringComparison.Ordinal)
+                || processName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                return $"监控进程名无效：{processName}";
+        }
+        if (profile.TargetType == GameLaunchTargetType.StoreUri)
+        {
+            if (!Uri.TryCreate(profile.Target, UriKind.Absolute, out Uri? uri)
+                || (uri.Scheme is not "steam" and not "com.epicgames.launcher"))
+                return "平台启动地址无效。";
+            return null;
+        }
+        string expectedExtension = profile.TargetType == GameLaunchTargetType.Shortcut ? ".lnk" : ".exe";
+        if (!string.Equals(Path.GetExtension(profile.Target), expectedExtension, StringComparison.OrdinalIgnoreCase)
+            || !File.Exists(profile.Target)) return $"启动入口必须是存在的 {expectedExtension} 文件。";
+        if (profile.TargetType == GameLaunchTargetType.Shortcut && requireResolvedShortcut)
+        {
+            if (_shortcutResolutionFailures.TryGetValue(profile.Target, out string? failure)) return failure;
+            if (!_shortcutResolutions.TryGetValue(profile.Target, out ShortcutResolution? resolution) || !resolution.Resolved)
+                return "快捷方式尚未成功解析，请重新选择启动入口。";
+        }
+        return null;
     }
     private static GameLaunchProfile? CreateLaunchProfile(GameIdentity identity)
     {
@@ -1292,21 +1348,33 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         var roots = new List<SaveRootRule> { BuildPrimarySaveRootRule() };
         roots.AddRange(AdditionalSaveRoots.Select(root => root with { UserConfirmed = false }));
+        SaveRootTopologyValidator.Validate(roots);
         return roots;
     }
 
     private bool IsCurrentSavePreviewValid()
     {
-        if (string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory)
-            || string.IsNullOrWhiteSpace(_previewedSaveDirectoryFingerprint)
-            || FileCount > GameSaveProtocolLimits.MaximumManifestFiles)
+        try
+        {
+            if (string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory)
+                || string.IsNullOrWhiteSpace(_previewedSaveDirectoryFingerprint)
+                || FileCount > GameSaveProtocolLimits.MaximumManifestFiles)
+                return false;
+            IReadOnlyList<SaveRootRule> roots = BuildPreviewSaveRoots();
+            return roots.All(root => Directory.Exists(root.Path))
+                && RegistrySavePreviews.Count == RegistrySaveRules.Count
+                && RegistrySavePreviews.All(preview => preview.CanConfirm
+                    && RegistrySaveRules.Any(rule => string.Equals(rule.RuleId, preview.Rule.RuleId, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(rule.KeyPath, preview.Rule.KeyPath, StringComparison.OrdinalIgnoreCase)))
+                && string.Equals(
+                    SaveProfileFingerprint.Create(roots, RegistrySaveRules),
+                    _previewedSaveDirectoryFingerprint,
+                    StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or ArgumentException or IOException)
+        {
             return false;
-        IReadOnlyList<SaveRootRule> roots = BuildPreviewSaveRoots();
-        return roots.All(root => Directory.Exists(root.Path))
-            && string.Equals(
-                SaveProfileFingerprint.Create(roots, RegistrySaveRules),
-                _previewedSaveDirectoryFingerprint,
-                StringComparison.Ordinal);
+        }
     }
 
     private void InvalidateSavePreview(string message)
@@ -1315,6 +1383,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _previewedSaveDirectory = null;
         _previewedSaveDirectoryFingerprint = null;
         SaveRootPreviews.Clear();
+        RegistrySavePreviews.Clear();
         SaveDirectoryPreviewText = message;
         AddGameWizard.RefreshValidation();
         RaiseCommandStates();
@@ -1327,13 +1396,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
             IReadOnlyList<SaveRootRule> roots = BuildPreviewSaveRoots();
             SaveProfilePreview preview = await _saveDirectoryPreviewService.PreviewProfileAsync(
                 roots, RegistrySaveRules.ToArray(), CancellationToken.None);
+            IReadOnlyList<RegistrySavePreview> registryPreviews = await _registrySaveSnapshotService.PreviewAsync(
+                RegistrySaveRules.ToArray(), CancellationToken.None);
             FileCount = preview.TotalFiles;
             LogicalSizeText = FormatBytes(preview.TotalSize);
             _previewedSaveDirectory = Path.GetFullPath(SaveDirectory);
             _previewedSaveDirectoryFingerprint = preview.Fingerprint;
             SaveRootPreviews.Clear();
             foreach (SaveRootPreview root in preview.Roots) SaveRootPreviews.Add(root);
-            string warnings = preview.Warnings.Count == 0 ? string.Empty : " 警告：" + string.Join("；", preview.Warnings);
+            RegistrySavePreviews.Clear();
+            foreach (RegistrySavePreview registry in registryPreviews) RegistrySavePreviews.Add(registry);
+            string[] allWarnings = preview.Warnings.Concat(registryPreviews
+                .Where(item => !item.CanConfirm)
+                .Select(item => $"{item.Rule.RuleId}：{item.Summary}"))
+                .ToArray();
+            string warnings = allWarnings.Length == 0 ? string.Empty : " 警告：" + string.Join("；", allWarnings);
             SaveDirectoryPreviewText = $"{preview.Roots.Count} 个目录，共 {preview.TotalFiles} 个文件、{FormatBytes(preview.TotalSize)}；最近修改：{preview.LatestWriteTimeUtc?.ToLocalTime():g}。" + warnings;
             StatusText = "完整存档配置预览完成；确认后所有目录和规则才允许同步。";
             AddGameWizard.RefreshValidation();
@@ -1823,19 +1900,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             GameIdentity identity = GetCurrentGameIdentity();
-            GameLaunchProfile launchProfile = CreateLaunchProfile(identity)
-                ?? throw new InvalidOperationException("未找到有效的游戏启动配置。");
-            launchProfile = launchProfile with
-            {
-                Arguments = string.IsNullOrWhiteSpace(AddGameWizard.Arguments) ? null : AddGameWizard.Arguments.Trim(),
-                WorkingDirectory = string.IsNullOrWhiteSpace(AddGameWizard.WorkingDirectory)
-                    ? launchProfile.WorkingDirectory
-                    : AddGameWizard.WorkingDirectory.Trim(),
-                RunAsAdministrator = AddGameWizard.RunAsAdministrator,
-                MonitoredProcessNames = string.IsNullOrWhiteSpace(AddGameWizard.MonitoredProcessName)
-                    ? launchProfile.MonitoredProcessNames
-                    : [AddGameWizard.MonitoredProcessName.Trim()]
-            };
+            GameLaunchProfile launchProfile = BuildPendingLaunchProfile();
+            string? validationError = ValidateLaunchProfile(launchProfile, requireResolvedShortcut: true);
+            if (validationError is not null) throw new InvalidOperationException(validationError);
             GameLaunchResult result = await _gameLaunchService.LaunchAsync(
                 launchProfile, identity.InstallDirectory, CancellationToken.None);
             string[] detectedNames = result.DetectedProcesses
@@ -2256,6 +2323,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IReadOnlyList<SaveRootRule> AdditionalSaveRoots,
         IReadOnlyList<RegistrySaveRule> RegistrySaveRules,
         IReadOnlyList<SaveRootPreview> SaveRootPreviews,
+        IReadOnlyList<RegistrySavePreview> RegistrySavePreviews,
         string? PreviewedSaveDirectory,
         string? PreviewedSaveDirectoryFingerprint,
         string SaveDirectoryPreviewText,

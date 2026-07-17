@@ -48,7 +48,7 @@
                             <Border.Style><Style TargetType="Border" BasedOn="{StaticResource WizardStepPanel}"><Style.Triggers><DataTrigger Binding="{Binding Step}" Value="1"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style>
                             <StackPanel>
                                 <TextBlock Foreground="{DynamicResource Text}" FontSize="20" FontWeight="SemiBold" Text="选择来源"/>
-                                <TextBlock Margin="0,8,0,16" Foreground="{DynamicResource Muted}" Text="扫描平台游戏、选择本地 EXE/LNK，或直接手动创建。" TextWrapping="Wrap"/>
+                                <TextBlock Margin="0,8,0,16" Foreground="{DynamicResource Muted}" Text="扫描平台游戏，或选择本地 EXE/LNK 创建自定义游戏。" TextWrapping="Wrap"/>
                                 <WrapPanel>
                                     <Button Margin="0,0,10,10" Style="{StaticResource ButtonStyle}" Command="{Binding Host.DiscoverGamesCommand}" Content="扫描 Steam / Epic / GOG"/>
                                     <Button Margin="0,0,10,10" Style="{StaticResource ButtonStyle}" Click="ChooseLocalGameExecutableButton_OnClick" Content="选择本地 EXE 或快捷方式"/>
@@ -125,14 +125,25 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                                <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding Host.RegistrySavePreviews}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,3" Padding="10" Background="{DynamicResource ItemBackground}" CornerRadius="8">
+                                                <StackPanel>
+                                                    <TextBlock Foreground="{DynamicResource Text}" Text="{Binding Rule.KeyPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Rule.KeyPath}"/>
+                                                    <TextBlock Margin="0,4,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="{Binding Summary}" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </StackPanel>
                         </Border>
                         <Border>
                             <Border.Style><Style TargetType="Border" BasedOn="{StaticResource WizardStepPanel}"><Style.Triggers><DataTrigger Binding="{Binding Step}" Value="5"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style>
                             <StackPanel>
                                 <TextBlock Foreground="{DynamicResource Text}" FontSize="20" FontWeight="SemiBold" Text="保护方式"/>
-                                <RadioButton Margin="0,18,0,0" Foreground="{DynamicResource Text}" GroupName="Protection" IsChecked="True" Content="仅手动备份"/>
-                                <CheckBox Margin="0,16,0,0" Foreground="{DynamicResource Text}" IsChecked="{Binding EnableAutomaticBackup}" Content="游戏退出后自动备份"/>
+                                <CheckBox Margin="0,18,0,0" Foreground="{DynamicResource Text}" IsChecked="{Binding EnableAutomaticBackup}" Content="游戏退出后自动备份（未勾选时仅手动备份）"/>
                                 <TextBlock Margin="24,8,0,0" Foreground="{DynamicResource Muted}" Text="自动备份仅在启动验证通过、监控进程存在且存档目录已确认时启用。" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>

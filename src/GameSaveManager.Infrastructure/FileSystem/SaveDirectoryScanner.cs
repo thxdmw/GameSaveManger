@@ -1,5 +1,6 @@
 ﻿using GameSaveManager.Application.Files;
 using GameSaveManager.Application.Games;
+using GameSaveManager.Application;
 
 namespace GameSaveManager.Infrastructure.FileSystem;
 
@@ -10,7 +11,14 @@ public sealed class SaveDirectoryScanner : ISaveDirectoryScanner
         ScanAsync(SaveRootRule.CreateDefault(saveDirectory, Application.Discovery.SaveLocationSource.Manual, 100, true), cancellationToken);
 
     public Task<IReadOnlyList<ScannedSaveFile>> ScanAsync(SaveRootRule rule, CancellationToken cancellationToken)
+        => ScanAsync(rule, GameSaveProtocolLimits.MaximumManifestFiles + 1, cancellationToken);
+
+    public Task<IReadOnlyList<ScannedSaveFile>> ScanAsync(
+        SaveRootRule rule,
+        int maximumFiles,
+        CancellationToken cancellationToken)
     {
+        if (maximumFiles <= 0) throw new ArgumentOutOfRangeException(nameof(maximumFiles));
         SaveRuleMatcher.Validate(rule);
         string root = Path.GetFullPath(rule.Path);
         if (!Directory.Exists(root)) throw new DirectoryNotFoundException($"存档目录不存在: {root}");
@@ -25,6 +33,7 @@ public sealed class SaveDirectoryScanner : ISaveDirectoryScanner
                 string relative = Path.GetRelativePath(root, info.FullName).Replace('\\', '/');
                 if (!SaveRuleMatcher.Includes(rule, relative)) continue;
                 result.Add(new ScannedSaveFile(relative, info.FullName, info.Length, info.LastWriteTimeUtc));
+                if (result.Count >= maximumFiles) break;
             }
             return result;
         }, cancellationToken);

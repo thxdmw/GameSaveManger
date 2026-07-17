@@ -8,8 +8,14 @@ namespace GameSaveManager.Infrastructure.FileSystem;
 public sealed class SaveDirectoryPreviewService(ISaveDirectoryScanner scanner) : ISaveDirectoryPreviewService
 {
     public async Task<SaveDirectoryPreview> PreviewAsync(SaveRootRule rule, CancellationToken cancellationToken)
+        => await PreviewAsync(rule, GameSaveProtocolLimits.MaximumManifestFiles + 1, cancellationToken);
+
+    private async Task<SaveDirectoryPreview> PreviewAsync(
+        SaveRootRule rule,
+        int maximumFiles,
+        CancellationToken cancellationToken)
     {
-        IReadOnlyList<ScannedSaveFile> files = await scanner.ScanAsync(rule, cancellationToken);
+        IReadOnlyList<ScannedSaveFile> files = await scanner.ScanAsync(rule, maximumFiles, cancellationToken);
         long total = files.Sum(file => file.Size);
         DateTime? latest = files.Count == 0 ? null : files.Max(file => file.LastWriteTimeUtc);
         string[] recent = files.OrderByDescending(file => file.LastWriteTimeUtc).Take(5).Select(file => file.RelativePath).ToArray();
@@ -29,6 +35,7 @@ public sealed class SaveDirectoryPreviewService(ISaveDirectoryScanner scanner) :
         CancellationToken cancellationToken)
     {
         if (roots.Count == 0) throw new InvalidOperationException("至少需要一个存档目录。");
+        SaveRootTopologyValidator.Validate(roots);
         var previews = new List<SaveRootPreview>(roots.Count);
         var warnings = new List<string>();
         int totalFiles = 0;
@@ -36,7 +43,9 @@ public sealed class SaveDirectoryPreviewService(ISaveDirectoryScanner scanner) :
         DateTime? latest = null;
         foreach (SaveRootRule rule in roots.OrderBy(item => item.RootId, StringComparer.OrdinalIgnoreCase))
         {
-            SaveDirectoryPreview preview = await PreviewAsync(rule, cancellationToken);
+            int remainingUntilOverflow = Math.Max(1,
+                GameSaveProtocolLimits.MaximumManifestFiles + 1 - totalFiles);
+            SaveDirectoryPreview preview = await PreviewAsync(rule, remainingUntilOverflow, cancellationToken);
             previews.Add(new SaveRootPreview(rule, preview.FileCount, preview.TotalSize,
                 preview.LatestWriteTimeUtc, preview.Warnings));
             totalFiles = checked(totalFiles + preview.FileCount);
@@ -44,6 +53,7 @@ public sealed class SaveDirectoryPreviewService(ISaveDirectoryScanner scanner) :
             if (preview.LatestWriteTimeUtc is { } rootLatest
                 && (latest is null || rootLatest > latest.Value)) latest = rootLatest;
             warnings.AddRange(preview.Warnings.Select(message => $"{rule.RootId}：{message}"));
+            if (totalFiles > GameSaveProtocolLimits.MaximumManifestFiles) break;
         }
         if (totalFiles > GameSaveProtocolLimits.MaximumManifestFiles
             && !warnings.Contains(GameSaveProtocolLimits.ManifestFileLimitMessage, StringComparer.Ordinal))

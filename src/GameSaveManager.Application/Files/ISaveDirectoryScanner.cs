@@ -6,4 +6,8 @@ public interface ISaveDirectoryScanner
 {
     Task<IReadOnlyList<ScannedSaveFile>> ScanAsync(string saveDirectory, CancellationToken cancellationToken);
     Task<IReadOnlyList<ScannedSaveFile>> ScanAsync(SaveRootRule rule, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ScannedSaveFile>> ScanAsync(
+        SaveRootRule rule,
+        int maximumFiles,
+        CancellationToken cancellationToken);
 }

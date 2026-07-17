@@ -68,10 +68,14 @@ jobs:
       - name: 发布并检查第三方资源
         shell: pwsh
         run: |
-          dotnet publish .\src\GameSaveManager.App\GameSaveManager.App.csproj -c Release -r win-x64 --self-contained false -o .\publish *>&1 | Tee-Object -FilePath dotnet-publish.log
+          dotnet publish .\src\GameSaveManager.App\GameSaveManager.App.csproj -c Release -r win-x64 --self-contained false -o .\publish\framework-dependent *>&1 | Tee-Object -FilePath dotnet-publish.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not (Test-Path .\publish\Assets\ludusavi-manifest.yaml)) { throw '缺少 Ludusavi Manifest' }
-          if (-not (Test-Path .\publish\Assets\NOTICE-Ludusavi-manifest.txt)) { throw '缺少 Ludusavi NOTICE' }
+          dotnet publish .\src\GameSaveManager.App\GameSaveManager.App.csproj -c Release -r win-x64 --self-contained true -o .\publish\self-contained-win-x64 *>&1 | Tee-Object -FilePath dotnet-publish-self-contained.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($package in @('.\publish\framework-dependent', '.\publish\self-contained-win-x64')) {
+            if (-not (Test-Path "$package\Assets\ludusavi-manifest.yaml")) { throw "$package 缺少 Ludusavi Manifest" }
+            if (-not (Test-Path "$package\Assets\NOTICE-Ludusavi-manifest.txt")) { throw "$package 缺少 Ludusavi NOTICE" }
+          }
 
       - name: 上传 .NET 构建日志
         if: always()
@@ -85,6 +89,7 @@ jobs:
             dotnet-test.log
             dotnet-verification.log
             dotnet-publish.log
+            dotnet-publish-self-contained.log
           if-no-files-found: warn
           retention-days: 7
 

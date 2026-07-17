@@ -64,6 +64,7 @@ public sealed class SaveConfigurationViewModel : INotifyPropertyChanged
     }
     public ObservableCollection<SaveRootRule> AdditionalSaveRoots => _owner.AdditionalSaveRoots;
     public ObservableCollection<SaveRootPreview> SaveRootPreviews => _owner.SaveRootPreviews;
+    public ObservableCollection<RegistrySavePreview> RegistrySavePreviews => _owner.RegistrySavePreviews;
     public SaveRootRule? SelectedAdditionalSaveRoot
     {
         get => _owner.SelectedAdditionalSaveRoot;

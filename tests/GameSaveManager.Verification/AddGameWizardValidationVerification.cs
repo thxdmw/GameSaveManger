@@ -1,6 +1,9 @@
 using System.Reflection;
 using GameSaveManager.App.ViewModels;
 using GameSaveManager.Application.Discovery;
+using GameSaveManager.Application.Files;
+using GameSaveManager.Application.Games;
+using GameSaveManager.Infrastructure.FileSystem;
 
 namespace GameSaveManager.Verification;
 
@@ -29,6 +32,11 @@ internal static class AddGameWizardValidationVerification
             viewModel.SelectedDiscoveredGame = new DiscoveredGame(new GameIdentity(
                 "验证游戏", GameIdentity.Local, null, gameDirectory, executable, "launcher"));
             Ensure(wizard.TryMoveNext() && wizard.Step == 2, "有效来源应允许进入启动配置。");
+
+            wizard.WorkingDirectory = Path.Combine(root, "missing-working-directory");
+            Ensure(!wizard.CanMoveNext,
+                "即使只使用手动备份，不存在的工作目录也不得通过启动配置校验。");
+            wizard.WorkingDirectory = gameDirectory;
 
             wizard.SetDetectedProcesses(["launcher", "real-game"]);
             wizard.LaunchValidated = true;
@@ -64,6 +72,28 @@ internal static class AddGameWizardValidationVerification
             Ensure(wizard.TryMoveNext() && wizard.Step == 6 && wizard.IsFinalConfigurationValid,
                 "全部条件满足后才应允许最终提交。" );
             viewModel.EndAddGameWizard(completed: false);
+
+            SaveRootRule primaryRule = SaveRootRule.CreateDefault(
+                primary, SaveLocationSource.Manual, 100, false);
+            SaveRootRule nestedRule = new("root2", Path.Combine(primary, "nested"), [], [],
+                SaveLocationSource.Manual, 100, false);
+            Directory.CreateDirectory(nestedRule.Path);
+            ExpectThrows<InvalidOperationException>(() =>
+                SaveRootTopologyValidator.Validate([primaryRule, nestedRule]));
+            string driveRoot = Path.GetPathRoot(root)
+                ?? throw new InvalidOperationException("测试目录缺少磁盘根路径。");
+            ExpectThrows<InvalidOperationException>(() => SaveRootTopologyValidator.Validate([
+                SaveRootRule.CreateDefault(driveRoot, SaveLocationSource.Manual, 100, false)
+            ]));
+
+            string overflow = Path.Combine(root, "overflow");
+            Directory.CreateDirectory(overflow);
+            for (int index = 0; index < 5002; index++)
+                await File.WriteAllTextAsync(Path.Combine(overflow, $"{index}.sav"), string.Empty);
+            IReadOnlyList<ScannedSaveFile> capped = await new SaveDirectoryScanner().ScanAsync(
+                SaveRootRule.CreateDefault(overflow, SaveLocationSource.Manual, 100, false),
+                CancellationToken.None);
+            Ensure(capped.Count == 5001, "目录扫描达到协议上限加一后必须提前终止。");
         }
         finally
         {
@@ -90,5 +120,12 @@ internal static class AddGameWizardValidationVerification
     private static void Ensure(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static void ExpectThrows<TException>(Action action) where TException : Exception
+    {
+        try { action(); }
+        catch (TException) { return; }
+        throw new InvalidOperationException($"预期抛出 {typeof(TException).Name}。");
     }
 }
