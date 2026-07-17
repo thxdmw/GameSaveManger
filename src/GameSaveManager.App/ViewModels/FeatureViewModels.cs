@@ -46,7 +46,8 @@ public sealed class SaveConfigurationViewModel : INotifyPropertyChanged
     {
         _owner = owner;
         _owner.PropertyChanged += (_, args) => PropertyChanged?.Invoke(this, args);
-        ApplySelectedRootPatternsCommand = new DelegateCommand(_ => ApplySelectedRootPatterns(), _ => SelectedAdditionalSaveRoot is not null);
+        ApplySelectedRootPatternsCommand = new AsyncCommand(ApplySelectedRootPatternsAsync,
+            () => SelectedAdditionalSaveRoot is not null);
     }
 
     public string SaveDirectory { get => _owner.SaveDirectory; set => _owner.SaveDirectory = value; }
@@ -73,7 +74,7 @@ public sealed class SaveConfigurationViewModel : INotifyPropertyChanged
             _owner.SelectedAdditionalSaveRoot = value;
             IncludePatternsText = value is null ? string.Empty : string.Join(Environment.NewLine, value.IncludePatterns);
             ExcludePatternsText = value is null ? string.Empty : string.Join(Environment.NewLine, value.ExcludePatterns);
-            if (ApplySelectedRootPatternsCommand is DelegateCommand command) command.RaiseCanExecuteChanged();
+            if (ApplySelectedRootPatternsCommand is AsyncCommand command) command.RaiseCanExecuteChanged();
         }
     }
     public ObservableCollection<RegistrySaveRule> RegistrySaveRules => _owner.RegistrySaveRules;
@@ -105,12 +106,12 @@ public sealed class SaveConfigurationViewModel : INotifyPropertyChanged
         set { if (_excludePatternsText != value) { _excludePatternsText = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ExcludePatternsText))); } }
     }
 
-    private void ApplySelectedRootPatterns()
+    private async Task ApplySelectedRootPatternsAsync()
     {
         if (SelectedAdditionalSaveRoot is null) throw new InvalidOperationException("请先选择附加目录。");
         string[] includes = ParsePatterns(IncludePatternsText);
         string[] excludes = ParsePatterns(ExcludePatternsText);
-        _owner.UpdateAdditionalSaveRootRules(SelectedAdditionalSaveRoot with
+        await _owner.UpdateAdditionalSaveRootRulesAsync(SelectedAdditionalSaveRoot with
         {
             IncludePatterns = includes,
             ExcludePatterns = excludes,

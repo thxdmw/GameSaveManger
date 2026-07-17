@@ -6,6 +6,7 @@ using GameSaveManager.Application.Launching;
 using GameSaveManager.Application.Games;
 using GameSaveManager.Application.Monitoring;
 using GameSaveManager.Application.Restores;
+using GameSaveManager.Application.Security;
 using GameSaveManager.Application.Snapshots;
 using GameSaveManager.Application.Startup;
 using GameSaveManager.Application.Sync;
@@ -21,7 +22,10 @@ namespace GameSaveManager.Verification;
 
 internal static class SmokeViewModelFactory
 {
-    public static MainViewModel Create(ILocalGameProfileStore? profileStore = null)
+    public static MainViewModel Create(
+        ILocalGameProfileStore? profileStore = null,
+        IAutoSyncCoordinator? autoSyncCoordinator = null,
+        ICredentialStore? credentialStore = null)
     {
         var database = new SqliteDatabase(Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", "smoke.db"));
         var fileHashService = new FileHashService();
@@ -41,7 +45,7 @@ internal static class SmokeViewModelFactory
             apiClient,
             syncService,
             restoreService,
-            new MultiGameAutoSyncCoordinator(),
+            autoSyncCoordinator ?? new MultiGameAutoSyncCoordinator(),
             new SnapshotExportService(apiClient, new ContentObjectCache(fileHashService), fileHashService),
             new WindowsGameDiscoveryService(),
             new WindowsSaveLocationDetector(),
@@ -51,7 +55,7 @@ internal static class SmokeViewModelFactory
             new GameLaunchProfileMerger(),
             new WindowsShortcutResolver(),
             profileStore ?? new SqliteLocalGameProfileStore(database),
-            new WindowsCredentialStore(),
+            credentialStore ?? new WindowsCredentialStore(),
             new SqliteDeviceIdentityProvider(database),
             new NullLogger(),
             new DisabledAutoStartService(),

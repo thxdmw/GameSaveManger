@@ -33,8 +33,9 @@ public sealed class SaveDirectoryScanner : ISaveDirectoryScanner
     {
         ValidateBudget(budget);
         SaveRuleMatcher.Validate(rule);
-        string root = Path.GetFullPath(rule.Path);
+        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rule.Path));
         if (!Directory.Exists(root)) throw new DirectoryNotFoundException($"存档目录不存在: {root}");
+        SaveRootTopologyValidator.ValidateNoReparsePointTraversal(root);
         return Task.Run(() =>
         {
             var stopwatch = Stopwatch.StartNew();
@@ -68,6 +69,7 @@ public sealed class SaveDirectoryScanner : ISaveDirectoryScanner
                             truncationReason = $"扫描超过 {budget.MaximumDuration.TotalSeconds:0} 秒，结果仅为部分预览。";
                             break;
                         }
+                        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) continue;
                         var info = new FileInfo(path);
                         string relative = Path.GetRelativePath(root, info.FullName).Replace('\\', '/');
                         if (!SaveRuleMatcher.Includes(rule, relative)) continue;

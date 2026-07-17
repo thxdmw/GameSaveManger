@@ -28,6 +28,8 @@ public sealed class SaveDirectoryPreviewService(ISaveDirectoryScanner scanner) :
             warnings.Add(GameSaveProtocolLimits.ManifestFileLimitMessage);
         if (scan.WasTruncated)
             warnings.Add(scan.TruncationReason ?? "扫描达到安全预算，当前数字表示至少已发现的数量。");
+        if (SaveRootTopologyValidator.IsInProgramFilesArea(rule.Path))
+            warnings.Add("该目录位于程序安装区域；仅应确认当前游戏自己的具体存档子目录。");
         if (total >= 5L * 1024 * 1024 * 1024) warnings.Add("目录超过 5 GB，请确认没有包含无关内容。");
         else if (total >= 1024L * 1024 * 1024) warnings.Add("目录超过 1 GB，请确认没有包含无关内容。");
         return new SaveDirectoryPreview(files.Count, total, latest, recent, largest, warnings,

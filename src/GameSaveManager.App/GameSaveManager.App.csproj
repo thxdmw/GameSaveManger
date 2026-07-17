@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>GameSaveManager</AssemblyName>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
     <ApplicationIcon>Assets\GameSaveManager_256.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>

@@ -80,6 +80,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isAuthenticated;
     private string _authenticatedUsername = string.Empty;
     private bool _isAutoSyncEnabled;
+    private bool _resumeAutomaticSyncAfterConfiguration;
     private bool _isAddGameWizardActive;
     private AddGameWizardReturnState? _addGameWizardReturnState;
     private bool _isSyncing;
@@ -377,6 +378,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _selectedGame, value))
             {
+                _resumeAutomaticSyncAfterConfiguration = false;
+                IsAutoSyncEnabled = false;
                 SaveDirectory = string.Empty;
                 AutoSnapshotProcessName = string.Empty;
                 AutoSnapshotExecutablePath = string.Empty;
@@ -386,7 +389,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 RegistrySaveRules.Clear();
                 SelectedRegistrySaveRule = null;
                 IsSaveDirectoryConfirmed = false;
-                IsAutoSyncEnabled = false;
                 Snapshots.Clear();
                 SelectedSnapshot = null;
                 ApplyDiscoveredIdentity(value);
@@ -1012,7 +1014,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SaveRootRule.CreateDefault(SaveDirectory, source, confidence, userConfirmed)
         };
         roots.AddRange(additionalRoots);
-        SaveRootTopologyValidator.Validate(roots);
+        SaveRootTopologyValidator.Validate(roots, GetCurrentGameIdentity().InstallDirectory);
         if (registryRules.Count > 0)
             roots.Add(new SaveRootRule("registry", GetRegistryCacheDirectory(server, gameId),
                 ["*.json", "**/*.json"], [], SaveLocationSource.Manual, 100, true));
@@ -1027,18 +1029,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var topologyRoots = new List<SaveRootRule> { BuildPrimarySaveRootRule() };
         topologyRoots.AddRange(AdditionalSaveRoots);
         topologyRoots.Add(new SaveRootRule("pending", path, [], [], SaveLocationSource.Manual, 100, false));
-        SaveRootTopologyValidator.Validate(topologyRoots);
+        SaveRootTopologyValidator.Validate(topologyRoots, GetCurrentGameIdentity().InstallDirectory);
         string rootId;
         int index = 2;
         do rootId = $"root{index++}"; while (AdditionalSaveRoots.Any(root => string.Equals(root.RootId, rootId, StringComparison.OrdinalIgnoreCase)));
         AdditionalSaveRoots.Add(new SaveRootRule(rootId, path, [], [], SaveLocationSource.Manual, 100, false));
         InvalidateSavePreview("附加存档目录已变化，请重新预览完整配置并确认全部规则。");
+        await SuspendAutomaticSyncForConfigurationAsync();
         AdditionalSaveRootPath = string.Empty;
         StatusText = $"已添加待确认的附加存档目录：{path}。完整预览并确认后才会参与同步。";
-        if (IsAuthenticated && SelectedGame is not null) { Uri server = ParseServerUri(); await RefreshAutomaticSyncConfigurationAsync(server, await RequireDeviceTokenAsync(server), await SaveLocalProfileAsync(server, IsAutoSyncEnabled)); }
+        if (IsAuthenticated && SelectedGame is not null)
+            await SaveLocalProfileAsync(ParseServerUri(), autoSnapshotEnabled: false);
     }
 
-    private Task AddRegistrySaveRuleAsync()
+    private async Task AddRegistrySaveRuleAsync()
     {
         string keyPath = RegistrySaveKeyPath.Trim();
         if (!(keyPath.StartsWith("HKCU\\", StringComparison.OrdinalIgnoreCase) || keyPath.StartsWith("HKEY_CURRENT_USER\\", StringComparison.OrdinalIgnoreCase)))
@@ -1048,31 +1052,33 @@ public sealed class MainViewModel : INotifyPropertyChanged
         int index = 1; string ruleId; do ruleId = $"registry{index++}"; while (RegistrySaveRules.Any(rule => string.Equals(rule.RuleId, ruleId, StringComparison.OrdinalIgnoreCase)));
         RegistrySaveRules.Add(new RegistrySaveRule(ruleId, keyPath, false));
         InvalidateSavePreview("注册表存档规则已变化，请重新预览并确认。");
+        await SuspendAutomaticSyncForConfigurationAsync();
         RegistrySaveKeyPath = string.Empty;
         StatusText = "已添加注册表存档路径；同步前会导出为受控 JSON。";
-        return Task.CompletedTask;
     }
 
-    private Task RemoveRegistrySaveRuleAsync()
+    private async Task RemoveRegistrySaveRuleAsync()
     {
         if (SelectedRegistrySaveRule is null) throw new InvalidOperationException("请先选择要移除的注册表路径。");
         RegistrySaveRules.Remove(SelectedRegistrySaveRule);
         InvalidateSavePreview("注册表存档规则已变化，请重新预览并确认。");
+        await SuspendAutomaticSyncForConfigurationAsync();
         SelectedRegistrySaveRule = null;
         StatusText = "已移除注册表存档路径；保存或同步后会更新本机配置。";
-        return Task.CompletedTask;
     }
     private async Task RemoveAdditionalSaveRootAsync()
     {
         if (SelectedAdditionalSaveRoot is null) throw new InvalidOperationException("请先选择要移除的附加存档目录。");
         AdditionalSaveRoots.Remove(SelectedAdditionalSaveRoot);
         InvalidateSavePreview("附加存档目录已变化，请重新预览并确认全部规则。");
+        await SuspendAutomaticSyncForConfigurationAsync();
         SelectedAdditionalSaveRoot = null;
         StatusText = "已移除附加存档目录；保存或同步后会更新本机配置。";
-        if (IsAuthenticated && SelectedGame is not null) { Uri server = ParseServerUri(); await RefreshAutomaticSyncConfigurationAsync(server, await RequireDeviceTokenAsync(server), await SaveLocalProfileAsync(server, IsAutoSyncEnabled)); }
+        if (IsAuthenticated && SelectedGame is not null)
+            await SaveLocalProfileAsync(ParseServerUri(), autoSnapshotEnabled: false);
     }
 
-    public void UpdateAdditionalSaveRootRules(SaveRootRule updatedRoot)
+    public async Task UpdateAdditionalSaveRootRulesAsync(SaveRootRule updatedRoot)
     {
         int index = AdditionalSaveRoots.ToList().FindIndex(root =>
             string.Equals(root.RootId, updatedRoot.RootId, StringComparison.OrdinalIgnoreCase));
@@ -1080,6 +1086,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         AdditionalSaveRoots[index] = updatedRoot;
         SelectedAdditionalSaveRoot = updatedRoot;
         InvalidateSavePreview("包含/排除规则已变化，请重新预览完整配置并确认。");
+        await SuspendAutomaticSyncForConfigurationAsync();
         StatusText = "附加目录扫描规则已更新，重新预览前不会参与同步。";
     }
     private async Task<LocalGameProfile> SaveLocalProfileAsync(
@@ -1247,6 +1254,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         await _autoSyncCoordinator.DisableAsync(profile.GameId);
         if (profile.AutoSnapshotEnabled) await EnableAutomaticSyncAsync(server, token, profile.GameId, profile);
     }
+
+    private async Task SuspendAutomaticSyncForConfigurationAsync()
+    {
+        if (SelectedGame is null) return;
+        bool active = IsAutoSyncEnabled
+            || _autoSyncCoordinator.ActiveGameIds.Contains(SelectedGame.GameId)
+            || (_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? profile)
+                && profile.AutoSnapshotEnabled);
+        _resumeAutomaticSyncAfterConfiguration |= active;
+        await _autoSyncCoordinator.DisableAsync(SelectedGame.GameId);
+        IsAutoSyncEnabled = false;
+    }
     private async Task ReloadRetentionAsync()
     {
         try
@@ -1390,7 +1409,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         var roots = new List<SaveRootRule> { BuildPrimarySaveRootRule() };
         roots.AddRange(AdditionalSaveRoots.Select(root => root with { UserConfirmed = false }));
-        SaveRootTopologyValidator.Validate(roots);
+        SaveRootTopologyValidator.Validate(roots, GetCurrentGameIdentity().InstallDirectory);
         return roots;
     }
 
@@ -1423,6 +1442,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void InvalidateSavePreview(string message)
     {
+        if (SelectedGame is not null && (IsAutoSyncEnabled
+            || _autoSyncCoordinator.ActiveGameIds.Contains(SelectedGame.GameId)))
+            _resumeAutomaticSyncAfterConfiguration = true;
         IsSaveDirectoryConfirmed = false;
         _previewedSaveDirectory = null;
         _previewedSaveDirectoryFingerprint = null;
@@ -1436,6 +1458,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         try
         {
+            await SuspendAutomaticSyncForConfigurationAsync();
             if (string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory)) throw new InvalidOperationException("请选择存在的存档目录。");
             IReadOnlyList<SaveRootRule> roots = BuildPreviewSaveRoots();
             SaveProfilePreview preview = await _saveDirectoryPreviewService.PreviewProfileAsync(
@@ -1480,7 +1503,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var draft = new SaveProfileConfirmationDraft(
                 true, confirmedAdditionalRoots, confirmedRegistryRules);
             if (SelectedGame is not null)
-                await SaveLocalProfileAsync(ParseServerUri(), IsAutoSyncEnabled, draft);
+            {
+                Uri server = ParseServerUri();
+                bool desiredAutoSync = _resumeAutomaticSyncAfterConfiguration || IsAutoSyncEnabled
+                    || (_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? existing)
+                        && existing.AutoSnapshotEnabled);
+                string token = desiredAutoSync ? await RequireDeviceTokenAsync(server) : string.Empty;
+                LocalGameProfile savedProfile = await SaveLocalProfileAsync(server, desiredAutoSync, draft);
+                await RefreshAutomaticSyncConfigurationAsync(server, token, savedProfile);
+                IsAutoSyncEnabled = _autoSyncCoordinator.ActiveGameIds.Contains(savedProfile.GameId);
+                if (desiredAutoSync && !IsAutoSyncEnabled)
+                    throw new InvalidOperationException("存档配置已保存，但自动同步监控未能重新启动。");
+                _resumeAutomaticSyncAfterConfiguration = false;
+            }
             AdditionalSaveRoots.Clear();
             foreach (SaveRootRule root in confirmedAdditionalRoots) AdditionalSaveRoots.Add(root);
             RegistrySaveRules.Clear();
@@ -1489,7 +1524,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             StatusText = $"已确认完整存档配置：{SaveRootPreviews.Count} 个目录、{FileCount} 个文件，{LogicalSizeText}。现在可以同步。";
             AddGameWizard.RefreshValidation();
         }
-        catch (Exception exception) { ShowError("确认存档目录失败", exception); }
+        catch (Exception exception)
+        {
+            IsAutoSyncEnabled = SelectedGame is not null
+                && _autoSyncCoordinator.ActiveGameIds.Contains(SelectedGame.GameId);
+            ShowError("确认存档目录失败", exception);
+        }
     }
 
     private async Task StartSaveLearningAsync()

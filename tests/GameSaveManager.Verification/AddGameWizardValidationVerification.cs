@@ -3,6 +3,8 @@ using GameSaveManager.App.ViewModels;
 using GameSaveManager.Application.Discovery;
 using GameSaveManager.Application.Files;
 using GameSaveManager.Application.Games;
+using GameSaveManager.Application.Monitoring;
+using GameSaveManager.Application.Security;
 using GameSaveManager.Infrastructure.FileSystem;
 
 namespace GameSaveManager.Verification;
@@ -15,9 +17,11 @@ internal static class AddGameWizardValidationVerification
         string gameDirectory = Path.Combine(root, "game");
         string primary = Path.Combine(root, "primary");
         string additional = Path.Combine(root, "additional");
+        string outside = root + "-outside";
         Directory.CreateDirectory(gameDirectory);
         Directory.CreateDirectory(primary);
         Directory.CreateDirectory(additional);
+        Directory.CreateDirectory(outside);
         string executable = Path.Combine(gameDirectory, "game.exe");
         await File.WriteAllBytesAsync(executable, [0x4d, 0x5a]);
         await File.WriteAllTextAsync(Path.Combine(primary, "a.sav"), "a");
@@ -114,6 +118,38 @@ internal static class AddGameWizardValidationVerification
                 && excludedBudget.VisitedFileCount == 10,
                 "大量被排除文件也必须受独立访问文件预算限制。");
 
+            string outsideFile = Path.Combine(outside, "private.dat");
+            await File.WriteAllTextAsync(outsideFile, "private");
+            string linkedFile = Path.Combine(primary, "linked-private.dat");
+            if (TryCreateFileSymbolicLink(linkedFile, outsideFile))
+            {
+                IReadOnlyList<ScannedSaveFile> safeFiles = await new SaveDirectoryScanner().ScanAsync(
+                    SaveRootRule.CreateDefault(primary, SaveLocationSource.Manual, 100, false),
+                    CancellationToken.None);
+                Ensure(safeFiles.All(file => !string.Equals(file.FullPath, linkedFile,
+                        StringComparison.OrdinalIgnoreCase)),
+                    "文件符号链接不得被读取、Hash 或上传。");
+            }
+
+            string linkedDirectory = Path.Combine(root, "linked-root");
+            if (TryCreateDirectorySymbolicLink(linkedDirectory, outside))
+            {
+                ExpectThrows<InvalidOperationException>(() => SaveRootTopologyValidator.Validate([
+                    SaveRootRule.CreateDefault(linkedDirectory, SaveLocationSource.Manual, 100, false)
+                ]));
+                await ExpectThrowsAsync<InvalidOperationException>(() => new SaveDirectoryScanner().ScanAsync(
+                    SaveRootRule.CreateDefault(linkedDirectory, SaveLocationSource.Manual, 100, false),
+                    CancellationToken.None));
+
+                string linkedChild = Path.Combine(primary, "linked-child");
+                Directory.CreateSymbolicLink(linkedChild, outside);
+                IReadOnlyList<ScannedSaveFile> safeFiles = await new SaveDirectoryScanner().ScanAsync(
+                    SaveRootRule.CreateDefault(primary, SaveLocationSource.Manual, 100, false),
+                    CancellationToken.None);
+                Ensure(safeFiles.All(file => !file.RelativePath.StartsWith("linked-child/", StringComparison.Ordinal)),
+                    "Junction 或目录符号链接必须被跳过，不能越过存档根目录。");
+            }
+
             MainViewModel failingViewModel = SmokeViewModelFactory.Create(new FailingProfileStore());
             failingViewModel.SelectedGame = new GameSaveManager.Application.Api.CloudGame(
                 "persist-failure", "持久化失败验证", "CUSTOM", null);
@@ -133,10 +169,41 @@ internal static class AddGameWizardValidationVerification
             Ensure(manualOnlyViewModel.IsSaveDirectoryConfirmed
                 && recordingStore.SavedProfile is { EffectiveLaunchProfile: null, AutoSnapshotEnabled: false },
                 "旧云端游戏应允许只保存手动备份目录，并保持启动与自动备份禁用。");
+
+            var autoStore = new RecordingProfileStore();
+            var coordinator = new RecordingAutoSyncCoordinator();
+            MainViewModel autoViewModel = SmokeViewModelFactory.Create(
+                autoStore, coordinator, new FixedCredentialStore());
+            autoViewModel.SelectedGame = new GameSaveManager.Application.Api.CloudGame(
+                "auto-restart", "自动同步恢复验证", "CUSTOM", null);
+            await autoViewModel.SetAutoSnapshotExecutablePathAsync(executable);
+            autoViewModel.AutoSnapshotProcessName = "game";
+            autoViewModel.SaveDirectory = primary;
+            await InvokePrivateAsync(autoViewModel, "PreviewSaveDirectoryAsync");
+            await InvokePrivateAsync(autoViewModel, "ConfirmSaveDirectoryAsync");
+            await InvokePrivateAsync(autoViewModel, "StartAutoSnapshotAsync");
+            Ensure(coordinator.ActiveGameIds.Contains("auto-restart"), "自动同步监控应先成功启用。");
+
+            autoViewModel.SaveDirectory = additional;
+            await InvokePrivateAsync(autoViewModel, "PreviewSaveDirectoryAsync");
+            Ensure(!coordinator.ActiveGameIds.Contains("auto-restart") && !autoViewModel.IsAutoSyncEnabled,
+                "修改存档配置时必须临时停止监控且 UI 不得继续显示已启用。");
+            autoStore.FailSaves = true;
+            await InvokePrivateAsync(autoViewModel, "ConfirmSaveDirectoryAsync");
+            Ensure(!coordinator.ActiveGameIds.Contains("auto-restart") && !autoViewModel.IsAutoSyncEnabled
+                && !autoViewModel.IsSaveDirectoryConfirmed,
+                "确认持久化失败时不得重启监控或错误显示自动同步已启用。");
+            autoStore.FailSaves = false;
+            await InvokePrivateAsync(autoViewModel, "ConfirmSaveDirectoryAsync");
+            Ensure(coordinator.ActiveGameIds.Contains("auto-restart") && autoViewModel.IsAutoSyncEnabled,
+                "新存档配置确认后必须按原状态重新启动自动同步监控。");
+            Ensure(coordinator.LastProfile?.SaveDirectories.SequenceEqual([additional]) == true,
+                "重启后的监控必须只包含最新确认的存档目录。");
         }
         finally
         {
             try { Directory.Delete(root, recursive: true); } catch (IOException) { }
+            try { Directory.Delete(outside, recursive: true); } catch (IOException) { }
         }
     }
 
@@ -168,6 +235,25 @@ internal static class AddGameWizardValidationVerification
         throw new InvalidOperationException($"预期抛出 {typeof(TException).Name}。");
     }
 
+    private static async Task ExpectThrowsAsync<TException>(Func<Task> action) where TException : Exception
+    {
+        try { await action(); }
+        catch (TException) { return; }
+        throw new InvalidOperationException($"预期抛出 {typeof(TException).Name}。");
+    }
+
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try { File.CreateSymbolicLink(linkPath, targetPath); return true; }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException) { return false; }
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try { Directory.CreateSymbolicLink(linkPath, targetPath); return true; }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException) { return false; }
+    }
+
     private sealed class FailingProfileStore : ILocalGameProfileStore
     {
         public Task<LocalGameProfile?> GetAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
@@ -187,12 +273,14 @@ internal static class AddGameWizardValidationVerification
     private sealed class RecordingProfileStore : ILocalGameProfileStore
     {
         public LocalGameProfile? SavedProfile { get; private set; }
+        public bool FailSaves { get; set; }
 
         public Task<LocalGameProfile?> GetAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
             Task.FromResult<LocalGameProfile?>(null);
 
         public Task SaveAsync(LocalGameProfile profile, CancellationToken cancellationToken)
         {
+            if (FailSaves) return Task.FromException(new IOException("模拟配置确认持久化失败。"));
             SavedProfile = profile;
             return Task.CompletedTask;
         }
@@ -203,5 +291,45 @@ internal static class AddGameWizardValidationVerification
 
         public Task DeleteAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
             Task.CompletedTask;
+    }
+
+    private sealed class RecordingAutoSyncCoordinator : IAutoSyncCoordinator
+    {
+        private readonly HashSet<string> _active = new(StringComparer.Ordinal);
+        public IReadOnlyCollection<string> ActiveGameIds => _active.ToArray();
+        public AutoSnapshotProfile? LastProfile { get; private set; }
+
+        public Task EnableAsync(string gameId, AutoSnapshotProfile profile,
+            Func<CancellationToken, Task> onDirtyGameExitedAsync, CancellationToken cancellationToken)
+        {
+            LastProfile = profile;
+            _active.Add(gameId);
+            return Task.CompletedTask;
+        }
+
+        public Task DisableAsync(string gameId)
+        {
+            _active.Remove(gameId);
+            return Task.CompletedTask;
+        }
+
+        public Task DisableAllAsync()
+        {
+            _active.Clear();
+            return Task.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            _active.Clear();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FixedCredentialStore : ICredentialStore
+    {
+        public Task SaveAsync(string target, string secret, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<string?> ReadAsync(string target, CancellationToken cancellationToken) => Task.FromResult<string?>("token");
+        public Task DeleteAsync(string target, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }
