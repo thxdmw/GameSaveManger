@@ -200,7 +200,7 @@ dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verifi
 - 旧 `sync_state` schema 迁移。
 - 相同 `gameId` 在不同 `serverKey` 下的 HEAD 隔离。
 
-真实 CMS、对象存储、多设备冲突和异常恢复仍需按 [TODO.md](TODO.md) 执行集成验证。
+真实 CMS、对象存储、多设备冲突和异常恢复链路已经实现；正式发布前仍需按 [TODO.md](TODO.md) 在目标部署环境执行端到端验收。
 
 ## Windows 发布
 

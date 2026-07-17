@@ -65,6 +65,7 @@ await RunAsync("游戏启动不会保存或确认无关系统进程", GameSaveMa
 Run("CMS 无时区日期与时间戳可以兼容解析", CmsDateTimeOffsetVerification.Verify);
 Run("客户端与服务端协议限制和 JSON 样例保持一致", GameSaveManager.Verification.ProtocolContractVerification.Verify);
 Run("新增游戏来源切换不会复用上一款游戏配置", GameSaveManager.Verification.AddGameWizardStateVerification.VerifySelectionIsolationAndSaveNavigation);
+await RunAsync("添加向导逐步门禁与多根聚合预览有效", GameSaveManager.Verification.AddGameWizardValidationVerification.VerifyStepGatesAndAggregatePreviewAsync);
 Run("游戏详情同步摘要与进度按游戏隔离", GameSaveManager.Verification.GameDetailSyncStateVerification.VerifyPerGameSyncStateIsolation);
 Run("Desktop UI starts without WPF binding errors", GameSaveManager.Verification.WpfSmokeVerification.VerifyMainWindowLoadsWithoutBindingErrors);
 

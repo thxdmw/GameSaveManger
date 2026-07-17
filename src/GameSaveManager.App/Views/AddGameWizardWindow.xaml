@@ -75,6 +75,14 @@
                                     <Button Style="{StaticResource Primary}" Click="TestLaunchButton_OnClick" Content="测试启动"/>
                                     <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource Muted}" Text="{Binding LaunchValidationText}"/>
                                 </StackPanel>
+                                <ItemsControl Margin="0,12,0,0" ItemsSource="{Binding DetectedProcessOptions}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox Margin="0,4" Foreground="{DynamicResource Text}"
+                                                      IsChecked="{Binding IsSelected}" Content="{Binding ProcessName}"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </StackPanel>
                         </Border>
                         <Border>
@@ -105,6 +113,18 @@
                                 </StackPanel>
                                 <TextBlock Margin="0,14,0,0" Foreground="{DynamicResource Muted}" Text="{Binding Host.SaveDirectoryPreviewText}" TextWrapping="Wrap"/>
                                 <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Warning}" Text="{Binding Host.SaveDirectoryConfirmationText}"/>
+                                <ItemsControl Margin="0,12,0,0" ItemsSource="{Binding Host.SaveRootPreviews}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,3" Padding="10" Background="{DynamicResource ItemBackground}" CornerRadius="8">
+                                                <StackPanel>
+                                                    <TextBlock Foreground="{DynamicResource Text}" Text="{Binding Rule.Path}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Rule.Path}"/>
+                                                    <TextBlock Margin="0,4,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="{Binding Summary}" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </StackPanel>
                         </Border>
                         <Border>
@@ -133,9 +153,12 @@
                 </ScrollViewer>
                 <Grid Grid.Row="2">
                     <Button HorizontalAlignment="Left" Width="90" Style="{StaticResource ButtonStyle}" Click="PreviousButton_OnClick" Content="上一步"/>
+                    <TextBlock Margin="110,0,340,0" VerticalAlignment="Center" HorizontalAlignment="Stretch"
+                               Foreground="{DynamicResource Warning}" Text="{Binding StepValidationMessage}"
+                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
                     <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
                         <Button Width="90" Margin="0,0,10,0" Style="{StaticResource ButtonStyle}" IsCancel="True" Content="取消"/>
-                        <Button Width="100" Click="NextButton_OnClick" Content="下一步">
+                        <Button Width="100" Click="NextButton_OnClick" Content="下一步" IsEnabled="{Binding CanMoveNext}">
                             <Button.Style><Style TargetType="Button" BasedOn="{StaticResource Primary}"><Style.Triggers><DataTrigger Binding="{Binding Step}" Value="6"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Button.Style>
                         </Button>
                         <Button Width="120" Command="{Binding Host.CreateGameCommand}" Content="创建并完成">

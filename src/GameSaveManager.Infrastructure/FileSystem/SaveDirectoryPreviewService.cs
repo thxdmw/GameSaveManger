@@ -22,4 +22,36 @@ public sealed class SaveDirectoryPreviewService(ISaveDirectoryScanner scanner) :
         else if (total >= 1024L * 1024 * 1024) warnings.Add("目录超过 1 GB，请确认没有包含无关内容。");
         return new SaveDirectoryPreview(files.Count, total, latest, recent, largest, warnings, rule.IncludePatterns, rule.ExcludePatterns);
     }
+
+    public async Task<SaveProfilePreview> PreviewProfileAsync(
+        IReadOnlyList<SaveRootRule> roots,
+        IReadOnlyList<RegistrySaveRule> registryRules,
+        CancellationToken cancellationToken)
+    {
+        if (roots.Count == 0) throw new InvalidOperationException("至少需要一个存档目录。");
+        var previews = new List<SaveRootPreview>(roots.Count);
+        var warnings = new List<string>();
+        int totalFiles = 0;
+        long totalSize = 0;
+        DateTime? latest = null;
+        foreach (SaveRootRule rule in roots.OrderBy(item => item.RootId, StringComparer.OrdinalIgnoreCase))
+        {
+            SaveDirectoryPreview preview = await PreviewAsync(rule, cancellationToken);
+            previews.Add(new SaveRootPreview(rule, preview.FileCount, preview.TotalSize,
+                preview.LatestWriteTimeUtc, preview.Warnings));
+            totalFiles = checked(totalFiles + preview.FileCount);
+            totalSize = checked(totalSize + preview.TotalSize);
+            if (preview.LatestWriteTimeUtc is { } rootLatest
+                && (latest is null || rootLatest > latest.Value)) latest = rootLatest;
+            warnings.AddRange(preview.Warnings.Select(message => $"{rule.RootId}：{message}"));
+        }
+        if (totalFiles > GameSaveProtocolLimits.MaximumManifestFiles
+            && !warnings.Contains(GameSaveProtocolLimits.ManifestFileLimitMessage, StringComparer.Ordinal))
+            warnings.Add(GameSaveProtocolLimits.ManifestFileLimitMessage);
+        if (registryRules.Any(rule => !rule.KeyPath.StartsWith("HKCU\\", StringComparison.OrdinalIgnoreCase)
+                                      && !rule.KeyPath.StartsWith("HKEY_CURRENT_USER\\", StringComparison.OrdinalIgnoreCase)))
+            warnings.Add("存在不受支持的注册表路径，仅允许 HKCU。");
+        return new SaveProfilePreview(previews, totalFiles, totalSize, latest, warnings,
+            SaveProfileFingerprint.Create(roots, registryRules));
+    }
 }

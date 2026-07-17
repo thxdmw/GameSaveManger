@@ -62,7 +62,7 @@ public partial class AddGameWizardWindow : Window
 
     private void NextButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (DataContext is AddGameWizardViewModel wizard) wizard.Step++;
+        if (DataContext is AddGameWizardViewModel wizard) wizard.TryMoveNext();
     }
     private void ViewModel_OnGameCreated(object? sender, EventArgs e)
     {

@@ -1,6 +1,15 @@
 name: GameSave Manager 构建
 
 on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'GameSaveManager.sln'
+      - 'ARCHITECTURE.md'
+      - 'docs/*.md'
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/build.yml'
   pull_request:
     paths:
       - 'GameSaveManager.sln'
@@ -36,17 +45,33 @@ jobs:
           dotnet restore .\GameSaveManager.sln *>&1 | Tee-Object -FilePath dotnet-restore.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: 编译项目
+      - name: Debug 编译
         shell: pwsh
         run: |
           dotnet build .\GameSaveManager.sln -c Debug --no-restore *>&1 | Tee-Object -FilePath dotnet-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Release 编译与测试
+        shell: pwsh
+        run: |
+          dotnet build .\GameSaveManager.sln -c Release --no-restore *>&1 | Tee-Object -FilePath dotnet-release.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test .\GameSaveManager.sln -c Release --no-build *>&1 | Tee-Object -FilePath dotnet-test.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: 执行基础边界验证
         shell: pwsh
         run: |
-          dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj -c Debug --no-build *>&1 | Tee-Object -FilePath dotnet-verification.log
+          dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj -c Release --no-build *>&1 | Tee-Object -FilePath dotnet-verification.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 发布并检查第三方资源
+        shell: pwsh
+        run: |
+          dotnet publish .\src\GameSaveManager.App\GameSaveManager.App.csproj -c Release -r win-x64 --self-contained false -o .\publish *>&1 | Tee-Object -FilePath dotnet-publish.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path .\publish\Assets\ludusavi-manifest.yaml)) { throw '缺少 Ludusavi Manifest' }
+          if (-not (Test-Path .\publish\Assets\NOTICE-Ludusavi-manifest.txt)) { throw '缺少 Ludusavi NOTICE' }
 
       - name: 上传 .NET 构建日志
         if: always()
@@ -56,6 +81,17 @@ jobs:
           path: |
             dotnet-restore.log
             dotnet-build.log
+            dotnet-release.log
+            dotnet-test.log
             dotnet-verification.log
+            dotnet-publish.log
           if-no-files-found: warn
           retention-days: 7
+
+      - name: 上传 Windows 发布包
+        uses: actions/upload-artifact@v7
+        with:
+          name: gamesave-windows-win-x64
+          path: publish
+          if-no-files-found: error
+          retention-days: 14

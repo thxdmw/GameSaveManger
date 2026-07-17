@@ -55,9 +55,16 @@
                     <TextBlock Margin="0,12,0,0" Foreground="{DynamicResource Muted}" Text="{Binding SaveDirectoryConfirmationText, Mode=OneWay}"/>
                     <StackPanel Margin="0,18,0,0" Orientation="Horizontal">
                         <Button Height="40" Style="{StaticResource ButtonStyle}" Click="OpenSaveConfigurationButton_OnClick" Content="修改存档配置"/>
-                        <Button Height="40" Margin="10,0,0,0" Style="{StaticResource ButtonStyle}" Command="{Binding StartAutoSnapshotCommand}" Content="启用退出后自动备份"/>
-                        <Button Height="40" Margin="10,0,0,0" Style="{StaticResource ButtonStyle}" Command="{Binding StopAutoSnapshotCommand}" Content="停止自动备份"/>
+                        <Grid Margin="10,0,0,0">
+                            <Button Height="40" Command="{Binding StartAutoSnapshotCommand}" Content="启用退出后自动备份">
+                                <Button.Style><Style TargetType="Button" BasedOn="{StaticResource Primary}"><Style.Triggers><DataTrigger Binding="{Binding IsAutoSyncEnabled}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Button.Style>
+                            </Button>
+                            <Button Height="40" Command="{Binding StopAutoSnapshotCommand}" Content="停止退出后自动备份">
+                                <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ButtonStyle}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsAutoSyncEnabled}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Button.Style>
+                            </Button>
+                        </Grid>
                     </StackPanel>
+                    <TextBlock Margin="0,10,0,0" Foreground="{DynamicResource Muted}" Text="{Binding AutoSyncConfigurationText}" TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
             <Border Margin="0,18,0,0" Padding="24" Style="{StaticResource PanelStyle}">

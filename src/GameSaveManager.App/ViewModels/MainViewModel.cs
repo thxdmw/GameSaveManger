@@ -207,14 +207,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             () => SelectedGame,
             game => SelectedGame = game,
             _credentialStore);
-        Account = new AccountViewModel(this);
-        GameLibrary = new GameLibraryViewModel(this);
-        GameDetail = new GameDetailViewModel(this);
         SaveConfiguration = new SaveConfigurationViewModel(this);
-        Sync = new SyncViewModel(this);
-        Restore = new RestoreViewModel(this);
-        Settings = new SettingsViewModel(this);
-        GameLaunchSettings = new GameLaunchSettingsViewModel(this);
         AddGameWizard = new AddGameWizardViewModel(this);
         FilteredGames = CollectionViewSource.GetDefaultView(Games);
         FilteredGames.Filter = MatchesGameSearch;
@@ -224,14 +217,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public ApplicationSession Session { get; }
-    public AccountViewModel Account { get; }
-    public GameLibraryViewModel GameLibrary { get; }
-    public GameDetailViewModel GameDetail { get; }
     public SaveConfigurationViewModel SaveConfiguration { get; }
-    public SyncViewModel Sync { get; }
-    public RestoreViewModel Restore { get; }
-    public SettingsViewModel Settings { get; }
-    public GameLaunchSettingsViewModel GameLaunchSettings { get; }
     public AddGameWizardViewModel AddGameWizard { get; }
     public ObservableCollection<CloudGame> Games { get; } = [];
     public ObservableCollection<CloudSnapshotSummary> Snapshots { get; } = [];
@@ -240,20 +226,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<SaveLocationCandidate> SaveLocationCandidates { get; } = [];
     public ObservableCollection<SaveRootRule> AdditionalSaveRoots { get; } = [];
     public ObservableCollection<RegistrySaveRule> RegistrySaveRules { get; } = [];
+    public ObservableCollection<SaveRootPreview> SaveRootPreviews { get; } = [];
     public ObservableCollection<CloudDevice> Devices { get; } = [];
     public ICollectionView FilteredGames { get; }
     public bool HasGames => Games.Count > 0;
+    public bool IsSaveConfigurationPreviewValid => IsCurrentSavePreviewValid();
+    public bool PendingLaunchTargetIsValid => IsLaunchTargetValid(CreateLaunchProfile(GetCurrentGameIdentity()));
 
     public string ServerAddress { get => _serverAddress; set => SetField(ref _serverAddress, value); }
     public string Username { get => _username; set => SetField(ref _username, value); }
     public string NewGameName { get => _newGameName; set => SetField(ref _newGameName, value); }
-    public string SaveDirectory { get => _saveDirectory; set { if (SetField(ref _saveDirectory, value)) { IsSaveDirectoryConfirmed = false; _previewedSaveDirectory = null; _previewedSaveDirectoryFingerprint = null; SaveDirectoryPreviewText = "目录已变化，请重新预览。"; } } }
+    public string SaveDirectory
+    {
+        get => _saveDirectory;
+        set { if (SetField(ref _saveDirectory, value)) InvalidateSavePreview("目录已变化，请重新预览完整配置。"); }
+    }
     public string AdditionalSaveRootPath { get => _additionalSaveRootPath; set => SetField(ref _additionalSaveRootPath, value); }
     public string RegistrySaveKeyPath { get => _registrySaveKeyPath; set => SetField(ref _registrySaveKeyPath, value); }
     public bool IsSaveDirectoryConfirmed { get => _isSaveDirectoryConfirmed; private set { if (SetField(ref _isSaveDirectoryConfirmed, value)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SaveDirectoryConfirmationText))); } }
     public string SaveDirectoryConfirmationText => IsSaveDirectoryConfirmed ? "已确认，可同步" : "待确认，禁止同步";
     public string AutoSnapshotProcessName { get => _autoSnapshotProcessName; set => SetField(ref _autoSnapshotProcessName, value); }
-    public string AutoSnapshotExecutablePath { get => _autoSnapshotExecutablePath; private set => SetField(ref _autoSnapshotExecutablePath, value); }
+    public string AutoSnapshotExecutablePath
+    {
+        get => _autoSnapshotExecutablePath;
+        private set
+        {
+            if (SetField(ref _autoSnapshotExecutablePath, value) && _isAddGameWizardActive)
+                AddGameWizard.InvalidateLaunchValidation();
+        }
+    }
     public int RuntimeStatusVersion { get => _runtimeStatusVersion; private set => SetField(ref _runtimeStatusVersion, value); }
     public string StatusText
     {
@@ -460,6 +461,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SelectedSaveLocationCandidate,
             AdditionalSaveRoots.ToArray(),
             RegistrySaveRules.ToArray(),
+            SaveRootPreviews.ToArray(),
             _previewedSaveDirectory,
             _previewedSaveDirectoryFingerprint,
             SaveDirectoryPreviewText,
@@ -505,6 +507,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             RegistrySaveRules.Clear();
             foreach (RegistrySaveRule rule in state.RegistrySaveRules)
                 RegistrySaveRules.Add(rule);
+            SaveRootPreviews.Clear();
+            foreach (SaveRootPreview preview in state.SaveRootPreviews)
+                SaveRootPreviews.Add(preview);
         }
         _addGameWizardReturnState = null;
     }
@@ -1004,10 +1009,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         string rootId;
         int index = 2;
         do rootId = $"root{index++}"; while (AdditionalSaveRoots.Any(root => string.Equals(root.RootId, rootId, StringComparison.OrdinalIgnoreCase)));
-        AdditionalSaveRoots.Add(new SaveRootRule(rootId, path, [], [], SaveLocationSource.Manual, 100, true));
-        InvalidateSavePreview("附加存档目录已变化，请重新预览主目录并确认全部规则。");
+        AdditionalSaveRoots.Add(new SaveRootRule(rootId, path, [], [], SaveLocationSource.Manual, 100, false));
+        InvalidateSavePreview("附加存档目录已变化，请重新预览完整配置并确认全部规则。");
         AdditionalSaveRootPath = string.Empty;
-        StatusText = $"已添加附加存档目录：{path}。下次同步会一并上传。";
+        StatusText = $"已添加待确认的附加存档目录：{path}。完整预览并确认后才会参与同步。";
         if (IsAuthenticated && SelectedGame is not null) { Uri server = ParseServerUri(); await RefreshAutomaticSyncConfigurationAsync(server, await RequireDeviceTokenAsync(server), await SaveLocalProfileAsync(server, IsAutoSyncEnabled)); }
     }
 
@@ -1019,7 +1024,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (RegistrySaveRules.Any(rule => string.Equals(rule.KeyPath, keyPath, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("该注册表路径已经在同步列表中。");
         int index = 1; string ruleId; do ruleId = $"registry{index++}"; while (RegistrySaveRules.Any(rule => string.Equals(rule.RuleId, ruleId, StringComparison.OrdinalIgnoreCase)));
-        RegistrySaveRules.Add(new RegistrySaveRule(ruleId, keyPath, true));
+        RegistrySaveRules.Add(new RegistrySaveRule(ruleId, keyPath, false));
         InvalidateSavePreview("注册表存档规则已变化，请重新预览并确认。");
         RegistrySaveKeyPath = string.Empty;
         StatusText = "已添加注册表存档路径；同步前会导出为受控 JSON。";
@@ -1044,6 +1049,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StatusText = "已移除附加存档目录；保存或同步后会更新本机配置。";
         if (IsAuthenticated && SelectedGame is not null) { Uri server = ParseServerUri(); await RefreshAutomaticSyncConfigurationAsync(server, await RequireDeviceTokenAsync(server), await SaveLocalProfileAsync(server, IsAutoSyncEnabled)); }
     }
+
+    public void UpdateAdditionalSaveRootRules(SaveRootRule updatedRoot)
+    {
+        int index = AdditionalSaveRoots.ToList().FindIndex(root =>
+            string.Equals(root.RootId, updatedRoot.RootId, StringComparison.OrdinalIgnoreCase));
+        if (index < 0) throw new InvalidOperationException("待更新的附加目录不存在。");
+        AdditionalSaveRoots[index] = updatedRoot;
+        SelectedAdditionalSaveRoot = updatedRoot;
+        InvalidateSavePreview("包含/排除规则已变化，请重新预览完整配置并确认。");
+        StatusText = "附加目录扫描规则已更新，重新预览前不会参与同步。";
+    }
     private async Task<LocalGameProfile> SaveLocalProfileAsync(Uri server, bool autoSnapshotEnabled)
     {
         if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
@@ -1066,9 +1082,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     ? launchProfile.WorkingDirectory
                     : AddGameWizard.WorkingDirectory.Trim(),
                 RunAsAdministrator = AddGameWizard.RunAsAdministrator,
-                MonitoredProcessNames = string.IsNullOrWhiteSpace(AddGameWizard.MonitoredProcessName)
+                MonitoredProcessNames = AddGameWizard.GetConfirmedMonitoredProcessNames().Count == 0
                     ? launchProfile.MonitoredProcessNames
-                    : [AddGameWizard.MonitoredProcessName.Trim()]
+                    : AddGameWizard.GetConfirmedMonitoredProcessNames()
             };
         }
         string? identityExecutablePath = identity.ExecutablePath;
@@ -1272,12 +1288,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private SaveRootRule BuildPrimarySaveRootRule() => SaveRootRule.CreateDefault(
         SaveDirectory, SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual, 100, false);
 
-    private static string CreatePreviewFingerprint(SaveRootRule rule) => string.Join("|",
-        rule.RootId,
-        Path.GetFullPath(rule.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-        rule.Source,
-        string.Join(";", rule.IncludePatterns.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)),
-        string.Join(";", rule.ExcludePatterns.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)));
+    private IReadOnlyList<SaveRootRule> BuildPreviewSaveRoots()
+    {
+        var roots = new List<SaveRootRule> { BuildPrimarySaveRootRule() };
+        roots.AddRange(AdditionalSaveRoots.Select(root => root with { UserConfirmed = false }));
+        return roots;
+    }
 
     private bool IsCurrentSavePreviewValid()
     {
@@ -1285,10 +1301,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             || string.IsNullOrWhiteSpace(_previewedSaveDirectoryFingerprint)
             || FileCount > GameSaveProtocolLimits.MaximumManifestFiles)
             return false;
-        return string.Equals(
-            CreatePreviewFingerprint(BuildPrimarySaveRootRule()),
-            _previewedSaveDirectoryFingerprint,
-            StringComparison.Ordinal);
+        IReadOnlyList<SaveRootRule> roots = BuildPreviewSaveRoots();
+        return roots.All(root => Directory.Exists(root.Path))
+            && string.Equals(
+                SaveProfileFingerprint.Create(roots, RegistrySaveRules),
+                _previewedSaveDirectoryFingerprint,
+                StringComparison.Ordinal);
     }
 
     private void InvalidateSavePreview(string message)
@@ -1296,7 +1314,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsSaveDirectoryConfirmed = false;
         _previewedSaveDirectory = null;
         _previewedSaveDirectoryFingerprint = null;
+        SaveRootPreviews.Clear();
         SaveDirectoryPreviewText = message;
+        AddGameWizard.RefreshValidation();
         RaiseCommandStates();
     }
     private async Task PreviewSaveDirectoryAsync()
@@ -1304,18 +1324,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             if (string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory)) throw new InvalidOperationException("请选择存在的存档目录。");
-            var rule = BuildPrimarySaveRootRule();
-            SaveDirectoryPreview preview = await _saveDirectoryPreviewService.PreviewAsync(rule, CancellationToken.None);
-            FileCount = preview.FileCount;
+            IReadOnlyList<SaveRootRule> roots = BuildPreviewSaveRoots();
+            SaveProfilePreview preview = await _saveDirectoryPreviewService.PreviewProfileAsync(
+                roots, RegistrySaveRules.ToArray(), CancellationToken.None);
+            FileCount = preview.TotalFiles;
             LogicalSizeText = FormatBytes(preview.TotalSize);
             _previewedSaveDirectory = Path.GetFullPath(SaveDirectory);
-            _previewedSaveDirectoryFingerprint = CreatePreviewFingerprint(rule);
+            _previewedSaveDirectoryFingerprint = preview.Fingerprint;
+            SaveRootPreviews.Clear();
+            foreach (SaveRootPreview root in preview.Roots) SaveRootPreviews.Add(root);
             string warnings = preview.Warnings.Count == 0 ? string.Empty : " 警告：" + string.Join("；", preview.Warnings);
-            SaveDirectoryPreviewText = $"{preview.FileCount} 个文件，共 {FormatBytes(preview.TotalSize)}；最近修改：{preview.LatestWriteTimeUtc?.ToLocalTime():g}。" + warnings;
-            StatusText = "目录预览完成；确认后才会保存并允许同步。";
+            SaveDirectoryPreviewText = $"{preview.Roots.Count} 个目录，共 {preview.TotalFiles} 个文件、{FormatBytes(preview.TotalSize)}；最近修改：{preview.LatestWriteTimeUtc?.ToLocalTime():g}。" + warnings;
+            StatusText = "完整存档配置预览完成；确认后所有目录和规则才允许同步。";
+            AddGameWizard.RefreshValidation();
             RaiseCommandStates();
         }
-        catch (Exception exception) { _previewedSaveDirectory = null; _previewedSaveDirectoryFingerprint = null; ShowError("预览存档目录失败", exception); }
+        catch (Exception exception)
+        {
+            InvalidateSavePreview("预览失败，请修正目录或扫描规则后重试。");
+            ShowError("预览存档目录失败", exception);
+        }
     }
     private async Task ConfirmSaveDirectoryAsync()
     {
@@ -1323,14 +1351,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (!IsCurrentSavePreviewValid())
                 throw new InvalidOperationException("当前存档目录或扫描规则尚未完成预览，请先检查内容。");
+            for (int index = 0; index < AdditionalSaveRoots.Count; index++)
+                AdditionalSaveRoots[index] = AdditionalSaveRoots[index] with { UserConfirmed = true };
+            for (int index = 0; index < RegistrySaveRules.Count; index++)
+                RegistrySaveRules[index] = RegistrySaveRules[index] with { UserConfirmed = true };
             IsSaveDirectoryConfirmed = true;
-            if (SelectedSaveLocationCandidate is { } preview)
-            {
-                FileCount = preview.FileCount;
-                LogicalSizeText = FormatBytes(preview.TotalSize);
-                StatusText = $"已确认存档目录：{preview.FileCount} 个文件，{FormatBytes(preview.TotalSize)}。现在可以同步。";
-            }
-            else StatusText = "已确认手动选择的存档目录。现在可以同步。";
+            StatusText = $"已确认完整存档配置：{SaveRootPreviews.Count} 个目录、{FileCount} 个文件，{LogicalSizeText}。现在可以同步。";
+            AddGameWizard.RefreshValidation();
             if (SelectedGame is not null) await SaveLocalProfileAsync(ParseServerUri(), false);
         }
         catch (Exception exception) { ShowError("确认存档目录失败", exception); }
@@ -1406,7 +1433,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(NewGameName)) throw new InvalidOperationException("请先输入游戏名称");
+            if (!_isAddGameWizardActive || !AddGameWizard.IsFinalConfigurationValid)
+                throw new InvalidOperationException("添加向导尚未完成全部启动与存档验证，禁止创建云端游戏。");
             string normalizedName = NewGameName.Trim();
             string pendingSaveDirectory = SaveDirectory;
             bool pendingDirectoryConfirmed = IsSaveDirectoryConfirmed;
@@ -1810,10 +1838,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             };
             GameLaunchResult result = await _gameLaunchService.LaunchAsync(
                 launchProfile, identity.InstallDirectory, CancellationToken.None);
+            string[] detectedNames = result.DetectedProcesses
+                .Where(process => process.IsStillRunning)
+                .Select(process => GameProcessNameRules.Normalize(process.ProcessName))
+                .Where(name => name.Length > 0 && !GameProcessNameRules.IsUnsafeGenericName(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            AddGameWizard.SetDetectedProcesses(detectedNames);
             AddGameWizard.LaunchValidated = result.LaunchRequestSucceeded
-                && result.DetectedProcesses.Any(process => process.IsStillRunning);
+                && detectedNames.Length > 0;
             StatusText = result.Warning is null
-                ? "测试启动成功，已发现可监控进程。"
+                ? $"测试启动成功，已发现 {detectedNames.Length} 个可监控进程；请确认实际游戏进程。"
                 : $"测试启动已完成：{result.Warning}";
             return AddGameWizard.LaunchValidated;
         }
@@ -2112,7 +2147,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     private bool CanCreateGame() =>
-        IsAuthenticated && !string.IsNullOrWhiteSpace(NewGameName);
+        IsAuthenticated && _isAddGameWizardActive && AddGameWizard.IsFinalConfigurationValid;
 
     private bool CanLaunchGame(object? parameter) =>
         parameter is CloudGame game && GetLaunchDisabledReason(game) is null;
@@ -2203,6 +2238,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public void RefreshWizardCommandState()
+    {
+        if (CreateGameCommand is AsyncCommand command) command.RaiseCanExecuteChanged();
+    }
+
     private sealed record AddGameWizardReturnState(
         CloudGame? SelectedGame,
         DiscoveredGame? SelectedDiscoveredGame,
@@ -2215,6 +2255,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SaveLocationCandidate? SelectedSaveLocationCandidate,
         IReadOnlyList<SaveRootRule> AdditionalSaveRoots,
         IReadOnlyList<RegistrySaveRule> RegistrySaveRules,
+        IReadOnlyList<SaveRootPreview> SaveRootPreviews,
         string? PreviewedSaveDirectory,
         string? PreviewedSaveDirectoryFingerprint,
         string SaveDirectoryPreviewText,

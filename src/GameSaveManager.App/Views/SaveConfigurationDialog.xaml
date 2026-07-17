@@ -59,6 +59,18 @@
                         </StackPanel>
                         <TextBlock Margin="0,10,0,0" Foreground="{DynamicResource Muted}" Text="{Binding SaveDirectoryPreviewText}" TextWrapping="Wrap"/>
                         <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource Muted}" Text="{Binding SaveDirectoryConfirmationText}"/>
+                        <ItemsControl Margin="0,10,0,0" ItemsSource="{Binding SaveRootPreviews}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,3" Padding="10" Background="{DynamicResource ItemBackground}" CornerRadius="8">
+                                        <StackPanel>
+                                            <TextBlock Foreground="{DynamicResource Text}" Text="{Binding Rule.Path}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Rule.Path}"/>
+                                            <TextBlock Margin="0,4,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="{Binding Summary}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                         <ListBox Margin="0,12,0,0" MaxHeight="180" Style="{StaticResource ThemedListBox}"
                                  ItemContainerStyle="{StaticResource ThemedListBoxItem}" ItemsSource="{Binding SaveLocationCandidates}"
                                  SelectedItem="{Binding SelectedSaveLocationCandidate}">
@@ -82,11 +94,30 @@
                             <TextBox Style="{StaticResource Input}" Text="{Binding AdditionalSaveRootPath, UpdateSourceTrigger=PropertyChanged}"/>
                             <Button Grid.Column="2" Style="{StaticResource ButtonStyle}" Command="{Binding AddAdditionalSaveRootCommand}" Content="添加"/>
                         </Grid>
-                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding AdditionalSaveRoots}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate><TextBlock Margin="4" Foreground="{DynamicResource Text}" Text="{Binding Path}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/></DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                        <ListBox Margin="0,8,0,0" MaxHeight="140" Style="{StaticResource ThemedListBox}"
+                                 ItemContainerStyle="{StaticResource ThemedListBoxItem}"
+                                 ItemsSource="{Binding AdditionalSaveRoots}" SelectedItem="{Binding SelectedAdditionalSaveRoot}">
+                            <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="6"><TextBlock Foreground="{DynamicResource Text}" Text="{Binding Path}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/><TextBlock Margin="0,3,0,0" Foreground="{DynamicResource Muted}" FontSize="12" Text="{Binding UserConfirmed, StringFormat=已确认：{0}}"/></StackPanel></DataTemplate></ListBox.ItemTemplate>
+                        </ListBox>
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <StackPanel><TextBlock Foreground="{DynamicResource Muted}" Text="包含规则（每行一个）"/><TextBox Height="76" Margin="0,5,0,0" Padding="10,6" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Style="{StaticResource Input}" Text="{Binding IncludePatternsText, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
+                            <StackPanel Grid.Column="2"><TextBlock Foreground="{DynamicResource Muted}" Text="排除规则（每行一个）"/><TextBox Height="76" Margin="0,5,0,0" Padding="10,6" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Style="{StaticResource Input}" Text="{Binding ExcludePatternsText, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
+                        </Grid>
+                        <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
+                            <Button Style="{StaticResource ButtonStyle}" Command="{Binding ApplySelectedRootPatternsCommand}" Content="应用扫描规则"/>
+                            <Button Margin="10,0,0,0" Style="{StaticResource DangerButton}" Command="{Binding RemoveAdditionalSaveRootCommand}" Content="删除所选目录"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                <Border Margin="0,16,0,0" Padding="20" Style="{StaticResource PanelStyle}">
+                    <StackPanel>
+                        <TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="注册表存档（仅 HKCU）"/>
+                        <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions><TextBox Style="{StaticResource Input}" Text="{Binding RegistrySaveKeyPath, UpdateSourceTrigger=PropertyChanged}"/><Button Grid.Column="2" Style="{StaticResource ButtonStyle}" Command="{Binding AddRegistrySaveRuleCommand}" Content="添加"/></Grid>
+                        <ListBox Margin="0,8,0,0" MaxHeight="130" Style="{StaticResource ThemedListBox}" ItemContainerStyle="{StaticResource ThemedListBoxItem}" ItemsSource="{Binding RegistrySaveRules}" SelectedItem="{Binding SelectedRegistrySaveRule}">
+                            <ListBox.ItemTemplate><DataTemplate><TextBlock Margin="6" Foreground="{DynamicResource Text}" Text="{Binding KeyPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding KeyPath}"/></DataTemplate></ListBox.ItemTemplate>
+                        </ListBox>
+                        <Button Margin="0,10,0,0" HorizontalAlignment="Left" Style="{StaticResource DangerButton}" Command="{Binding RemoveRegistrySaveRuleCommand}" Content="删除所选注册表规则"/>
                     </StackPanel>
                 </Border>
                 <Border Margin="0,16,0,0" Padding="20" Style="{StaticResource PanelStyle}">
