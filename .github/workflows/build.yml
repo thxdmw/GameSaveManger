@@ -12,6 +12,7 @@ on:
       - 'scripts/**'
       - 'src/**'
       - 'tests/**'
+      - 'tools/**'
       - '.github/workflows/*.yml'
   pull_request:
     paths:
@@ -21,11 +22,9 @@ on:
       - 'docs/*.md'
       - 'installer/**'
       - 'scripts/**'
-      - 'src/GameSaveManager.App/**'
-      - 'src/GameSaveManager.Application/**'
-      - 'src/GameSaveManager.Domain/**'
-      - 'src/GameSaveManager.Infrastructure/**'
-      - 'tests/GameSaveManager.Verification/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'tools/**'
       - '.github/workflows/*.yml'
   workflow_dispatch:
 
@@ -79,41 +78,15 @@ jobs:
           .\scripts\publish-windows.ps1 -DeploymentMode SelfContained -OutputDirectory .\publish\self-contained-win-x64 *>&1 | Tee-Object -FilePath dotnet-publish-self-contained.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($package in @('.\publish\framework-dependent', '.\publish\self-contained-win-x64')) {
-            if (-not (Test-Path "$package\Assets\ludusavi-manifest.yaml")) { throw "$package 缺少 Ludusavi Manifest" }
-            if (-not (Test-Path "$package\Assets\NOTICE-Ludusavi-manifest.txt")) { throw "$package 缺少 Ludusavi NOTICE" }
-          }
-
-      - name: 可选 Authenticode 代码签名
-        shell: pwsh
-        env:
-          WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
-          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_BASE64)) {
-            '未配置签名证书，本次产物未签名。' | Set-Content -Encoding utf8 .\publish\SIGNING-STATUS.txt
-            Write-Warning '未配置 WINDOWS_SIGNING_CERTIFICATE_BASE64，跳过 Authenticode 签名。'
-            exit 0
-          }
-          $certificatePath = Join-Path $env:RUNNER_TEMP 'gamesave-signing.pfx'
-          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE_BASE64))
-          try {
-            $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
-              $certificatePath,
-              $env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD,
-              [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
-            $targets = Get-ChildItem .\publish -Recurse -File | Where-Object {
-              $_.Name -eq 'GameSaveManager.exe' -or $_.Name -like 'GameSaveManager*.dll'
+            foreach ($path in @(
+              "$package\Assets\ludusavi-manifest.yaml",
+              "$package\Assets\NOTICE-Ludusavi-manifest.txt",
+              "$package\GameSaveManager.UpdateBootstrapper.exe")) {
+              if (-not (Test-Path -LiteralPath $path)) { throw "$package 缺少必要文件：$path" }
             }
-            foreach ($target in $targets) {
-              $signature = Set-AuthenticodeSignature -LiteralPath $target.FullName -Certificate $certificate `
-                -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com'
-              if ($signature.Status -ne 'Valid') { throw "签名失败：$($target.FullName)，$($signature.StatusMessage)" }
-            }
-            'Authenticode SHA-256 签名完成。' | Set-Content -Encoding utf8 .\publish\SIGNING-STATUS.txt
           }
-          finally {
-            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
-          }
+          '普通 CI artifact 仅用于构建检查，未签名且不得作为正式更新发布。正式发布只能使用 release.yml。' |
+            Set-Content -Encoding utf8 .\publish\SIGNING-STATUS.txt
 
       - name: 压缩并校验完整发布包
         shell: pwsh
@@ -123,10 +96,11 @@ jobs:
           $commit = '${{ github.sha }}'
           "版本：$($releaseInfo.Version)`n发布通道：$($releaseInfo.ReleaseChannel)`n提交：$commit`n构建时间（UTC）：$([DateTime]::UtcNow.ToString('O'))" |
             Set-Content -Encoding utf8 .\publish\RELEASE-METADATA.txt
-          Copy-Item .\publish\RELEASE-METADATA.txt .\publish\framework-dependent\RELEASE-METADATA.txt
-          Copy-Item .\publish\RELEASE-METADATA.txt .\publish\self-contained-win-x64\RELEASE-METADATA.txt
-          Copy-Item .\CHANGELOG.md .\publish\framework-dependent\CHANGELOG.md
-          Copy-Item .\CHANGELOG.md .\publish\self-contained-win-x64\CHANGELOG.md
+          foreach ($package in @('.\publish\framework-dependent', '.\publish\self-contained-win-x64')) {
+            Copy-Item .\publish\RELEASE-METADATA.txt "$package\RELEASE-METADATA.txt"
+            Copy-Item .\publish\SIGNING-STATUS.txt "$package\SIGNING-STATUS.txt"
+            Copy-Item .\CHANGELOG.md "$package\CHANGELOG.md"
+          }
           $archives = @(
             @{ Source='.\publish\framework-dependent\*'; Target='.\publish\GameSaveManager-framework-dependent-win-x64.zip' },
             @{ Source='.\publish\self-contained-win-x64\*'; Target='.\publish\GameSaveManager-self-contained-win-x64.zip' }
@@ -157,7 +131,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: 上传 Windows 发布包
+      - name: 上传 Windows 构建检查包
         uses: actions/upload-artifact@v7
         with:
           name: gamesave-windows-win-x64

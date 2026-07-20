@@ -798,6 +798,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             _preparedUpdate = await _clientUpdateService.DownloadUpdateAsync(
                 _availableUpdate,
+                ClientVersionText,
                 progress,
                 _updateDownloadCancellation.Token);
             UpdateDownloadProgress = 100;

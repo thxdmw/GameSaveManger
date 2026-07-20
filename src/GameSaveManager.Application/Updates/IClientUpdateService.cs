@@ -10,6 +10,7 @@ public interface IClientUpdateService
 
     Task<PreparedClientUpdate> DownloadUpdateAsync(
         ClientUpdateRelease release,
+        string currentVersion,
         IProgress<ClientUpdateDownloadProgress>? progress,
         CancellationToken cancellationToken);
 

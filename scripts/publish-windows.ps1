@@ -56,3 +56,27 @@ foreach ($requiredAssetName in $requiredAssetNames)
     }
 }
 Write-Host "Required Ludusavi assets verified."
+
+$bootstrapperProject = Join-Path $repositoryRoot "src\GameSaveManager.UpdateBootstrapper\GameSaveManager.UpdateBootstrapper.csproj"
+$bootstrapperOutput = Join-Path $repositoryRoot "artifacts\bootstrapper\$Runtime"
+dotnet publish $bootstrapperProject `
+    --configuration $Configuration `
+    --runtime $Runtime `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:PublishTrimmed=true `
+    -p:TrimMode=partial `
+    -p:DebugType=None `
+    -p:DebugSymbols=false `
+    --output $bootstrapperOutput
+if ($LASTEXITCODE -ne 0)
+{
+    throw "Update bootstrapper publish failed with exit code $LASTEXITCODE"
+}
+$bootstrapperExecutable = Join-Path $bootstrapperOutput "GameSaveManager.UpdateBootstrapper.exe"
+if (-not (Test-Path -LiteralPath $bootstrapperExecutable))
+{
+    throw "Update bootstrapper output is missing: $bootstrapperExecutable"
+}
+Copy-Item -LiteralPath $bootstrapperExecutable -Destination $OutputDirectory -Force
+Write-Host "Update bootstrapper verified."

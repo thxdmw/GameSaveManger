@@ -24,6 +24,7 @@
     <None Include="Discovery\Assets\NOTICE-Ludusavi-manifest.txt">
       <Link>Assets\NOTICE-Ludusavi-manifest.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
+    <EmbeddedResource Include="Updates\Assets\*.pem" />
   </ItemGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">

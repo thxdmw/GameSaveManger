@@ -139,7 +139,7 @@ public partial class MainWindow : Window
         Views.ThemedDialogResult choice = Views.ThemedDialogWindow.ShowThemed(
             this,
             "安装客户端更新",
-            "更新安装包已经过 GitHub 资产摘要和 SHA256SUMS.txt 双重校验。当前预发布包尚未完成 Windows 代码签名；继续后客户端会完全退出并打开安装向导。",
+            "更新清单签名、文件摘要和 Windows 发布者签名均已验证。继续后客户端会完全退出，由安全更新程序安装新版本；如果新版本无法正常启动，会自动尝试恢复上一版本。",
             "退出并安装",
             null,
             "取消");

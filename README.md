@@ -16,7 +16,7 @@ GameSave Manager 是面向 Windows 的游戏存档管理客户端，使用 .NET 
 - 多设备 HEAD 不一致时阻断普通上传，并提供“恢复云端版本”或“保留本机并创建新版本”。
 - 支持云端容量、已登录设备、设备撤销和按服务端隔离的登录会话。
 - 支持深色/浅色主题、开机启动、系统托盘后台运行和 Windows 安装包。
-- 支持启动后后台检查或手动检查 GitHub 预发布，下载时校验 GitHub 资产摘要与 `SHA256SUMS.txt`，确认后退出并打开安装向导。
+- 支持启动后后台检查或手动检查 GitHub 预发布；安装前验证独立签名清单、GitHub 资产摘要、`SHA256SUMS.txt`、本地 SHA-256 和 Windows 发布者签名，升级启动失败时尝试恢复上一版本。
 
 ## 使用流程
 
@@ -79,7 +79,7 @@ GameSave Manager 是面向 Windows 的游戏存档管理客户端，使用 .NET 
 | 凭据存储 | Windows Credential Manager |
 | 内容校验 | SHA-256 |
 | 云端通信 | HTTP API、HTTPS、预签名对象下载 |
-| 发布 | `dotnet publish`、Inno Setup 6 |
+| 发布 | `dotnet publish`、Inno Setup 6、Authenticode、ECDSA 签名更新清单 |
 | 持续集成 | GitHub Actions、Windows Runner |
 
 ## 项目结构
@@ -90,10 +90,12 @@ GameSaveManger
 │   ├── GameSaveManager.App              # WPF 界面、ViewModel 和应用组合根
 │   ├── GameSaveManager.Application      # 同步、恢复、快照和启动编排
 │   ├── GameSaveManager.Domain           # 游戏、快照等领域模型
-│   └── GameSaveManager.Infrastructure   # SQLite、HTTP、文件系统、凭据和 Windows 实现
+│   ├── GameSaveManager.Infrastructure   # SQLite、HTTP、文件系统、凭据和 Windows 实现
+│   └── GameSaveManager.UpdateBootstrapper # 独立更新、启动确认和失败回滚
 ├── tests
 │   └── GameSaveManager.Verification     # 协议、安全边界、迁移和 WPF 冒烟验证
-├── scripts                              # Windows 发布与安装脚本
+├── scripts                              # Windows 发布、签名与安装脚本
+├── tools                                # 发布清单生成和签名工具
 ├── installer                            # Inno Setup 安装器定义
 ├── docs                                 # 构建和发布说明
 ├── GameSaveManager.sln
@@ -177,7 +179,7 @@ localHead == remoteHead ?
 
 设备 Token 不写入 SQLite，统一保存到 Windows Credential Manager。
 
-客户端更新安装包暂存在 `%LOCALAPPDATA%\GameSaveManager\updates\版本号`。未完成或摘要不一致的文件会被删除；只有 GitHub 资产摘要、`SHA256SUMS.txt` 与本地 SHA-256 三方一致时才允许启动安装器。
+客户端更新安装包暂存在 `%LOCALAPPDATA%\GameSaveManager\updates\版本号`。未完成或校验不一致的文件会被删除；只有签名清单、GitHub 资产摘要、`SHA256SUMS.txt`、本地 SHA-256 和 Windows 发布者证书全部一致时才允许更新。事务与启动确认位于 `updates\transactions`，上一版本安装包位于 `rollback`。
 
 ## 环境与构建
 
@@ -214,7 +216,7 @@ dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verifi
 .\scripts\build-installer.ps1
 ```
 
-脚本会自动读取根目录 `Directory.Build.props`，不再从命令行传入版本号。详细参数和验收步骤见 [构建说明](docs/build.md)、[Windows 发布说明](docs/release-windows.md) 与 [版本管理流程](docs/versioning.md)。当前安装包可在 [GitHub 预发布页](https://github.com/thxdmw/GameSaveManger/releases) 下载；正式公开分发前仍需完成代码签名、升级/卸载和异常恢复验收。
+脚本会自动读取根目录 `Directory.Build.props`，不再从命令行传入版本号。详细参数和验收步骤见 [构建说明](docs/build.md)、[Windows 发布说明](docs/release-windows.md)、[发布签名与恢复手册](docs/signing-and-recovery.md) 与 [版本管理流程](docs/versioning.md)。当前安装包可在 [GitHub 预发布页](https://github.com/thxdmw/GameSaveManger/releases) 下载；下一次安全发布前需先配置正式代码签名证书和 GitHub Secrets，并在干净系统完成人工升级与回滚验收。
 
 ## 后续任务
 

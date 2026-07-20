@@ -13,7 +13,8 @@ public sealed record ClientUpdateRelease(
     string ReleaseNotes,
     DateTimeOffset PublishedAt,
     ClientUpdateAsset Installer,
-    ClientUpdateAsset Checksums);
+    ClientUpdateAsset Checksums,
+    string PublisherCertificateSha256);
 
 public sealed record ClientUpdateDownloadProgress(long BytesReceived, long TotalBytes)
 {
@@ -24,6 +25,7 @@ public sealed record ClientUpdateDownloadProgress(long BytesReceived, long Total
 
 public sealed record PreparedClientUpdate(
     ClientUpdateRelease Release,
+    string PreviousVersion,
     string InstallerPath,
     string VerifiedSha256);
 

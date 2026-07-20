@@ -110,6 +110,12 @@ public partial class App : System.Windows.Application
             };
             window.Show();
             if (window.DataContext is MainViewModel viewModel) await viewModel.InitializeAsync();
+            if (!UpdateHealthReporter.TryReport(Environment.GetCommandLineArgs(), out string? healthError))
+                _appLogger.Error(
+                    "update.health_report_failed",
+                    new InvalidOperationException(healthError ?? "更新启动确认写入失败"),
+                    "更新后的客户端未能写入启动确认");
+            UpdateHealthReporter.CleanupStaleArtifacts();
         }
         catch (Exception exception)
         {

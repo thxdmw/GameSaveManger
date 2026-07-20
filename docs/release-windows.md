@@ -1,68 +1,63 @@
 # Windows 发布与安装
 
-客户端支持两种 .NET 10 Windows 发布模式：
+客户端默认发布为 `win-x64`、.NET 10 自包含单文件，不要求目标电脑预装 .NET Runtime。普通本地构建可保持未签名，GitHub Release 安全发布则强制要求正式代码签名证书、可信时间戳和独立更新清单签名，任何密钥缺失都会终止发布。
 
-- `SelfContained`：默认模式，随安装包携带 .NET Runtime，目标电脑无需预装 Runtime。
-- `FrameworkDependent`：体积更小，但目标电脑必须预装匹配的 .NET 10 Desktop Runtime。
+## 本地发布
 
-默认架构是 `win-x64`；ARM Windows 可改用 `win-arm64`。
-
-## 生成发布目录
-
-在仓库根目录执行自包含发布：
+生成自包含发布目录：
 
 ```powershell
 .\scripts\publish-windows.ps1
 ```
 
-输出目录为 `artifacts\publish\win-x64`。生成依赖 Runtime 的发布物：
+生成依赖 .NET 10 Desktop Runtime 的调试分发目录：
 
 ```powershell
 .\scripts\publish-windows.ps1 -DeploymentMode FrameworkDependent
 ```
 
-输出目录为 `artifacts\publish\win-x64-framework-dependent`。发布脚本没有启用 trimming：WPF、SQLite 原生库和系统凭据调用对动态加载较敏感，先保证可用性和可诊断性，再根据真实发布物做专项裁剪验证。
-
-## 生成安装包
-
-先安装 Inno Setup 6，然后执行。脚本会从根目录 `Directory.Build.props` 读取唯一版本号，并把它写入客户端程序集和安装包：
+安装 Inno Setup 6 后生成本地安装包：
 
 ```powershell
 .\scripts\build-installer.ps1
 ```
 
-安装包会输出到 `artifacts\installer`，脚本同时生成可随安装包发布的 `SHA256SUMS.txt`。安装范围为当前 Windows 用户，不需要管理员权限；程序文件位于 `%LOCALAPPDATA%\Programs\GameSaveManager`，游戏存档、SQLite、日志及凭据仍分别使用应用数据目录和 Windows Credential Manager。
+输出位于 `artifacts\installer`。安装范围为当前 Windows 用户，程序位于 `%LOCALAPPDATA%\Programs\GameSaveManager`；SQLite、日志、内容缓存和更新事务仍在 `%LOCALAPPDATA%\GameSaveManager`，设备凭据仍在 Windows Credential Manager。
 
-如果 Inno Setup 不在默认目录，可显式提供编译器：
+本地显式签名构建可使用：
 
 ```powershell
 .\scripts\build-installer.ps1 `
-  -InnoSetupCompiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+  -SignToolPath 'C:\Program Files (x86)\Windows Kits\10\bin\<版本>\x64\signtool.exe' `
+  -SigningCertificateThumbprint '<当前用户证书库中的 SHA-1 证书指纹>'
 ```
 
-版本号调整、标签校验和 GitHub 自动预发布步骤见 [版本管理与发布流程](versioning.md)。
+这里的 SHA-1 指纹只用于从证书库选择证书；文件摘要、清单签名和时间戳摘要均使用 SHA-256。脚本会签名主程序、安全更新引导程序、安装包和卸载程序，并使用 `/pa /all /tw` 再次验证。
 
-## 发布前检查
+## 安全更新边界
+
+客户端只接受同时满足以下条件的更新：
+
+1. 版本符合 SemVer，来自固定 GitHub 仓库的 HTTPS Release。
+2. `update-manifest.json` 能由客户端内置的 ECDSA P-256 公钥验证。
+3. 清单、GitHub 资产 digest、`SHA256SUMS.txt` 和下载文件的 SHA-256 完全一致。
+4. Windows `WinVerifyTrust` 确认安装包 Authenticode 信任链有效。
+5. 安装包叶证书的 SHA-256 指纹与签名清单固定的发布者证书一致。
+
+用户确认后，客户端复制并验证随程序安装的安全更新引导程序，然后完全退出。引导程序静默安装新版本并启动客户端；新版本必须在 90 秒内写入受控健康确认文件。失败时，引导程序使用 `%LOCALAPPDATA%\GameSaveManager\rollback` 中保留的上一版本安装包恢复。更新事务记录位于 `%LOCALAPPDATA%\GameSaveManager\updates\transactions`，不会删除游戏存档、SQLite 或 Credential Manager 凭据。
+
+首个包含此安全更新机制的版本仍需手动下载安装。该版本安装完成后会保留自己的回滚安装包，后续版本才能完成全自动失败恢复。
+
+证书、GitHub Secrets、密钥轮换和灾难恢复步骤见 [发布签名与恢复手册](signing-and-recovery.md)。版本号、标签和发布说明规则见 [版本管理与发布流程](versioning.md)。
+
+## 发布前一次性验证
 
 ```powershell
-dotnet build .\GameSaveManager.sln --no-restore
-dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj --no-build
+dotnet restore .\GameSaveManager.sln
+dotnet build .\GameSaveManager.sln -c Release --no-restore
+dotnet test .\GameSaveManager.sln -c Release --no-build
+dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj -c Release --no-build
+.\scripts\build-installer.ps1
 ```
 
-发布到真实服务端前还应运行 CMS 仓库的 Docker Compose 冒烟链路。远程服务端地址必须使用 HTTPS；客户端只允许 `localhost` 和 `127.0.0.1` 使用 HTTP。
-
-## 签名与更新
-
-安装包当前不内置签名证书或私钥。客户端会通过 HTTPS 读取本项目 GitHub Releases，按发布通道选择更高 SemVer 版本，并要求 GitHub 资产 digest、`SHA256SUMS.txt` 和本地安装包 SHA-256 三方一致；校验通过后仍需用户确认，客户端才会退出并打开安装向导。
-
-摘要校验能发现传输损坏和发布附件不一致，但不能替代发布者身份签名。正式对外分发前，应在受保护的 CI 凭据库中配置代码签名证书，使用 `signtool` 对 EXE 与安装包签名并加可信时间戳，再增加独立签名更新清单和失败回滚策略；不能用仓库内的占位密钥替代。
-## 本机体积验证（2026-07-13）
-
-使用同一套 `win-x64`、Release、单文件配置实测：
-
-| 模式 | EXE 大小 | 适用场景 |
-| --- | ---: | --- |
-| `SelfContained` | 142,024,206 bytes（约 135.4 MiB） | 面向普通玩家的默认安装包，无需预装 Runtime。 |
-| `FrameworkDependent` | 2,628,824 bytes（约 2.5 MiB） | 内部分发或可确保预装 .NET 10 Desktop Runtime 的环境。 |
-
-这只是可执行文件大小，不包含安装器压缩率、签名和未来更新包的差异。正式公开发布默认选择 `SelfContained`。
+正式发布还应在干净 Windows 虚拟机中抽查签名安装、覆盖升级、健康确认、故障回滚和卸载，并在真实 CMS 与对象存储环境完成端到端存档验收。

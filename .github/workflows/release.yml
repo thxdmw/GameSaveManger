@@ -1,4 +1,4 @@
-name: GameSave Manager 预发布
+name: GameSave Manager 安全预发布
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已存在的版本标签，例如 v0.1.0
+        description: 已存在的版本标签，例如 v0.2.0
         required: true
         type: string
 
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   release:
-    name: 校验并发布 Windows 安装包
+    name: 签名、验证并发布 Windows 安装包
     runs-on: windows-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -41,6 +41,45 @@ jobs:
         shell: pwsh
         run: .\scripts\test-release-version.ps1 -Tag $env:RELEASE_TAG
 
+      - name: 导入发布证书和更新清单私钥
+        id: signing
+        shell: pwsh
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          MANIFEST_PRIVATE_KEY_BASE64: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY_BASE64 }}
+        run: |
+          foreach ($name in @('SIGNING_PFX_BASE64', 'SIGNING_PFX_PASSWORD', 'MANIFEST_PRIVATE_KEY_BASE64')) {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "env:$name").Value)) {
+              throw "缺少安全发布密钥：$name"
+            }
+          }
+
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'gamesavemanager-signing.pfx'
+          $manifestKeyPath = Join-Path $env:RUNNER_TEMP 'update-manifest-private-key.pk8'
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+          [IO.File]::WriteAllBytes($manifestKeyPath, [Convert]::FromBase64String($env:MANIFEST_PRIVATE_KEY_BASE64))
+          $password = ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          if (-not $certificate.HasPrivateKey) { throw '代码签名证书不包含私钥。' }
+          $codeSigningOid = '1.3.6.1.5.5.7.3.3'
+          if (-not ($certificate.EnhancedKeyUsageList.ObjectId.Value -contains $codeSigningOid)) {
+            throw '证书不允许用于代码签名。'
+          }
+
+          $publisherSha256 = [Convert]::ToHexString(
+            [Security.Cryptography.SHA256]::HashData($certificate.RawData)).ToLowerInvariant()
+          $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if ($null -eq $signTool) { throw '未找到 Windows SDK SignTool。' }
+
+          "certificate_thumbprint=$($certificate.Thumbprint)" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
+          "publisher_certificate_sha256=$publisherSha256" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
+          "sign_tool=$($signTool.FullName)" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
+          "manifest_key_path=$manifestKeyPath" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
+          "pfx_path=$pfxPath" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
+
       - name: 还原、构建和验证
         shell: pwsh
         run: |
@@ -57,30 +96,75 @@ jobs:
         shell: pwsh
         run: choco install innosetup --yes --no-progress
 
-      - name: 生成安装包和校验和
+      - name: 生成并验证 Authenticode 安装包
         shell: pwsh
-        run: .\scripts\build-installer.ps1
+        run: |
+          .\scripts\build-installer.ps1 `
+            -SignToolPath '${{ steps.signing.outputs.sign_tool }}' `
+            -SigningCertificateThumbprint '${{ steps.signing.outputs.certificate_thumbprint }}'
 
-      - name: 创建或更新 GitHub 预发布
+      - name: 生成并验证签名更新清单
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $installer = ".\artifacts\installer\GameSaveManager-Setup-$version.exe"
+          $manifest = '.\artifacts\installer\update-manifest.json'
+          $signature = '.\artifacts\installer\update-manifest.json.sig'
+          $releasePage = "https://github.com/thxdmw/GameSaveManger/releases/tag/$env:RELEASE_TAG"
+          $installerUrl = "https://github.com/thxdmw/GameSaveManger/releases/download/$env:RELEASE_TAG/GameSaveManager-Setup-$version.exe"
+          dotnet run --project .\tools\GameSaveManager.ReleaseTool\GameSaveManager.ReleaseTool.csproj -c Release -- `
+            create-manifest `
+            --installer $installer `
+            --output $manifest `
+            --signature $signature `
+            --private-key '${{ steps.signing.outputs.manifest_key_path }}' `
+            --version $version `
+            --channel preview `
+            --release-page-url $releasePage `
+            --installer-url $installerUrl `
+            --publisher-certificate-sha256 '${{ steps.signing.outputs.publisher_certificate_sha256 }}'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet run --project .\tools\GameSaveManager.ReleaseTool\GameSaveManager.ReleaseTool.csproj -c Release -- `
+            verify `
+            --input $manifest `
+            --signature $signature `
+            --public-key .\src\GameSaveManager.Infrastructure\Updates\Assets\update-signing-public-key.pem
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 创建不可变 GitHub 预发布
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
           $notes = ".\docs\release-notes-$version.md"
           $installer = ".\artifacts\installer\GameSaveManager-Setup-$version.exe"
-          $checksums = ".\artifacts\installer\SHA256SUMS.txt"
-          foreach ($path in @($notes, $installer, $checksums)) {
+          $checksums = '.\artifacts\installer\SHA256SUMS.txt'
+          $manifest = '.\artifacts\installer\update-manifest.json'
+          $signature = '.\artifacts\installer\update-manifest.json.sig'
+          $assets = @($installer, $checksums, $manifest, $signature, $notes)
+          foreach ($path in $assets) {
             if (-not (Test-Path -LiteralPath $path)) { throw "发布文件不存在：$path" }
           }
 
           gh release view $env:RELEASE_TAG *> $null
-          $releaseExists = $LASTEXITCODE -eq 0
-          if ($releaseExists) {
-            gh release edit $env:RELEASE_TAG --title "GameSave Manager $version" --notes-file $notes --prerelease
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            gh release upload $env:RELEASE_TAG $installer $checksums $notes --clobber
+          if ($LASTEXITCODE -eq 0) {
+            throw "版本 $env:RELEASE_TAG 已经存在；安全发布附件禁止覆盖，请递增版本号。"
           }
-          else {
-            gh release create $env:RELEASE_TAG $installer $checksums $notes `
-              --verify-tag --prerelease --title "GameSave Manager $version" --notes-file $notes
-          }
+          gh release create $env:RELEASE_TAG @assets `
+            --verify-tag --prerelease --title "GameSave Manager $version" --notes-file $notes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 清理发布密钥
+        if: always()
+        shell: pwsh
+        run: |
+          $thumbprint = '${{ steps.signing.outputs.certificate_thumbprint }}'
+          if (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
+            Remove-Item "Cert:\CurrentUser\My\$thumbprint" -Force -ErrorAction SilentlyContinue
+          }
+          foreach ($path in @(
+            '${{ steps.signing.outputs.pfx_path }}',
+            '${{ steps.signing.outputs.manifest_key_path }}')) {
+            if (-not [string]::IsNullOrWhiteSpace($path)) {
+              Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+            }
+          }

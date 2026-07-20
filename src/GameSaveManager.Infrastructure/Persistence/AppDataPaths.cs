@@ -13,6 +13,10 @@ public static class AppDataPaths
 
     public static string UpdateDirectory { get; } = Path.Combine(RootDirectory, "updates");
 
+    public static string UpdateTransactionDirectory { get; } = Path.Combine(UpdateDirectory, "transactions");
+
+    public static string RollbackInstallerDirectory { get; } = Path.Combine(RootDirectory, "rollback");
+
     public static void EnsureCreated()
     {
         Directory.CreateDirectory(DataDirectory);

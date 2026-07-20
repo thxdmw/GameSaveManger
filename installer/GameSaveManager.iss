@@ -25,6 +25,10 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExeName}
 ArchitecturesInstallIn64BitMode=x64compatible
+#ifdef SignToolName
+SignTool={#SignToolName}
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
@@ -41,3 +45,23 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  RollbackDirectory: string;
+  RollbackInstaller: string;
+begin
+  if CurStep <> ssPostInstall then
+    Exit;
+
+  RollbackDirectory := ExpandConstant('{localappdata}\GameSaveManager\rollback');
+  RollbackInstaller := RollbackDirectory + '\GameSaveManager-Setup-{#MyAppVersion}.exe';
+  if not ForceDirectories(RollbackDirectory) then
+  begin
+    Log('Unable to create rollback installer directory: ' + RollbackDirectory);
+    Exit;
+  end;
+  if not CopyFile(ExpandConstant('{srcexe}'), RollbackInstaller, False) then
+    Log('Unable to retain rollback installer: ' + RollbackInstaller);
+end;
