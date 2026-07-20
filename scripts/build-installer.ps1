@@ -111,6 +111,9 @@ function Assert-AuthenticodeSignature
     }
 
     Write-Host "Authenticode signature, pinned self-signed publisher and trusted timestamp verified: $Path"
+    # SignTool 对未加入系统根库的自签发布者返回 1；上面的固定证书、签名状态和
+    # 时间戳链校验全部通过后，这个唯一允许的退出码已经被消费，不能泄漏给调用方。
+    $global:LASTEXITCODE = 0
 }
 & (Join-Path $PSScriptRoot "publish-windows.ps1") -Runtime $Runtime
 if ($LASTEXITCODE -ne 0)
