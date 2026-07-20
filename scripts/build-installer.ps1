@@ -5,7 +5,9 @@ param(
     [string] $InnoSetupCompiler,
     [string] $SignToolPath,
     [string] $SigningCertificateThumbprint,
-    [string] $TimestampServer = "http://timestamp.digicert.com"
+    [string] $TimestampServer = "http://timestamp.digicert.com",
+    [switch] $AllowUntrustedSelfSignedPublisher,
+    [string] $ExpectedPublisherCertificateSha256
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +34,83 @@ if ($signingEnabled)
     {
         throw "TimestampServer must be an absolute URL."
     }
+    if ($AllowUntrustedSelfSignedPublisher -and
+        $ExpectedPublisherCertificateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
+    {
+        throw "ExpectedPublisherCertificateSha256 must be provided when allowing an untrusted self-signed publisher."
+    }
+}
+
+function Assert-AuthenticodeSignature
+{
+    param([Parameter(Mandatory = $true)][string] $Path)
+
+    $verifyOutput = @(& $SignToolPath verify /pa /all /tw /v $Path 2>&1)
+    $verifyExitCode = $LASTEXITCODE
+    $verifyOutput | ForEach-Object { Write-Host $_ }
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($null -eq $signature.SignerCertificate)
+    {
+        throw "Authenticode signature is missing from $Path."
+    }
+    if ($null -eq $signature.TimeStamperCertificate)
+    {
+        throw "Trusted timestamp is missing from $Path."
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedPublisherCertificateSha256))
+    {
+        $actualPublisherSha256 = $signature.SignerCertificate.GetCertHashString(
+            [Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant()
+        if ($actualPublisherSha256 -ne $ExpectedPublisherCertificateSha256.ToLowerInvariant())
+        {
+            throw "Authenticode publisher certificate does not match the pinned SHA-256 for $Path."
+        }
+    }
+
+    if ($verifyExitCode -eq 0)
+    {
+        if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid)
+        {
+            throw "PowerShell Authenticode verification disagrees with SignTool for ${Path}: $($signature.StatusMessage)"
+        }
+        return
+    }
+
+    if (-not $AllowUntrustedSelfSignedPublisher)
+    {
+        throw "Authenticode verification failed for $Path."
+    }
+
+    $combinedOutput = ($verifyOutput | Out-String)
+    $onlyUntrustedRoot = $combinedOutput -match '(?is)terminated in a root\s+certificate which is not trusted' -or
+        $signature.StatusMessage -match '(?i)0x800B0109|root certificate.*not trusted'
+    $timestampReported = $combinedOutput -match '(?i)signature is timestamped|Timestamp Verified by|Timestamp\s+Authenticode'
+    $allowedStatus = $signature.Status -in @(
+        [Management.Automation.SignatureStatus]::NotTrusted,
+        [Management.Automation.SignatureStatus]::UnknownError)
+    if (-not $onlyUntrustedRoot -or -not $timestampReported -or -not $allowedStatus)
+    {
+        throw "Authenticode verification failed for a reason other than the pinned self-signed root for ${Path}: $($signature.StatusMessage)"
+    }
+
+    $timestampChain = [Security.Cryptography.X509Certificates.X509Chain]::new()
+    try
+    {
+        $timestampChain.ChainPolicy.RevocationMode =
+            [Security.Cryptography.X509Certificates.X509RevocationMode]::Online
+        if (-not $timestampChain.Build($signature.TimeStamperCertificate))
+        {
+            $errors = ($timestampChain.ChainStatus | ForEach-Object StatusInformation) -join '; '
+            throw "Timestamp certificate chain verification failed for ${Path}: $errors"
+        }
+    }
+    finally
+    {
+        $timestampChain.Dispose()
+    }
+
+    Write-Host "Authenticode signature, pinned self-signed publisher and trusted timestamp verified: $Path"
 }
 & (Join-Path $PSScriptRoot "publish-windows.ps1") -Runtime $Runtime
 if ($LASTEXITCODE -ne 0)
@@ -65,8 +144,7 @@ if ($signingEnabled)
     {
         & $SignToolPath sign /sha1 $SigningCertificateThumbprint /fd SHA256 /t $TimestampServer /d "GameSave Manager" $executable
         if ($LASTEXITCODE -ne 0) { throw "Signing failed for $executable with exit code $LASTEXITCODE" }
-        & $SignToolPath verify /pa /all /tw $executable
-        if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed for $executable." }
+        Assert-AuthenticodeSignature -Path $executable
     }
 
     $signCommand = '$q' + $SignToolPath + '$q sign /sha1 ' + $SigningCertificateThumbprint +
@@ -89,8 +167,7 @@ if (-not (Test-Path -LiteralPath $installerPath))
 
 if ($signingEnabled)
 {
-    & $SignToolPath verify /pa /all /tw $installerPath
-    if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed for the installer." }
+    Assert-AuthenticodeSignature -Path $installerPath
 }
 
 $installerFile = Get-Item -LiteralPath $installerPath
