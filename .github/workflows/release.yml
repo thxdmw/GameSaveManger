@@ -147,6 +147,7 @@ jobs:
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
+          $releaseNotes = '${{ steps.version.outputs.release_notes }}'
           $installer = ".\artifacts\installer\GameSaveManager-Setup-$version.exe"
           $manifest = '.\artifacts\installer\update-manifest.json'
           $signature = '.\artifacts\installer\update-manifest.json.sig'
@@ -177,7 +178,7 @@ jobs:
             '.\certificates\GameSaveManager-Publisher.json',
             '.\scripts\Install-GameSaveManagerCertificate.ps1',
             '.\scripts\Remove-GameSaveManagerCertificate.ps1',
-            ".\docs\release-notes-$version.md",
+            $releaseNotes,
             $manifest,
             $signature
           )
@@ -192,6 +193,7 @@ jobs:
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
+          $releaseNotes = '${{ steps.version.outputs.release_notes }}'
           $assets = @(
             ".\artifacts\installer\GameSaveManager-Setup-$version.exe",
             '.\artifacts\installer\SHA256SUMS.txt',
@@ -201,7 +203,7 @@ jobs:
             '.\certificates\GameSaveManager-Publisher.json',
             '.\scripts\Install-GameSaveManagerCertificate.ps1',
             '.\scripts\Remove-GameSaveManagerCertificate.ps1',
-            ".\docs\release-notes-$version.md"
+            $releaseNotes
           )
           foreach ($path in $assets) {
             if (-not (Test-Path -LiteralPath $path)) { throw "发布文件不存在：$path" }
@@ -212,7 +214,7 @@ jobs:
           }
           gh release create $env:RELEASE_TAG @assets `
             --verify-tag --prerelease --title "GameSave Manager $version" `
-            --notes-file ".\docs\release-notes-$version.md"
+            --notes-file $releaseNotes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: 清理发布密钥和临时信任

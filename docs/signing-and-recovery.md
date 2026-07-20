@@ -1,6 +1,6 @@
 # 发布签名与恢复手册
 
-本手册描述 `0.2.0` 自签代码签名证书、独立更新清单密钥和升级恢复流程。任何私钥、PFX、密码或 DPAPI 密文都不能提交到仓库、Release、Issue、日志或聊天记录。
+本手册描述从 `0.2.0` 起沿用的自签代码签名证书、独立更新清单密钥和升级恢复流程。任何私钥、PFX、密码或 DPAPI 密文都不能提交到仓库、Release、Issue、日志或聊天记录。
 
 ## 一、自签代码签名证书
 
@@ -44,7 +44,7 @@ certificates\GameSaveManager-Publisher.json
 ```powershell
 .\Install-GameSaveManagerCertificate.ps1 `
   -CertificatePath .\GameSaveManager-Publisher.cer `
-  -InstallerPath .\GameSaveManager-Setup-0.2.0.exe
+  -InstallerPath .\GameSaveManager-Setup-<版本号>.exe
 ```
 
 脚本把公开证书导入当前用户的 `Root` 和 `TrustedPublisher`，不会访问本地计算机证书库，也不要求管理员权限。安装包参数用于同时确认 Authenticode 签名有效且叶证书就是被固定的发布者证书。

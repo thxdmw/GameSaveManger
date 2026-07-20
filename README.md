@@ -2,7 +2,7 @@
 
 GameSave Manager 是面向 Windows 的游戏存档管理客户端，使用 .NET 10、WPF 和 C# 构建。客户端通过完整目录扫描、内容寻址和不可变云端快照管理游戏存档，重点保证上传、冲突处理和恢复过程不会静默覆盖用户数据。
 
-> `0.2.0` 是首个安全自动更新过渡版本；`0.2.1` 用于验证从 `0.2.0` 发起的客户端内安全自动更新与失败回滚。两个版本使用同一张需要用户手动信任的自签发布者证书。正式用于重要存档前，请先在目标 CMS、对象存储和真实游戏环境中完成 [TODO.md](TODO.md) 中的端到端验收。
+> 当前版本为 `0.2.1`。`0.2.0` 首次引入安全自动更新，`0.2.1` 验证从 `0.2.0` 发起的客户端内更新与失败回滚。两个版本使用同一张需要用户手动信任的自签发布者证书。
 
 ## 当前功能
 
@@ -97,9 +97,8 @@ GameSaveManger
 ├── scripts                              # Windows 发布、签名与安装脚本
 ├── tools                                # 发布清单生成和签名工具
 ├── installer                            # Inno Setup 安装器定义
-├── docs                                 # 构建和发布说明
+├── docs                                 # 开发、发布、签名与恢复文档
 ├── GameSaveManager.sln
-└── TODO.md
 ```
 
 ## 架构边界
@@ -183,7 +182,7 @@ localHead == remoteHead ?
 
 ## 安装自签发布者证书
 
-`0.2.0` 使用项目自签的 RSA 3072 位代码签名证书。公开证书可以安全地放在仓库和 Release 中；PFX 私钥与密码只保存在发布者本机和 GitHub Actions Secrets，绝不能提交。自签证书不会自动获得 Windows 信任，用户必须先核对证书 SHA-256 指纹，再把它导入当前用户的“受信任的根证书颁发机构”和“受信任的发布者”。
+项目从 `0.2.0` 起使用 RSA 3072 位自签代码签名证书。公开证书可以安全地放在仓库和 Release 中；PFX 私钥与密码只保存在发布者本机和 GitHub Actions Secrets，绝不能提交。自签证书不会自动获得 Windows 信任，用户必须先核对证书 SHA-256 指纹，再把它导入当前用户的“受信任的根证书颁发机构”和“受信任的发布者”。
 
 公开证书固定 SHA-256 指纹：
 
@@ -196,17 +195,14 @@ localHead == remoteHead ?
 ```powershell
 .\Install-GameSaveManagerCertificate.ps1 `
   -CertificatePath .\GameSaveManager-Publisher.cer `
-  -InstallerPath .\GameSaveManager-Setup-0.2.0.exe
+  -InstallerPath .\GameSaveManager-Setup-<版本号>.exe
 ```
 
-脚本会再次固定校验证书指纹、用途、密钥强度和安装包签名，只有用户输入 `TRUST` 后才修改当前用户证书库。卸载客户端不会自动移除发布者信任；如不再使用，可运行 `Remove-GameSaveManagerCertificate.ps1`。自签名无法消除所有 SmartScreen 信誉提示，用户必须只从项目官方 Release 下载并先核对 `SHA256SUMS.txt`。完整步骤见 [0.2.0 发布说明](docs/release-notes-0.2.0.md)。
+请将 `<版本号>` 替换为实际下载的版本。脚本会再次固定校验证书指纹、用途、密钥强度和安装包签名，只有用户输入 `TRUST` 后才修改当前用户证书库。卸载客户端不会自动移除发布者信任；如不再使用，可运行 `Remove-GameSaveManagerCertificate.ps1`。自签名无法消除所有 SmartScreen 信誉提示，用户必须只从项目官方 Release 下载并先核对 `SHA256SUMS.txt`。完整步骤见 [发布流程与版本历史](docs/release.md)。
 
-## 环境与构建
+## 开发与发布
 
-- Windows 10/11。
-- .NET 10 SDK。
-- 可访问且数据库已初始化的 GameSave CMS 服务端。
-- 远程部署使用 HTTPS，并正确配置私有对象存储。
+项目需要 Windows 10/11 和 .NET 10 SDK。快速构建：
 
 ```powershell
 dotnet restore .\GameSaveManager.sln
@@ -214,30 +210,10 @@ dotnet build .\GameSaveManager.sln -c Debug
 dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj -c Debug --no-build
 ```
 
-验证项目当前覆盖服务端地址规范化、本地 SQLite 迁移和隔离、协议契约、CMS 时间转换、启动安全、进程识别、添加向导状态、注册表预览、恢复中断处理、错误重试与日志，以及 WPF 页面加载和绑定错误检查。它不替代真实 CMS、对象存储、游戏进程和多设备环境下的端到端验收。
+详细说明：
 
-## Windows 发布
+- [开发与构建](docs/development.md)：开发环境、本地构建、自动验证和本地发布。
+- [发布流程与版本历史](docs/release.md)：版本管理、签名发布、安装、验收和历史版本说明。
+- [发布签名与恢复手册](docs/signing-and-recovery.md)：证书、清单密钥、轮换与灾难恢复。
 
-生成 `win-x64` 自包含发布物：
-
-```powershell
-.\scripts\publish-windows.ps1
-```
-
-生成依赖 .NET 10 Desktop Runtime 的发布物：
-
-```powershell
-.\scripts\publish-windows.ps1 -DeploymentMode FrameworkDependent
-```
-
-安装 Inno Setup 6 后生成安装包：
-
-```powershell
-.\scripts\build-installer.ps1
-```
-
-脚本会自动读取根目录 `Directory.Build.props`，不再从命令行传入版本号。详细参数和验收步骤见 [构建说明](docs/build.md)、[Windows 发布说明](docs/release-windows.md)、[发布签名与恢复手册](docs/signing-and-recovery.md) 与 [版本管理流程](docs/versioning.md)。当前安装包可在 [GitHub 预发布页](https://github.com/thxdmw/GameSaveManger/releases) 下载；发布密钥已配置到 GitHub Secrets，仍需在干净系统完成人工安装、自动升级与回滚验收。
-
-## 后续任务
-
-当前未完成事项统一维护在 [TODO.md](TODO.md)。
+当前安装包可在 [GitHub Releases](https://github.com/thxdmw/GameSaveManger/releases) 下载。

@@ -1,0 +1,186 @@
+# 发布流程与版本历史
+
+本文统一记录 GameSave Manager 的版本规则、Windows 发布流程、发布验收和历史版本说明。构建与测试命令见 [开发与构建](development.md)，证书、密钥轮换和灾难恢复见 [发布签名与恢复手册](signing-and-recovery.md)。
+
+## 版本规则
+
+项目使用语义化版本 `主版本.次版本.修订版本`，当前处于 `0.x` 预发布阶段。版本号唯一来源是仓库根目录的 `Directory.Build.props`。
+
+- 修订版本：仅修复缺陷，例如 `0.2.1` → `0.2.2`。
+- 次版本：增加向后兼容功能，例如 `0.2.2` → `0.3.0`。
+- 主版本：达到稳定承诺或引入不兼容变更，例如 `0.9.0` → `1.0.0`。
+- 开发预览：在 `GameSaveManagerVersionSuffix` 中填写 `preview.1`，形成类似 `0.3.0-preview.1` 的版本。
+
+`GameSaveManagerReleaseChannel` 只负责客户端展示。不要在项目文件、脚本或工作流中重复维护版本号。
+
+## 准备版本
+
+1. 修改 `Directory.Build.props` 中的版本前缀和可选后缀。
+2. 将用户可感知的变更从 `CHANGELOG.md` 的“未发布”区域整理到对应版本，并更新本文“版本历史”。
+3. 完成 Release 构建、测试和版本一致性检查。以下示例中的版本号应替换为本次实际版本：
+
+```powershell
+$version = '0.2.2'
+dotnet restore .\GameSaveManager.sln
+dotnet build .\GameSaveManager.sln -c Release --no-restore
+dotnet test .\GameSaveManager.sln -c Release --no-build
+dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verification.csproj -c Release --no-build
+.\scripts\test-release-version.ps1 -Tag "v$version"
+```
+
+4. 如需执行本地签名构建，安装仓库公开证书，并使用当前发布者证书生成安装包：
+
+```powershell
+.\scripts\Install-GameSaveManagerCertificate.ps1 `
+  -CertificatePath .\certificates\GameSaveManager-Publisher.cer `
+  -Force
+
+.\scripts\build-installer.ps1 `
+  -SignToolPath '<SignTool 路径>' `
+  -SigningCertificateThumbprint 'C2299BA7748C11E2D4D8FA5080F38990B8FB3D05'
+```
+
+这里的 SHA-1 指纹只用于从本机证书库选择证书；文件摘要、证书固定、清单签名和时间戳摘要均使用 SHA-256。
+
+5. 发布密钥首次配置或轮换后，运行 `.\scripts\set-release-secrets.ps1` 写入 GitHub Actions Secrets。普通版本发布不需要重复写入未发生变化的 Secret。
+6. 提交并推送发布变更。确认本地签名构建及干净 Windows 环境验收通过后，创建不可移动的签名标签：
+
+```powershell
+$version = '0.2.2'
+git push origin master
+git tag -a "v$version" -m "发布 $version 预发布版"
+git push origin "v$version"
+```
+
+## 自动发布
+
+推送与 `Directory.Build.props` 一致的 `v主版本.次版本.修订版本` 标签后，`.github/workflows/release.yml` 会：
+
+1. 核对 PFX、仓库公开证书与固定元数据。
+2. 执行 Release 构建、测试和版本一致性验证。
+3. 使用 SignTool 和 Inno Setup 签名主程序、更新引导程序、安装包和卸载程序，并验证可信时间戳。
+4. 生成覆盖除校验文件自身以外全部附件的 `SHA256SUMS.txt`。
+5. 生成并验证独立 ECDSA 签名的 `update-manifest.json`。
+6. 一次性创建不可覆盖的 GitHub 预发布。
+
+工作流不会覆盖已有 Release 附件。若 Release 已创建后才发现问题，必须修复问题并递增版本号，不能移动旧标签或替换旧附件。
+
+## 用户首次安装
+
+安装包是 `win-x64` 自包含版本，普通用户不需要预装 .NET Runtime。首次安装应从项目官方 [GitHub Releases](https://github.com/thxdmw/GameSaveManger/releases) 下载以下文件并放在同一目录：
+
+- 当前版本的 `GameSaveManager-Setup-<版本号>.exe`
+- `GameSaveManager-Publisher.cer`
+- `GameSaveManager-Publisher.json`
+- `Install-GameSaveManagerCertificate.ps1`
+- `Remove-GameSaveManagerCertificate.ps1`
+- `SHA256SUMS.txt`
+
+先使用 `SHA256SUMS.txt` 核对附件。当前发布者证书 SHA-256 固定指纹为：
+
+```text
+14768BC7D3CF2B1EB5BBE3228ADC8A3D35A1F923CB806B64147D7CFD3BCA8E35
+```
+
+将命令中的安装包名称替换为实际下载的版本：
+
+```powershell
+.\Install-GameSaveManagerCertificate.ps1 `
+  -CertificatePath .\GameSaveManager-Publisher.cer `
+  -InstallerPath .\GameSaveManager-Setup-<版本号>.exe
+```
+
+脚本会校验证书固定指纹、有效期、代码签名用途、RSA 密钥长度和安装包签名。确认输出与官方指纹一致后，输入大写 `TRUST`。脚本只修改当前 Windows 用户的“受信任的根证书颁发机构”和“受信任的发布者”，不要求管理员权限。
+
+若 PowerShell 因下载标记阻止脚本，可在核对哈希后执行：
+
+```powershell
+Unblock-File .\Install-GameSaveManagerCertificate.ps1
+Unblock-File .\Remove-GameSaveManagerCertificate.ps1
+```
+
+不要关闭全局执行策略，也不要执行来源不明的脚本。自签证书不是公共 CA 审核的身份凭证，不能保证消除 SmartScreen 提示。
+
+不再使用客户端时，可以移除当前用户的发布者信任：
+
+```powershell
+.\Remove-GameSaveManagerCertificate.ps1 -CertificatePath .\GameSaveManager-Publisher.cer
+```
+
+卸载客户端不会自动移除证书，避免升级或回滚过程中破坏签名验证。
+
+## 安全更新边界
+
+客户端只接受同时满足以下条件的更新：
+
+1. 版本符合 SemVer，且来自固定 GitHub 仓库的 HTTPS Release。
+2. `update-manifest.json` 能由客户端内置的 ECDSA P-256 公钥验证。
+3. 清单、GitHub 资产摘要、`SHA256SUMS.txt` 和下载文件的 SHA-256 完全一致。
+4. Windows `WinVerifyTrust` 确认安装包 Authenticode 信任链有效。
+5. 安装包叶证书 SHA-256 与签名更新清单固定的发布者证书一致。
+
+用户确认后，客户端会验证随程序安装的更新引导程序并完全退出。引导程序静默安装新版本，新版本必须在 90 秒内写入受控健康确认；失败时使用 `%LOCALAPPDATA%\GameSaveManager\rollback` 中保留的上一版本安装包恢复。事务记录位于 `%LOCALAPPDATA%\GameSaveManager\updates\transactions`，更新不会删除游戏存档、SQLite 或 Credential Manager 凭据。
+
+## 发布验收清单
+
+自动发布成功后仍应在干净 Windows 环境完成以下检查：
+
+- 公开证书安装与移除、SmartScreen 提示和当前用户信任边界。
+- 全新安装、覆盖安装、自动升级、健康确认、失败回滚和卸载。
+- SQLite、日志、恢复 Journal、内容缓存和 Credential Manager 凭据的保留或清理行为。
+- 真实 CMS 与对象存储环境中的首次备份、重复备份、增量备份、取消、断网、服务端 5xx 和对象上传失败。
+- 至少两台设备上的 HEAD 冲突处理，确认不会静默覆盖另一端存档。
+- 下载中断、磁盘不足、staging 构建失败、目录切换中断和最终校验失败时的安全恢复。
+- 真实大型存档、长路径、只读或占用文件以及权限不足等边界。
+
+## 发布纪律
+
+- 已公开的提交、标签、版本号和 Release 附件不可移动或覆盖。
+- 安装包名称、程序集版本、安装器版本、签名清单和 GitHub 标签必须一致。
+- GitHub Secrets 只能由受控发布环境读取，私钥不得写入仓库、日志或构建产物。
+- 自动化验证不能替代干净 Windows 环境和真实存档环境中的人工验收。
+- 证书或清单密钥轮换必须遵循 [发布签名与恢复手册](signing-and-recovery.md) 中的跨版本过渡流程。
+
+## 版本历史
+
+详细的用户可感知变更同时记录在根目录的 [CHANGELOG.md](../CHANGELOG.md)。本节保留各公开版本的安装、升级和兼容性背景。
+
+### 0.2.1（2026-07-20）
+
+`0.2.1` 是安全自动更新验证版，用于验证已安装 `0.2.0` 的客户端发现、下载、校验、覆盖安装和失败回滚链路。
+
+- 继续使用 `0.2.0` 固定的 RSA 3072 位自签发布者证书和独立 ECDSA 更新清单密钥。
+- 修复 GitHub Actions 自签发布过程中的证书验证阻塞，不再修改 Runner 根证书库。
+- 固定并校验 Inno Setup 简体中文语言文件来源，保证安装器构建可复现。
+- 仅接受固定自签根不受信这一种发布环境链错误，同时校验叶证书指纹、文件摘要和可信时间戳。
+- 清理成功处理预期 SignTool 结果后的退出码，避免已完成验签的任务被错误判定为失败。
+
+从 `0.2.0` 自动更新后，应确认设置页面版本为 `0.2.1`，且登录状态、本地游戏配置和存档同步状态仍然存在。未安装 `0.2.0` 的用户可以按照仓库发布文档中的首次安装步骤直接安装 `0.2.1`。
+
+### 0.2.0（2026-07-20）
+
+`0.2.0` 是首个带安全自动更新能力的过渡版本。`0.1.0` 不能自动升级到该版本，因此需要手动下载安装。
+
+- 增加启动后后台检查和设置页手动检查 GitHub 预发布。
+- 增加下载进度、取消、启动健康确认和失败回滚。
+- 更新前校验独立 ECDSA 清单、GitHub 资产摘要、`SHA256SUMS.txt`、本地 SHA-256、Authenticode 信任链和发布者证书指纹。
+- 主程序、更新引导程序、安装包和卸载程序使用同一 RSA 3072 位自签发布者证书，并添加可信时间戳。
+- 提供公开证书、证书元数据及安装和移除当前用户信任的脚本。
+- 完善添加游戏状态隔离、详情页切换、备份进度、存档配置和卡片交互。
+
+该版本建立了从 `0.2.0` 更新到后续版本的安全基础；`0.2.1` 随后用于验证跨版本更新链路。
+
+### 0.1.0（2026-07-17）
+
+首个公开测试版本，提供 Windows 游戏存档的本地配置、云端快照、跨设备恢复和退出后自动备份能力。
+
+- 六步添加向导，支持 Steam、Epic、GOG 和本地 EXE/LNK。
+- 支持 Ludusavi Manifest、常见目录、手动选择和运行学习等存档位置识别方式。
+- 支持多存档根目录、Include/Exclude Glob 和 HKCU 注册表存档。
+- 支持 SHA-256 内容寻址、缺失对象上传和不可变云端快照。
+- 支持立即备份、退出后自动备份、进度显示、取消、重试和结果摘要。
+- 支持云端时间线、恢复预览、ZIP 导出、历史快照删除和保留策略。
+- 引入安全恢复 staging、原存档安全备份、恢复 Journal 和启动恢复。
+- 支持多设备 HEAD 冲突阻断，以及恢复云端或保留本机两个处理方向。
+
+该版本尚无客户端内自动更新和 Authenticode 代码签名，升级到 `0.2.0` 需要手动完成。
