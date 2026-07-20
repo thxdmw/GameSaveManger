@@ -2,7 +2,7 @@
 
 GameSave Manager 是面向 Windows 的游戏存档管理客户端，使用 .NET 10、WPF 和 C# 构建。客户端通过完整目录扫描、内容寻址和不可变云端快照管理游戏存档，重点保证上传、冲突处理和恢复过程不会静默覆盖用户数据。
 
-> `0.1.0` 预发布版已经提供 Windows 安装包；`0.2.0` 是正在准备的首个安全自动更新过渡版本，采用需要用户手动信任的自签发布者证书。正式用于重要存档前，请先在目标 CMS、对象存储和真实游戏环境中完成 [TODO.md](TODO.md) 中的端到端验收。
+> `0.2.0` 是首个安全自动更新过渡版本；`0.2.1` 用于验证从 `0.2.0` 发起的客户端内安全自动更新与失败回滚。两个版本使用同一张需要用户手动信任的自签发布者证书。正式用于重要存档前，请先在目标 CMS、对象存储和真实游戏环境中完成 [TODO.md](TODO.md) 中的端到端验收。
 
 ## 当前功能
 
@@ -236,7 +236,7 @@ dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verifi
 .\scripts\build-installer.ps1
 ```
 
-脚本会自动读取根目录 `Directory.Build.props`，不再从命令行传入版本号。详细参数和验收步骤见 [构建说明](docs/build.md)、[Windows 发布说明](docs/release-windows.md)、[发布签名与恢复手册](docs/signing-and-recovery.md) 与 [版本管理流程](docs/versioning.md)。当前安装包可在 [GitHub 预发布页](https://github.com/thxdmw/GameSaveManger/releases) 下载；发布 `0.2.0` 前需把仓库外的自签 PFX、密码和更新清单私钥配置到 GitHub Secrets，并在干净系统完成人工安装、升级与回滚验收。
+脚本会自动读取根目录 `Directory.Build.props`，不再从命令行传入版本号。详细参数和验收步骤见 [构建说明](docs/build.md)、[Windows 发布说明](docs/release-windows.md)、[发布签名与恢复手册](docs/signing-and-recovery.md) 与 [版本管理流程](docs/versioning.md)。当前安装包可在 [GitHub 预发布页](https://github.com/thxdmw/GameSaveManger/releases) 下载；发布密钥已配置到 GitHub Secrets，仍需在干净系统完成人工安装、自动升级与回滚验收。
 
 ## 后续任务
 

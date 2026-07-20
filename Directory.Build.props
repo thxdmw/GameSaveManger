@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- 客户端版本的唯一来源。发布新版本时只修改这里。 -->
-    <GameSaveManagerVersionPrefix>0.2.0</GameSaveManagerVersionPrefix>
+    <GameSaveManagerVersionPrefix>0.2.1</GameSaveManagerVersionPrefix>
     <GameSaveManagerVersionSuffix></GameSaveManagerVersionSuffix>
     <GameSaveManagerReleaseChannel>预发布</GameSaveManagerReleaseChannel>
 
