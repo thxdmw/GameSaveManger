@@ -120,7 +120,19 @@ jobs:
 
       - name: 安装 Inno Setup 6
         shell: pwsh
-        run: choco install innosetup --yes --no-progress
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $languagePath = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\Languages\ChineseSimplified.isl'
+          if (-not (Test-Path -LiteralPath $languagePath)) {
+            $languageUrl = 'https://raw.githubusercontent.com/jrsoftware/issrc/7fc483339b6f5b531eb4c0c504a8026877c9142f/Files/Languages/ChineseSimplified.isl'
+            Invoke-WebRequest -Uri $languageUrl -OutFile $languagePath
+          }
+          $languageSha256 = (Get-FileHash -LiteralPath $languagePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($languageSha256 -ne '6753be2c5e2740d859900fd902824db2ec568da5c5b52486524c9762d778b0b0') {
+            throw "Inno Setup 简体中文语言文件摘要不匹配：$languageSha256"
+          }
 
       - name: 生成并验证 Authenticode 安装包
         shell: pwsh
