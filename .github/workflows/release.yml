@@ -43,6 +43,7 @@ jobs:
 
       - name: 导入自签发布证书和更新清单私钥
         id: signing
+        timeout-minutes: 3
         shell: pwsh
         env:
           SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
@@ -91,9 +92,11 @@ jobs:
             $publicCertificate.Dispose()
           }
 
-          # 托管 Runner 不应把自签叶证书提升为根 CA；TrustedPeople 足以让 SignTool
-          # 在本次临时会话中直接信任固定的发布者叶证书，也不会触发根证书确认。
-          Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\TrustedPeople | Out-Null
+          # SignTool /pa 必须能构建到受信根。CI 只在当前用户、本次临时会话中
+          # 信任经过 PFX/公开证书/元数据三重固定的自签证书，不导入 TrustedPublisher。
+          Write-Host '正在导入临时 CurrentUser Root 信任。'
+          Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          Write-Host '临时 CurrentUser Root 信任导入完成。'
           $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
             Sort-Object FullName -Descending |
             Select-Object -First 1
@@ -203,7 +206,7 @@ jobs:
         run: |
           $thumbprint = '${{ steps.signing.outputs.certificate_thumbprint }}'
           if (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
-            foreach ($store in @('My', 'TrustedPeople')) {
+            foreach ($store in @('My', 'Root')) {
               Remove-Item "Cert:\CurrentUser\$store\$thumbprint" -Force -ErrorAction SilentlyContinue
             }
           }

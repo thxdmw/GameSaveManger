@@ -94,11 +94,11 @@ certificates\GameSaveManager-Publisher.json
 ## 五、发布时发生什么
 
 1. 工作流解码并导入 PFX，确认它与仓库公开证书及固定元数据完全一致。
-2. Runner 临时把公开自签叶证书加入当前用户 `TrustedPeople`，用于本次 SignTool 直接信任和签名复验；不把发布者证书提升为 Runner 的根 CA。
+2. Runner 仅在当前用户和本次临时会话中，把经过 PFX、公开证书与固定元数据三重核对的自签证书加入 `Root`，用于 SignTool 完整链验证；不导入 `TrustedPublisher`。
 3. SignTool 使用 SHA-256 文件摘要和 DigiCert 可信 Authenticode 时间戳签名主程序、更新引导程序、安装包和卸载程序，并使用 `/tw` 强制验证时间戳。
 4. 发布工具把安装包 URL、大小、SHA-256 和发布者证书 SHA-256 写入清单，并用独立 ECDSA 私钥签名。
 5. 工作流用仓库公钥回验清单，生成覆盖除校验文件自身以外全部附件的 `SHA256SUMS.txt`，再一次性创建不可覆盖的 GitHub 预发布。
-6. `always()` 清理 Runner 的 PFX、清单私钥以及临时加入 `My` 和 `TrustedPeople` 的证书。
+6. `always()` 清理 Runner 的 PFX、清单私钥以及临时加入 `My` 和 `Root` 的证书。
 
 任何一步失败都不会创建 Release 附件。
 
