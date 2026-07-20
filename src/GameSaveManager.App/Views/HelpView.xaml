@@ -241,7 +241,7 @@
                     <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="客户端更新：后台检查 / 检查更新"/>
                     <TextBlock Style="{StaticResource HelpBody}" Text="控制是否在启动后后台检查 GitHub 预发布（最多每 12 小时一次），或立即手动检查。检查失败不影响存档功能。"/>
                     <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="下载更新 / 取消下载 / 退出并安装"/>
-                    <TextBlock Style="{StaticResource HelpBody}" Text="下载新版本安装包并显示进度；取消会删除未完成文件。只有签名更新清单、GitHub 资产摘要、SHA256SUMS.txt、本地 SHA-256 与 Windows 发布者签名全部验证通过后才可安装；安装失败或新版本无法完成启动确认时会尝试恢复上一版本。"/>
+                    <TextBlock Style="{StaticResource HelpBody}" Text="下载新版本安装包并显示进度；取消会删除未完成文件。只有签名更新清单、GitHub 资产摘要、SHA256SUMS.txt、本地 SHA-256 与 Windows 发布者签名全部验证通过后才可安装；安装失败或新版本无法完成启动确认时会尝试恢复上一版本。0.2.0 使用自签发布者证书，首次安装前必须按官方发布说明核对指纹并信任证书，后续自动更新期间不要移除该证书。"/>
                     <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="加载策略 / 立即清理 / 保存策略"/>
                     <TextBlock Style="{StaticResource HelpBody}" Text="读取当前游戏的快照保留策略、按策略立即清理历史快照，或保存是否自动清理、最多保留数量和保留天数。当前 HEAD 永远保留。"/>
                     <TextBlock Margin="0,14,0,0" Style="{StaticResource HelpItemTitle}" Text="查看许可证"/>

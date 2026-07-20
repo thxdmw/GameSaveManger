@@ -239,6 +239,7 @@ ClientBin/
 *.pfx
 *.p12
 *.pk8
+*.dpapi
 *.publishsettings
 orleans.codegen.cs
 

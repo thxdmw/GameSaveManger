@@ -63,14 +63,14 @@ if ($signingEnabled)
 {
     foreach ($executable in @($mainExecutable, $bootstrapperExecutable))
     {
-        & $SignToolPath sign /sha1 $SigningCertificateThumbprint /fd SHA256 /tr $TimestampServer /td SHA256 /d "GameSave Manager" $executable
+        & $SignToolPath sign /sha1 $SigningCertificateThumbprint /fd SHA256 /t $TimestampServer /d "GameSave Manager" $executable
         if ($LASTEXITCODE -ne 0) { throw "Signing failed for $executable with exit code $LASTEXITCODE" }
         & $SignToolPath verify /pa /all /tw $executable
         if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed for $executable." }
     }
 
     $signCommand = '$q' + $SignToolPath + '$q sign /sha1 ' + $SigningCertificateThumbprint +
-        ' /fd SHA256 /tr ' + $TimestampServer + ' /td SHA256 /d $qGameSave Manager$q $f'
+        ' /fd SHA256 /t ' + $TimestampServer + ' /d $qGameSave Manager$q $f'
     $compilerArguments += "/DSignToolName=gamesavemanager"
     $compilerArguments += "/Sgamesavemanager=$signCommand"
 }

@@ -58,7 +58,7 @@ GameSaveManager.Verification
 
 GitHub Actions 使用 GitHub 官方维护的 checkout/setup-dotnet/upload-artifact Action。PR 在自动构建和基础边界验证通过前保持 Draft，不直接合并。
 
-推送与 `Directory.Build.props` 一致的 `v主版本.次版本.修订版本` 标签后，`.github/workflows/release.yml` 会执行同一套 Release 验证，调用 SignTool 和 Inno Setup 生成带可信时间戳的签名安装包，再生成 SHA-256 校验和及独立签名更新清单，并创建不可覆盖的 GitHub 预发布。详细步骤见 [版本管理与发布流程](versioning.md) 和 [发布签名与恢复手册](signing-and-recovery.md)。
+推送与 `Directory.Build.props` 一致的 `v主版本.次版本.修订版本` 标签后，`.github/workflows/release.yml` 会执行同一套 Release 验证，使用与仓库公开证书一致的自签 PFX 调用 SignTool 和 Inno Setup，生成带可信时间戳的签名安装包，再生成覆盖除校验文件自身以外全部附件的 SHA-256 校验和及独立签名更新清单，并创建不可覆盖的 GitHub 预发布。详细步骤见 [版本管理与发布流程](versioning.md) 和 [发布签名与恢复手册](signing-and-recovery.md)。
 
 ## 注释规范
 

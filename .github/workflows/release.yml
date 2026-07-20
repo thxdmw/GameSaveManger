@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已存在的版本标签，例如 v0.2.0
+        description: 已存在且尚未发布的版本标签，例如 v0.2.0
         required: true
         type: string
 
@@ -41,7 +41,7 @@ jobs:
         shell: pwsh
         run: .\scripts\test-release-version.ps1 -Tag $env:RELEASE_TAG
 
-      - name: 导入发布证书和更新清单私钥
+      - name: 导入自签发布证书和更新清单私钥
         id: signing
         shell: pwsh
         env:
@@ -57,28 +57,49 @@ jobs:
 
           $pfxPath = Join-Path $env:RUNNER_TEMP 'gamesavemanager-signing.pfx'
           $manifestKeyPath = Join-Path $env:RUNNER_TEMP 'update-manifest-private-key.pk8'
+          $publicCertificatePath = '.\certificates\GameSaveManager-Publisher.cer'
+          $certificateMetadata = Get-Content '.\certificates\GameSaveManager-Publisher.json' -Raw | ConvertFrom-Json
+          "pfx_path=$pfxPath" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
+          "manifest_key_path=$manifestKeyPath" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
           [IO.File]::WriteAllBytes($manifestKeyPath, [Convert]::FromBase64String($env:MANIFEST_PRIVATE_KEY_BASE64))
           $password = ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
           $certificate = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $password
           if (-not $certificate.HasPrivateKey) { throw '代码签名证书不包含私钥。' }
-          $codeSigningOid = '1.3.6.1.5.5.7.3.3'
-          if (-not ($certificate.EnhancedKeyUsageList.ObjectId.Value -contains $codeSigningOid)) {
-            throw '证书不允许用于代码签名。'
+          "certificate_thumbprint=$($certificate.Thumbprint)" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
+
+          $publicCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new($publicCertificatePath)
+          try {
+            $publisherSha256 = $certificate.GetCertHashString(
+              [Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant()
+            $publicSha256 = $publicCertificate.GetCertHashString(
+              [Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant()
+            if ($publisherSha256 -ne $publicSha256 -or
+                $publisherSha256 -ne $certificateMetadata.publisherCertificateSha256) {
+              throw 'PFX、公开证书与仓库证书元数据不一致。'
+            }
+            $ekuSource = $certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' } | Select-Object -First 1
+            if ($null -eq $ekuSource) { throw '代码签名证书缺少增强用途。' }
+            $eku = [Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new(
+              $ekuSource,
+              $ekuSource.Critical)
+            if (-not ($eku.EnhancedKeyUsages.Value -contains '1.3.6.1.5.5.7.3.3')) {
+              throw '证书不允许用于代码签名。'
+            }
+          }
+          finally {
+            $publicCertificate.Dispose()
           }
 
-          $publisherSha256 = [Convert]::ToHexString(
-            [Security.Cryptography.SHA256]::HashData($certificate.RawData)).ToLowerInvariant()
+          Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
           $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
             Sort-Object FullName -Descending |
             Select-Object -First 1
           if ($null -eq $signTool) { throw '未找到 Windows SDK SignTool。' }
 
-          "certificate_thumbprint=$($certificate.Thumbprint)" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
           "publisher_certificate_sha256=$publisherSha256" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
           "sign_tool=$($signTool.FullName)" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
-          "manifest_key_path=$manifestKeyPath" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
-          "pfx_path=$pfxPath" | Add-Content $env:GITHUB_OUTPUT -Encoding utf8
 
       - name: 还原、构建和验证
         shell: pwsh
@@ -103,7 +124,7 @@ jobs:
             -SignToolPath '${{ steps.signing.outputs.sign_tool }}' `
             -SigningCertificateThumbprint '${{ steps.signing.outputs.certificate_thumbprint }}'
 
-      - name: 生成并验证签名更新清单
+      - name: 生成签名更新清单和完整校验和
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
@@ -131,35 +152,59 @@ jobs:
             --public-key .\src\GameSaveManager.Infrastructure\Updates\Assets\update-signing-public-key.pem
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+          $checksumTargets = @(
+            $installer,
+            '.\certificates\GameSaveManager-Publisher.cer',
+            '.\certificates\GameSaveManager-Publisher.json',
+            '.\scripts\Install-GameSaveManagerCertificate.ps1',
+            '.\scripts\Remove-GameSaveManagerCertificate.ps1',
+            ".\docs\release-notes-$version.md",
+            $manifest,
+            $signature
+          )
+          $checksumLines = foreach ($path in $checksumTargets) {
+            $file = Get-Item -LiteralPath $path
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)"
+          }
+          $checksumLines | Set-Content '.\artifacts\installer\SHA256SUMS.txt' -Encoding ascii
+
       - name: 创建不可变 GitHub 预发布
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
-          $notes = ".\docs\release-notes-$version.md"
-          $installer = ".\artifacts\installer\GameSaveManager-Setup-$version.exe"
-          $checksums = '.\artifacts\installer\SHA256SUMS.txt'
-          $manifest = '.\artifacts\installer\update-manifest.json'
-          $signature = '.\artifacts\installer\update-manifest.json.sig'
-          $assets = @($installer, $checksums, $manifest, $signature, $notes)
+          $assets = @(
+            ".\artifacts\installer\GameSaveManager-Setup-$version.exe",
+            '.\artifacts\installer\SHA256SUMS.txt',
+            '.\artifacts\installer\update-manifest.json',
+            '.\artifacts\installer\update-manifest.json.sig',
+            '.\certificates\GameSaveManager-Publisher.cer',
+            '.\certificates\GameSaveManager-Publisher.json',
+            '.\scripts\Install-GameSaveManagerCertificate.ps1',
+            '.\scripts\Remove-GameSaveManagerCertificate.ps1',
+            ".\docs\release-notes-$version.md"
+          )
           foreach ($path in $assets) {
             if (-not (Test-Path -LiteralPath $path)) { throw "发布文件不存在：$path" }
           }
-
           gh release view $env:RELEASE_TAG *> $null
           if ($LASTEXITCODE -eq 0) {
             throw "版本 $env:RELEASE_TAG 已经存在；安全发布附件禁止覆盖，请递增版本号。"
           }
           gh release create $env:RELEASE_TAG @assets `
-            --verify-tag --prerelease --title "GameSave Manager $version" --notes-file $notes
+            --verify-tag --prerelease --title "GameSave Manager $version" `
+            --notes-file ".\docs\release-notes-$version.md"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: 清理发布密钥
+      - name: 清理发布密钥和临时信任
         if: always()
         shell: pwsh
         run: |
           $thumbprint = '${{ steps.signing.outputs.certificate_thumbprint }}'
           if (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
-            Remove-Item "Cert:\CurrentUser\My\$thumbprint" -Force -ErrorAction SilentlyContinue
+            foreach ($store in @('My', 'Root', 'TrustedPublisher')) {
+              Remove-Item "Cert:\CurrentUser\$store\$thumbprint" -Force -ErrorAction SilentlyContinue
+            }
           }
           foreach ($path in @(
             '${{ steps.signing.outputs.pfx_path }}',

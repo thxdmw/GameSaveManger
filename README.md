@@ -2,7 +2,7 @@
 
 GameSave Manager 是面向 Windows 的游戏存档管理客户端，使用 .NET 10、WPF 和 C# 构建。客户端通过完整目录扫描、内容寻址和不可变云端快照管理游戏存档，重点保证上传、冲突处理和恢复过程不会静默覆盖用户数据。
 
-> `0.1.0` 预发布版已经提供 Windows 安装包，项目仍处于发布验收阶段。正式用于重要存档前，请先在目标 CMS、对象存储和真实游戏环境中完成 [TODO.md](TODO.md) 中的端到端验收。
+> `0.1.0` 预发布版已经提供 Windows 安装包；`0.2.0` 是正在准备的首个安全自动更新过渡版本，采用需要用户手动信任的自签发布者证书。正式用于重要存档前，请先在目标 CMS、对象存储和真实游戏环境中完成 [TODO.md](TODO.md) 中的端到端验收。
 
 ## 当前功能
 
@@ -181,6 +181,26 @@ localHead == remoteHead ?
 
 客户端更新安装包暂存在 `%LOCALAPPDATA%\GameSaveManager\updates\版本号`。未完成或校验不一致的文件会被删除；只有签名清单、GitHub 资产摘要、`SHA256SUMS.txt`、本地 SHA-256 和 Windows 发布者证书全部一致时才允许更新。事务与启动确认位于 `updates\transactions`，上一版本安装包位于 `rollback`。
 
+## 安装自签发布者证书
+
+`0.2.0` 使用项目自签的 RSA 3072 位代码签名证书。公开证书可以安全地放在仓库和 Release 中；PFX 私钥与密码只保存在发布者本机和 GitHub Actions Secrets，绝不能提交。自签证书不会自动获得 Windows 信任，用户必须先核对证书 SHA-256 指纹，再把它导入当前用户的“受信任的根证书颁发机构”和“受信任的发布者”。
+
+公开证书固定 SHA-256 指纹：
+
+```text
+14768BC7D3CF2B1EB5BBE3228ADC8A3D35A1F923CB806B64147D7CFD3BCA8E35
+```
+
+下载 Release 中的证书、安装脚本和安装包后，在同一目录执行：
+
+```powershell
+.\Install-GameSaveManagerCertificate.ps1 `
+  -CertificatePath .\GameSaveManager-Publisher.cer `
+  -InstallerPath .\GameSaveManager-Setup-0.2.0.exe
+```
+
+脚本会再次固定校验证书指纹、用途、密钥强度和安装包签名，只有用户输入 `TRUST` 后才修改当前用户证书库。卸载客户端不会自动移除发布者信任；如不再使用，可运行 `Remove-GameSaveManagerCertificate.ps1`。自签名无法消除所有 SmartScreen 信誉提示，用户必须只从项目官方 Release 下载并先核对 `SHA256SUMS.txt`。完整步骤见 [0.2.0 发布说明](docs/release-notes-0.2.0.md)。
+
 ## 环境与构建
 
 - Windows 10/11。
@@ -216,7 +236,7 @@ dotnet run --project .\tests\GameSaveManager.Verification\GameSaveManager.Verifi
 .\scripts\build-installer.ps1
 ```
 
-脚本会自动读取根目录 `Directory.Build.props`，不再从命令行传入版本号。详细参数和验收步骤见 [构建说明](docs/build.md)、[Windows 发布说明](docs/release-windows.md)、[发布签名与恢复手册](docs/signing-and-recovery.md) 与 [版本管理流程](docs/versioning.md)。当前安装包可在 [GitHub 预发布页](https://github.com/thxdmw/GameSaveManger/releases) 下载；下一次安全发布前需先配置正式代码签名证书和 GitHub Secrets，并在干净系统完成人工升级与回滚验收。
+脚本会自动读取根目录 `Directory.Build.props`，不再从命令行传入版本号。详细参数和验收步骤见 [构建说明](docs/build.md)、[Windows 发布说明](docs/release-windows.md)、[发布签名与恢复手册](docs/signing-and-recovery.md) 与 [版本管理流程](docs/versioning.md)。当前安装包可在 [GitHub 预发布页](https://github.com/thxdmw/GameSaveManger/releases) 下载；发布 `0.2.0` 前需把仓库外的自签 PFX、密码和更新清单私钥配置到 GitHub Secrets，并在干净系统完成人工安装、升级与回滚验收。
 
 ## 后续任务
 
