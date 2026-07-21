@@ -77,6 +77,7 @@ Run("新增游戏来源切换不会复用上一款游戏配置", GameSaveManager
 await RunAsync("添加向导逐步门禁与多根聚合预览有效", GameSaveManager.Verification.AddGameWizardValidationVerification.VerifyStepGatesAndAggregatePreviewAsync);
 await RunAsync("注册表规则会在确认前执行真实可读性预览", GameSaveManager.Verification.RegistryPreviewVerification.VerifyRealRegistryPreviewAsync);
 Run("游戏详情同步摘要与进度按游戏隔离", GameSaveManager.Verification.GameDetailSyncStateVerification.VerifyPerGameSyncStateIsolation);
+Run("删除目标与切换游戏临时状态严格隔离", GameSaveManager.Verification.GameSelectionConsistencyVerification.VerifyDeleteTargetAndTransientStateIsolation);
 await RunAsync("客户端更新会验证签名清单、摘要链和 Windows 发布者", GameSaveManager.Verification.ClientUpdateVerification.VerifyAsync);
 Run("Desktop UI starts without WPF binding errors", GameSaveManager.Verification.WpfSmokeVerification.VerifyMainWindowLoadsWithoutBindingErrors);
 

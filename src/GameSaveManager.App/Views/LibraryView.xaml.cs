@@ -52,14 +52,13 @@ public partial class LibraryView : UserControl
     private void DeleteGameMenuItem_OnClick(object sender, RoutedEventArgs e)
     {
         if (GetMenuGame(sender) is not { } game || DataContext is not MainViewModel viewModel) return;
-        viewModel.SelectedGame = game;
         ThemedDialogResult confirmation = ThemedDialogWindow.ShowThemed(
             Window.GetWindow(this),
             "确认删除游戏",
             $"确定删除“{game.Name}”吗？\n\n这会删除该游戏的全部云端快照，以及这台电脑中保存的启动、存档和自动同步设置。此操作无法撤销；本机原始存档文件不会被删除。",
             "确认删除",
             "取消");
-        if (confirmation == ThemedDialogResult.Primary && viewModel.DeleteGameCommand.CanExecute(null))
-            viewModel.DeleteGameCommand.Execute(null);
+        if (confirmation == ThemedDialogResult.Primary && viewModel.DeleteGameCommand.CanExecute(game))
+            viewModel.DeleteGameCommand.Execute(game);
     }
 }

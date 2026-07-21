@@ -182,7 +182,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RegisterCommand = new AsyncCommand(() => AuthenticateAsync(true));
         LoginCommand = new AsyncCommand(() => AuthenticateAsync(false));
         CreateGameCommand = new AsyncCommand(CreateGameAsync, CanCreateGame);
-        DeleteGameCommand = new AsyncCommand(DeleteGameAsync, () => IsAuthenticated && SelectedGame is not null);
+        DeleteGameCommand = new AsyncCommand(
+            DeleteGameAsync,
+            parameter => IsAuthenticated
+                         && parameter is CloudGame game
+                         && Games.Any(item => string.Equals(item.GameId, game.GameId, StringComparison.Ordinal)));
         LogoutCommand = new AsyncCommand(LogoutAsync, () => IsAuthenticated);
         AccountActionCommand = new AsyncCommand(AccountActionAsync);
         BuildManifestCommand = new AsyncCommand(BuildManifestAsync);
@@ -209,7 +213,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ReloadRetentionCommand = new AsyncCommand(ReloadRetentionAsync);
         SaveRetentionCommand = new AsyncCommand(SaveRetentionAsync);
         CleanupRetentionCommand = new AsyncCommand(CleanupRetentionAsync);
-        RevokeDeviceCommand = new AsyncCommand(RevokeDeviceAsync);
+        RevokeDeviceCommand = new AsyncCommand(
+            RevokeDeviceAsync,
+            parameter => parameter is CloudDevice device
+                         && Devices.Any(item => string.Equals(item.DeviceId, device.DeviceId, StringComparison.Ordinal)));
         KeepLocalConflictCommand = new AsyncCommand(KeepLocalConflictAsync);
         NavigateCommand = new DelegateCommand(NavigateTo);
         SelectGameCommand = new AsyncCommand(SelectGameAsync);
@@ -415,9 +422,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _selectedGame, value))
             {
+                if (_learningBefore is not null || _learningCancellation is not null)
+                    ResetSaveLearningState(cancel: true);
                 _resumeAutomaticSyncAfterConfiguration = false;
                 IsAutoSyncEnabled = false;
+                SelectedSaveLocationCandidate = null;
                 SaveDirectory = string.Empty;
+                AdditionalSaveRootPath = string.Empty;
+                RegistrySaveKeyPath = string.Empty;
                 AutoSnapshotProcessName = string.Empty;
                 AutoSnapshotExecutablePath = string.Empty;
                 SaveLocationCandidates.Clear();
@@ -426,9 +438,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 RegistrySaveRules.Clear();
                 SelectedRegistrySaveRule = null;
                 IsSaveDirectoryConfirmed = false;
+                FileCount = 0;
+                LogicalSizeText = "0 B";
+                RestorePreviewText = "选择快照后可预览将恢复的文件数量与大小。";
+                RetentionEnabled = false;
+                RetentionCountText = "50";
+                RetentionDaysText = "0";
                 Snapshots.Clear();
                 SelectedSnapshot = null;
+                SelectedDiscoveredGame = null;
+                InvalidateSavePreview("请选择当前游戏的存档目录并重新预览。");
                 ApplyDiscoveredIdentity(value);
+                GameSyncUiState? syncState = GetSelectedGameSyncState();
+                SyncProgressText = syncState?.ProgressText ?? "等待立即备份";
+                SyncProgressValue = syncState?.ProgressValue ?? 0;
+                SyncSummaryText = string.IsNullOrWhiteSpace(syncState?.Summary) ? "暂无同步记录" : syncState.Summary;
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LaunchDisabledReason)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameHealthText)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameLastSyncText)));
@@ -560,14 +584,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ClearPendingSaveConfiguration()
     {
+        if (_learningBefore is not null || _learningCancellation is not null)
+            ResetSaveLearningState(cancel: true);
         SelectedSaveLocationCandidate = null;
         SaveLocationCandidates.Clear();
         SaveDirectory = string.Empty;
+        AdditionalSaveRootPath = string.Empty;
         AdditionalSaveRoots.Clear();
         SelectedAdditionalSaveRoot = null;
+        RegistrySaveKeyPath = string.Empty;
         RegistrySaveRules.Clear();
         RegistrySavePreviews.Clear();
         SelectedRegistrySaveRule = null;
+        FileCount = 0;
+        LogicalSizeText = "0 B";
         IsSaveDirectoryConfirmed = false;
         InvalidateSavePreview("请选择当前游戏的存档目录并重新预览。");
     }
@@ -917,15 +947,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (game is not CloudGame selected) return;
         SelectedGame = selected;
+        string gameId = selected.GameId;
         try
         {
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
             await RestoreLocalProfileAsync(server, token);
-            await ReloadSnapshotsAsync(server, token);
-            StatusText = $"已选择 {selected.Name}；可以查看最近快照或点击启动。";
+            await ReloadSnapshotsAsync(server, token, gameId);
+            if (IsSelectedGame(gameId))
+                StatusText = $"已选择 {selected.Name}；可以查看最近快照或点击启动。";
         }
-        catch (Exception exception) { ShowError("加载游戏快照失败", exception); }
+        catch (Exception exception)
+        {
+            if (IsSelectedGame(gameId)) ShowError("加载游戏快照失败", exception);
+        }
     }
 
     private bool MatchesGameSearch(object candidate)
@@ -997,10 +1032,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task RestoreLocalProfileAsync(Uri server, string token)
     {
-        if (SelectedGame is null) return;
+        string? gameId = SelectedGame?.GameId;
+        if (gameId is null) return;
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
-        LocalGameProfile? profile = await _localGameProfileStore.GetAsync(serverKey, RequireAuthenticatedUserId(), SelectedGame.GameId, CancellationToken.None);
-        if (profile is null) return;
+        LocalGameProfile? profile = await _localGameProfileStore.GetAsync(
+            serverKey, RequireAuthenticatedUserId(), gameId, CancellationToken.None);
+        if (profile is null || !IsSelectedGame(gameId)) return;
 
         _localGameProfiles[profile.GameId] = profile;
         SaveDirectory = profile.SaveDirectory;
@@ -1014,9 +1051,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RefreshGameRuntimeStatus();
         if (profile.AutoSnapshotEnabled)
         {
-            await EnableAutomaticSyncAsync(server, token, SelectedGame.GameId, profile);
+            await EnableAutomaticSyncAsync(server, token, gameId, profile);
         }
-        IsAutoSyncEnabled = _autoSyncCoordinator.ActiveGameIds.Contains(SelectedGame.GameId);
+        if (IsSelectedGame(gameId))
+            IsAutoSyncEnabled = _autoSyncCoordinator.ActiveGameIds.Contains(gameId);
     }
 
 
@@ -1266,6 +1304,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task AddAdditionalSaveRootAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         if (string.IsNullOrWhiteSpace(AdditionalSaveRootPath) || !Directory.Exists(AdditionalSaveRootPath))
             throw new InvalidOperationException("请填写存在的附加存档目录。");
         string path = Path.GetFullPath(AdditionalSaveRootPath);
@@ -1278,7 +1317,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         do rootId = $"root{index++}"; while (AdditionalSaveRoots.Any(root => string.Equals(root.RootId, rootId, StringComparison.OrdinalIgnoreCase)));
         AdditionalSaveRoots.Add(new SaveRootRule(rootId, path, [], [], SaveLocationSource.Manual, 100, false));
         InvalidateSavePreview("附加存档目录已变化，请重新预览完整配置并确认全部规则。");
-        await SuspendAutomaticSyncForConfigurationAsync();
+        if (!await SuspendAutomaticSyncForConfigurationAsync(gameId)) return;
         AdditionalSaveRootPath = string.Empty;
         StatusText = $"已添加待确认的附加存档目录：{path}。完整预览并确认后才会参与同步。";
         if (IsAuthenticated && SelectedGame is not null)
@@ -1287,6 +1326,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task AddRegistrySaveRuleAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         string keyPath = RegistrySaveKeyPath.Trim();
         if (!(keyPath.StartsWith("HKCU\\", StringComparison.OrdinalIgnoreCase) || keyPath.StartsWith("HKEY_CURRENT_USER\\", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("注册表存档仅支持 HKCU\\ 或 HKEY_CURRENT_USER\\ 路径。");
@@ -1295,26 +1335,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
         int index = 1; string ruleId; do ruleId = $"registry{index++}"; while (RegistrySaveRules.Any(rule => string.Equals(rule.RuleId, ruleId, StringComparison.OrdinalIgnoreCase)));
         RegistrySaveRules.Add(new RegistrySaveRule(ruleId, keyPath, false));
         InvalidateSavePreview("注册表存档规则已变化，请重新预览并确认。");
-        await SuspendAutomaticSyncForConfigurationAsync();
+        if (!await SuspendAutomaticSyncForConfigurationAsync(gameId)) return;
         RegistrySaveKeyPath = string.Empty;
         StatusText = "已添加注册表存档路径；同步前会导出为受控 JSON。";
     }
 
     private async Task RemoveRegistrySaveRuleAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         if (SelectedRegistrySaveRule is null) throw new InvalidOperationException("请先选择要移除的注册表路径。");
         RegistrySaveRules.Remove(SelectedRegistrySaveRule);
         InvalidateSavePreview("注册表存档规则已变化，请重新预览并确认。");
-        await SuspendAutomaticSyncForConfigurationAsync();
+        if (!await SuspendAutomaticSyncForConfigurationAsync(gameId)) return;
         SelectedRegistrySaveRule = null;
         StatusText = "已移除注册表存档路径；保存或同步后会更新本机配置。";
     }
     private async Task RemoveAdditionalSaveRootAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         if (SelectedAdditionalSaveRoot is null) throw new InvalidOperationException("请先选择要移除的附加存档目录。");
         AdditionalSaveRoots.Remove(SelectedAdditionalSaveRoot);
         InvalidateSavePreview("附加存档目录已变化，请重新预览并确认全部规则。");
-        await SuspendAutomaticSyncForConfigurationAsync();
+        if (!await SuspendAutomaticSyncForConfigurationAsync(gameId)) return;
         SelectedAdditionalSaveRoot = null;
         StatusText = "已移除附加存档目录；保存或同步后会更新本机配置。";
         if (IsAuthenticated && SelectedGame is not null)
@@ -1323,13 +1365,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public async Task UpdateAdditionalSaveRootRulesAsync(SaveRootRule updatedRoot)
     {
+        string? gameId = SelectedGame?.GameId;
         int index = AdditionalSaveRoots.ToList().FindIndex(root =>
             string.Equals(root.RootId, updatedRoot.RootId, StringComparison.OrdinalIgnoreCase));
         if (index < 0) throw new InvalidOperationException("待更新的附加目录不存在。");
         AdditionalSaveRoots[index] = updatedRoot;
         SelectedAdditionalSaveRoot = updatedRoot;
         InvalidateSavePreview("包含/排除规则已变化，请重新预览完整配置并确认。");
-        await SuspendAutomaticSyncForConfigurationAsync();
+        if (!await SuspendAutomaticSyncForConfigurationAsync(gameId)) return;
         StatusText = "附加目录扫描规则已更新，重新预览前不会参与同步。";
     }
     private async Task<LocalGameProfile> SaveLocalProfileAsync(
@@ -1337,19 +1380,37 @@ public sealed class MainViewModel : INotifyPropertyChanged
         bool autoSnapshotEnabled,
         SaveProfileConfirmationDraft? confirmationDraft = null)
     {
-        if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+        CloudGame selectedGame = SelectedGame ?? throw new InvalidOperationException("请先选择云端游戏");
+        string gameId = selectedGame.GameId;
         bool userConfirmed = confirmationDraft?.UserConfirmed ?? IsSaveDirectoryConfirmed;
         IReadOnlyList<SaveRootRule> additionalRoots = confirmationDraft?.AdditionalRoots
             ?? AdditionalSaveRoots.ToArray();
         IReadOnlyList<RegistrySaveRule> registryRules = confirmationDraft?.RegistryRules
             ?? RegistrySaveRules.ToArray();
         GameIdentity identity = GetCurrentGameIdentity();
-        _localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? existingProfile);
-        GameLaunchProfile? launchProfile = _isAddGameWizardActive
+        string saveDirectory = SaveDirectory;
+        string processName = AutoSnapshotProcessName;
+        string executablePath = AutoSnapshotExecutablePath;
+        SaveLocationSource source = SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual;
+        int confidence = SelectedSaveLocationCandidate?.Confidence ?? (userConfirmed ? 100 : 0);
+        string userId = RequireAuthenticatedUserId();
+        bool addGameWizardActive = _isAddGameWizardActive;
+        _localGameProfiles.TryGetValue(gameId, out LocalGameProfile? existingProfile);
+        GameLaunchProfile? launchProfile = addGameWizardActive
             ? BuildPendingLaunchProfile()
             : _gameLaunchProfileMerger.Merge(existingProfile?.EffectiveLaunchProfile, identity,
-                AutoSnapshotExecutablePath, AutoSnapshotProcessName);
-        bool requireResolvedShortcut = _isAddGameWizardActive;
+                executablePath, processName);
+        bool requireResolvedShortcut = addGameWizardActive;
+        var configuredRoots = new List<SaveRootRule>();
+        if (!string.IsNullOrWhiteSpace(saveDirectory))
+        {
+            configuredRoots.Add(SaveRootRule.CreateDefault(saveDirectory, source, confidence, userConfirmed));
+            configuredRoots.AddRange(additionalRoots);
+            SaveRootTopologyValidator.Validate(configuredRoots, identity.InstallDirectory);
+            if (registryRules.Count > 0)
+                configuredRoots.Add(new SaveRootRule("registry", GetRegistryCacheDirectory(server, gameId),
+                    ["*.json", "**/*.json"], [], SaveLocationSource.Manual, 100, true));
+        }
         if (launchProfile is { TargetType: GameLaunchTargetType.Shortcut })
         {
             ShortcutResolution latestResolution = await _shortcutResolver.ResolveAsync(
@@ -1361,10 +1422,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             requireResolvedShortcut = true;
         }
         string? validationError = ValidateLaunchProfile(launchProfile, requireResolvedShortcut);
-        bool launchRequired = _isAddGameWizardActive || autoSnapshotEnabled;
+        bool launchRequired = addGameWizardActive || autoSnapshotEnabled;
         if (validationError is not null && launchRequired) throw new InvalidOperationException(validationError);
         if (validationError is not null) launchProfile = null;
-        await PrepareRegistrySnapshotsAsync(server, SelectedGame.GameId, registryRules);
+        await PrepareRegistrySnapshotsAsync(server, gameId, registryRules);
         string? identityExecutablePath = launchProfile is null ? null : identity.ExecutablePath;
         if (launchProfile is { TargetType: GameLaunchTargetType.Shortcut }
             && _shortcutResolutions.TryGetValue(launchProfile.Target, out ShortcutResolution? shortcut)
@@ -1385,19 +1446,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
                                 : [shortcut.TargetPath])
                             .ToArray()
                     },
-                    AutoSnapshotProcessName)
+                    processName)
             };
             identityExecutablePath = shortcut.TargetPath;
         }
         LocalGameProfile profile = new(
-            GameSaveServerIdentity.CreateStableKey(server), SelectedGame.GameId,
+            GameSaveServerIdentity.CreateStableKey(server), gameId,
             identity.Provider, identity.ProviderGameId, identity.InstallDirectory,
-            SaveDirectory, AutoSnapshotProcessName, AutoSnapshotExecutablePath,
-            SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual,
-            SelectedSaveLocationCandidate?.Confidence ?? (userConfirmed ? 100 : 0),
+            saveDirectory, processName, executablePath,
+            source, confidence,
             userConfirmed, autoSnapshotEnabled && userConfirmed && launchProfile is not null,
-            BuildConfiguredSaveRoots(server, SelectedGame.GameId, userConfirmed, additionalRoots, registryRules),
-            registryRules, identityExecutablePath, launchProfile, RequireAuthenticatedUserId());
+            configuredRoots, registryRules, identityExecutablePath, launchProfile, userId);
         await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
         _localGameProfiles[profile.GameId] = profile;
         RefreshGameRuntimeStatus();
@@ -1498,70 +1557,97 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (profile.AutoSnapshotEnabled) await EnableAutomaticSyncAsync(server, token, profile.GameId, profile);
     }
 
-    private async Task SuspendAutomaticSyncForConfigurationAsync()
+    private async Task<bool> SuspendAutomaticSyncForConfigurationAsync(string? expectedGameId = null)
     {
-        if (SelectedGame is null) return;
+        string? gameId = SelectedGame?.GameId;
+        if (expectedGameId is not null && !string.Equals(gameId, expectedGameId, StringComparison.Ordinal)) return false;
+        if (gameId is null) return true;
         bool active = IsAutoSyncEnabled
-            || _autoSyncCoordinator.ActiveGameIds.Contains(SelectedGame.GameId)
-            || (_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? profile)
+            || _autoSyncCoordinator.ActiveGameIds.Contains(gameId)
+            || (_localGameProfiles.TryGetValue(gameId, out LocalGameProfile? profile)
                 && profile.AutoSnapshotEnabled);
         _resumeAutomaticSyncAfterConfiguration |= active;
-        await _autoSyncCoordinator.DisableAsync(SelectedGame.GameId);
+        await _autoSyncCoordinator.DisableAsync(gameId);
+        if (!IsSelectedGame(gameId)) return false;
         IsAutoSyncEnabled = false;
+        return true;
     }
     private async Task ReloadRetentionAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (gameId is null) throw new InvalidOperationException("请先选择云端游戏");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
-            await ReloadRetentionAsync(server, token);
-            StatusText = "快照保留策略已加载。";
+            await ReloadRetentionAsync(server, token, gameId);
+            if (IsSelectedGame(gameId)) StatusText = "快照保留策略已加载。";
         }
-        catch (Exception exception) { ShowError("加载保留策略失败", exception); }
+        catch (Exception exception)
+        {
+            if (gameId is null || IsSelectedGame(gameId)) ShowError("加载保留策略失败", exception);
+        }
     }
 
     private async Task ReloadRetentionAsync(Uri server, string token)
     {
-        if (SelectedGame is null) return;
+        string? gameId = SelectedGame?.GameId;
+        if (gameId is null) return;
+        await ReloadRetentionAsync(server, token, gameId);
+    }
+
+    private async Task ReloadRetentionAsync(Uri server, string token, string gameId)
+    {
         CloudRetentionPolicy policy = await _apiClient.GetRetentionPolicyAsync(
-            server, token, SelectedGame.GameId, CancellationToken.None);
-        ApplyRetentionPolicy(policy);
+            server, token, gameId, CancellationToken.None);
+        if (IsSelectedGame(gameId)) ApplyRetentionPolicy(policy);
     }
     private async Task SaveRetentionAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (gameId is null) throw new InvalidOperationException("请先选择云端游戏");
             if (!int.TryParse(RetentionCountText, out int count) || count is < 1 or > 500)
                 throw new InvalidOperationException("保留数量必须是 1 到 500 之间的整数");
             if (!int.TryParse(RetentionDaysText, out int days) || days is < 0 or > 3650)
                 throw new InvalidOperationException("保留天数必须是 0 到 3650 之间的整数，0 表示不按时间清理");
+            bool enabled = RetentionEnabled;
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
             CloudRetentionPolicy policy = await _apiClient.UpdateRetentionPolicyAsync(
-                server, token, SelectedGame.GameId, RetentionEnabled, count, days, CancellationToken.None);
-            ApplyRetentionPolicy(policy);
-            StatusText = policy.Enabled ? "快照自动保留策略已启用。" : "快照自动保留策略已关闭。";
+                server, token, gameId, enabled, count, days, CancellationToken.None);
+            if (IsSelectedGame(gameId))
+            {
+                ApplyRetentionPolicy(policy);
+                StatusText = policy.Enabled ? "快照自动保留策略已启用。" : "快照自动保留策略已关闭。";
+            }
         }
-        catch (Exception exception) { ShowError("保存保留策略失败", exception); }
+        catch (Exception exception)
+        {
+            if (gameId is null || IsSelectedGame(gameId)) ShowError("保存保留策略失败", exception);
+        }
     }
 
     private async Task CleanupRetentionAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (gameId is null) throw new InvalidOperationException("请先选择云端游戏");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
             CloudRetentionCleanupResult result = await _apiClient.CleanupRetentionAsync(
-                server, token, SelectedGame.GameId, CancellationToken.None);
-            await ReloadSnapshotsAsync(server, token);
+                server, token, gameId, CancellationToken.None);
+            await ReloadSnapshotsAsync(server, token, gameId);
             await ReloadQuotaAsync(server, token);
-            StatusText = $"保留策略执行完成，删除 {result.DeletedSnapshotCount} 个历史快照。";
+            if (IsSelectedGame(gameId))
+                StatusText = $"保留策略执行完成，删除 {result.DeletedSnapshotCount} 个历史快照。";
         }
-        catch (Exception exception) { ShowError("执行保留策略失败", exception); }
+        catch (Exception exception)
+        {
+            if (gameId is null || IsSelectedGame(gameId)) ShowError("执行保留策略失败", exception);
+        }
     }
 
     private void ApplyRetentionPolicy(CloudRetentionPolicy policy)
@@ -1605,14 +1691,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SelectedDevice = Devices.FirstOrDefault(device => device.Active);
     }
 
-    private async Task RevokeDeviceAsync()
+    private async Task RevokeDeviceAsync(object? parameter)
     {
         try
         {
-            if (SelectedDevice is null) throw new InvalidOperationException("请先选择要撤销的设备");
+            if (parameter is not CloudDevice requestedDevice)
+                throw new InvalidOperationException("撤销操作缺少明确的设备目标，已拒绝执行");
+            string deviceId = requestedDevice.DeviceId;
+            if (!Devices.Any(device => string.Equals(device.DeviceId, deviceId, StringComparison.Ordinal)))
+                throw new InvalidOperationException("要撤销的设备已不在当前设备列表中，请刷新后重试");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
-            await _apiClient.RevokeDeviceAsync(server, token, SelectedDevice.DeviceId, CancellationToken.None);
+            await _apiClient.RevokeDeviceAsync(server, token, deviceId, CancellationToken.None);
             await ReloadDevicesAsync(server, token);
             StatusText = "设备 Token 已撤销。";
         }
@@ -1699,18 +1789,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
     private async Task PreviewSaveDirectoryAsync()
     {
+        string? gameId = SelectedGame?.GameId;
+        DiscoveredGame? discoveredGame = SelectedDiscoveredGame;
         try
         {
-            await SuspendAutomaticSyncForConfigurationAsync();
+            if (!await SuspendAutomaticSyncForConfigurationAsync(gameId)) return;
             if (string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory)) throw new InvalidOperationException("请选择存在的存档目录。");
+            string saveDirectory = SaveDirectory;
             IReadOnlyList<SaveRootRule> roots = BuildPreviewSaveRoots();
+            IReadOnlyList<RegistrySaveRule> registryRules = RegistrySaveRules.ToArray();
             SaveProfilePreview preview = await _saveDirectoryPreviewService.PreviewProfileAsync(
-                roots, RegistrySaveRules.ToArray(), CancellationToken.None);
+                roots, registryRules, CancellationToken.None);
             IReadOnlyList<RegistrySavePreview> registryPreviews = await _registrySaveSnapshotService.PreviewAsync(
-                RegistrySaveRules.ToArray(), CancellationToken.None);
+                registryRules, CancellationToken.None);
+            if (!string.Equals(SelectedGame?.GameId, gameId, StringComparison.Ordinal)
+                || !Equals(SelectedDiscoveredGame, discoveredGame)) return;
             FileCount = preview.TotalFiles;
             LogicalSizeText = FormatBytes(preview.TotalSize);
-            _previewedSaveDirectory = Path.GetFullPath(SaveDirectory);
+            _previewedSaveDirectory = Path.GetFullPath(saveDirectory);
             _previewedSaveDirectoryFingerprint = preview.Fingerprint;
             SaveRootPreviews.Clear();
             foreach (SaveRootPreview root in preview.Roots) SaveRootPreviews.Add(root);
@@ -1876,18 +1972,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SaveLocationCandidate? pendingCandidate = SelectedSaveLocationCandidate;
             SaveRootRule[] pendingAdditionalRoots = AdditionalSaveRoots.ToArray();
             RegistrySaveRule[] pendingRegistryRules = RegistrySaveRules.ToArray();
+            string discoveredProvider = SelectedDiscoveredGame?.Provider ?? GameIdentity.Custom;
+            string provider = string.Equals(discoveredProvider, GameIdentity.Local, StringComparison.OrdinalIgnoreCase)
+                ? GameIdentity.Custom
+                : discoveredProvider;
+            string? providerGameId = SelectedDiscoveredGame?.ProviderGameId;
+            bool enableAutomaticBackup = AddGameWizard.EnableAutomaticBackup
+                && AddGameWizard.LaunchValidated;
             if (Games.Any(game => string.Equals(game.Name.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new InvalidOperationException("已添加同名游戏；同一账号下游戏名称不能重复。");
             }
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
-            string discoveredProvider = SelectedDiscoveredGame?.Provider ?? GameIdentity.Custom;
             // LOCAL 仅用于客户端识别本地可执行文件，服务端创建云端游戏时应归入自定义游戏。
-            string provider = string.Equals(discoveredProvider, GameIdentity.Local, StringComparison.OrdinalIgnoreCase)
-                ? GameIdentity.Custom
-                : discoveredProvider;
-            string? providerGameId = SelectedDiscoveredGame?.ProviderGameId;
             CloudGame game = await _apiClient.CreateGameAsync(server, token, normalizedName, provider, providerGameId, CancellationToken.None);
             try
             {
@@ -1904,15 +2002,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             foreach (RegistrySaveRule rule in pendingRegistryRules) RegistrySaveRules.Add(rule);
             if (SelectedGame is not null && pendingDirectoryConfirmed)
             {
-                bool enableAutomaticBackup = AddGameWizard.EnableAutomaticBackup
-                    && AddGameWizard.LaunchValidated;
                 LocalGameProfile profile = await SaveLocalProfileAsync(server, enableAutomaticBackup);
                 await RefreshAutomaticSyncConfigurationAsync(server, token, profile);
                 IsAutoSyncEnabled = enableAutomaticBackup
-                    && _autoSyncCoordinator.ActiveGameIds.Contains(SelectedGame.GameId);
+                    && _autoSyncCoordinator.ActiveGameIds.Contains(game.GameId);
             }
-            await ReloadSnapshotsAsync(server, token);
-            await ReloadRetentionAsync(server, token);
+            await ReloadSnapshotsAsync(server, token, game.GameId);
+            await ReloadRetentionAsync(server, token, game.GameId);
             await ReloadQuotaAsync(server, token);
             NewGameName = string.Empty;
             CurrentPage = "游戏详情";
@@ -1947,38 +2043,90 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>删除云端游戏及全部云端快照，并移除这台电脑的对应同步配置。</summary>
-    private async Task DeleteGameAsync()
+    private async Task DeleteGameAsync(object? parameter)
     {
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择要删除的游戏");
+            if (parameter is not CloudGame requestedGame)
+                throw new InvalidOperationException("删除操作缺少明确的游戏目标，已拒绝执行");
+            CloudGame targetGame = Games.FirstOrDefault(game =>
+                    string.Equals(game.GameId, requestedGame.GameId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException("要删除的游戏已不在当前游戏库中，请刷新后重试");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
-            string gameId = SelectedGame.GameId;
-            string gameName = SelectedGame.Name;
+            string gameId = targetGame.GameId;
+            string gameName = targetGame.Name;
             await _autoSyncCoordinator.DisableAsync(gameId);
-            IsAutoSyncEnabled = false;
             await _apiClient.DeleteGameAsync(server, token, gameId, CancellationToken.None);
             string serverKey = GameSaveServerIdentity.CreateStableKey(server);
-            await _localGameProfileStore.DeleteAsync(serverKey, RequireAuthenticatedUserId(), gameId, CancellationToken.None);
-            await _cloudSyncService.DeleteLocalStateAsync(server, RequireAuthenticatedUserId(), gameId, CancellationToken.None);
+            var cleanupWarnings = new List<string>();
+            try
+            {
+                await _localGameProfileStore.DeleteAsync(serverKey, RequireAuthenticatedUserId(), gameId, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                cleanupWarnings.Add("本机游戏配置稍后需要重新清理");
+                _appLogger.Error("game.delete.local_profile_cleanup_failed", exception, $"清理游戏 {gameId} 的本机配置失败");
+            }
+            try
+            {
+                await _cloudSyncService.DeleteLocalStateAsync(server, RequireAuthenticatedUserId(), gameId, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                cleanupWarnings.Add("本机同步状态稍后需要重新清理");
+                _appLogger.Error("game.delete.sync_state_cleanup_failed", exception, $"清理游戏 {gameId} 的本机同步状态失败");
+            }
             _localGameProfiles.Remove(gameId);
             _gameSyncUiStates.Remove(gameId);
-            DeleteGeneratedGameData(server, gameId);
-            Games.Remove(SelectedGame);
-            Snapshots.Clear();
-            SelectedSnapshot = null;
-            SelectedGame = Games.FirstOrDefault();
-            if (SelectedGame is not null)
+            try { DeleteGeneratedGameData(server, gameId); }
+            catch (Exception exception)
             {
-                await RestoreLocalProfileAsync(server, token);
-                await ReloadSnapshotsAsync(server, token);
+                cleanupWarnings.Add("注册表临时缓存未能清理");
+                _appLogger.Error("game.delete.generated_cache_cleanup_failed", exception, $"清理游戏 {gameId} 的生成缓存失败");
             }
-            await ReloadQuotaAsync(server, token);
-            StatusText = $"已删除游戏“{gameName}”、全部云端存档及这台电脑上的对应设置；本机原始存档未被删除。";
+            bool deletedSelectedGame = RemoveDeletedGameFromUi(gameId);
+            if (deletedSelectedGame && SelectedGame is not null)
+            {
+                try
+                {
+                    await RestoreLocalProfileAsync(server, token);
+                    await ReloadSnapshotsAsync(server, token);
+                }
+                catch (Exception exception)
+                {
+                    cleanupWarnings.Add("当前游戏资料刷新失败，可手动刷新");
+                    _appLogger.Error("game.delete.selection_refresh_failed", exception, "删除游戏后刷新当前选择失败");
+                }
+            }
+            try { await ReloadQuotaAsync(server, token); }
+            catch (Exception exception)
+            {
+                cleanupWarnings.Add("存储容量未能刷新");
+                _appLogger.Error("game.delete.quota_refresh_failed", exception, "删除游戏后刷新容量失败");
+            }
+            string warning = cleanupWarnings.Count == 0 ? string.Empty : $" 注意：{string.Join("；", cleanupWarnings)}。";
+            StatusText = $"已删除游戏“{gameName}”、全部云端存档及这台电脑上的对应设置；本机原始存档未被删除。{warning}";
         }
         catch (Exception exception) { ShowError("删除游戏失败", exception); }
     }
+
+    /// <summary>只移除已由服务端确认删除的明确目标；选择已切换时绝不触碰当前游戏的界面状态。</summary>
+    private bool RemoveDeletedGameFromUi(string gameId)
+    {
+        bool deletedSelectedGame = string.Equals(SelectedGame?.GameId, gameId, StringComparison.Ordinal);
+        CloudGame[] matches = Games.Where(game => string.Equals(game.GameId, gameId, StringComparison.Ordinal)).ToArray();
+        foreach (CloudGame match in matches) Games.Remove(match);
+        if (!deletedSelectedGame) return false;
+
+        IsAutoSyncEnabled = false;
+        SelectedGame = Games.FirstOrDefault();
+        return true;
+    }
+
+    private bool IsSelectedGame(string gameId) =>
+        string.Equals(SelectedGame?.GameId, gameId, StringComparison.Ordinal);
 
     private async Task AccountActionAsync()
     {
@@ -2018,18 +2166,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
     private async Task BuildManifestAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         try
         {
             StatusText = "正在完整扫描目录并计算 SHA-256…";
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (gameId is null) throw new InvalidOperationException("请先选择云端游戏");
             Uri server = ParseServerUri();
-            await PrepareRegistrySnapshotsAsync(server, SelectedGame.GameId);
-            IReadOnlyList<SnapshotFile> files = await _manifestBuilder.BuildAsync(GetConfiguredSaveRoots(server, SelectedGame.GameId), CancellationToken.None);
+            IReadOnlyList<SaveRootRule> saveRoots = GetConfiguredSaveRoots(server, gameId);
+            IReadOnlyList<RegistrySaveRule> registryRules = RegistrySaveRules.ToArray();
+            await PrepareRegistrySnapshotsAsync(server, gameId, registryRules);
+            IReadOnlyList<SnapshotFile> files = await _manifestBuilder.BuildAsync(saveRoots, CancellationToken.None);
+            if (!IsSelectedGame(gameId)) return;
             FileCount = files.Count;
             LogicalSizeText = FormatBytes(files.Sum(file => file.Size));
             StatusText = "Manifest 已构建，Hash 缓存已写入本地 SQLite。";
         }
-        catch (Exception exception) { ShowError("扫描失败", exception); }
+        catch (Exception exception)
+        {
+            if (gameId is null || IsSelectedGame(gameId)) ShowError("扫描失败", exception);
+        }
     }
 
     private async Task SyncAsync()
@@ -2090,14 +2245,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task ReloadSnapshotsFromUiAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (gameId is null) throw new InvalidOperationException("请先选择云端游戏");
             Uri server = ParseServerUri();
-            await ReloadSnapshotsAsync(server, await RequireDeviceTokenAsync(server));
-            StatusText = $"已加载 {Snapshots.Count} 个快照版本。";
+            await ReloadSnapshotsAsync(server, await RequireDeviceTokenAsync(server), gameId);
+            if (IsSelectedGame(gameId)) StatusText = $"已加载 {Snapshots.Count} 个快照版本。";
         }
-        catch (Exception exception) { ShowError("加载时间线失败", exception); }
+        catch (Exception exception)
+        {
+            if (gameId is null || IsSelectedGame(gameId)) ShowError("加载时间线失败", exception);
+        }
     }
 
     private async Task ReloadSnapshotsAsync(Uri server, string token)
@@ -2156,89 +2315,114 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>恢复与同步共用 _syncQueue，避免恢复移动存档目录时与正在进行的（含自动）同步竞争同一目录。</summary>
     private async Task RestoreAsync()
     {
+        string? gameId = SelectedGame?.GameId;
+        string? snapshotId = SelectedSnapshot?.SnapshotId;
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
-            if (SelectedSnapshot is null) throw new InvalidOperationException("请从时间线选择要恢复的快照");
+            if (gameId is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (snapshotId is null) throw new InvalidOperationException("请从时间线选择要恢复的快照");
             if (string.IsNullOrWhiteSpace(SaveDirectory)) throw new InvalidOperationException("请先填写本地存档目录");
             Uri server = ParseServerUri();
+            string userId = RequireAuthenticatedUserId();
+            IReadOnlyList<SaveRootRule> saveRoots = GetConfiguredSaveRoots(server, gameId);
+            IReadOnlyList<RegistrySaveRule> registryRules = RegistrySaveRules.ToArray();
             string token = await RequireDeviceTokenAsync(server);
-            StatusText = "正在等待同步任务空闲后开始恢复…";
+            if (IsSelectedGame(gameId)) StatusText = "正在等待同步任务空闲后开始恢复…";
             await _syncQueue.WaitAsync(CancellationToken.None);
             IReadOnlyList<RestoreResult> results;
             try
             {
-                StatusText = "正在下载、校验并安全恢复快照…";
+                if (IsSelectedGame(gameId)) StatusText = "正在下载、校验并安全恢复快照…";
                 results = await _safeRestoreService.RestoreAsync(
-                    server, token, RequireAuthenticatedUserId(), SelectedGame.GameId, SelectedSnapshot.SnapshotId, GetConfiguredSaveRoots(server, SelectedGame.GameId), RegistrySaveRules.ToArray(), CancellationToken.None);
+                    server, token, userId, gameId, snapshotId, saveRoots, registryRules, CancellationToken.None);
             }
             finally
             {
                 _syncQueue.Release();
             }
             int backups = results.Count(item => item.SafetyBackupDirectory is not null);
-            StatusText = backups == 0
-                ? $"已恢复快照 {SelectedSnapshot.SnapshotId} 到 {results.Count} 个存档目录。"
-                : $"已恢复快照 {SelectedSnapshot.SnapshotId} 到 {results.Count} 个存档目录；已保留 {backups} 份原存档安全备份。";
+            if (IsSelectedGame(gameId))
+                StatusText = backups == 0
+                    ? $"已恢复快照 {snapshotId} 到 {results.Count} 个存档目录。"
+                    : $"已恢复快照 {snapshotId} 到 {results.Count} 个存档目录；已保留 {backups} 份原存档安全备份。";
         }
-        catch (Exception exception) { ShowError("恢复存档失败", exception); }
+        catch (Exception exception)
+        {
+            if (gameId is null || IsSelectedGame(gameId)) ShowError("恢复存档失败", exception);
+        }
     }
 
 
     private async Task LoadRestorePreviewAsync()
     {
+        string? gameId = SelectedGame?.GameId;
+        string? snapshotId = SelectedSnapshot?.SnapshotId;
         try
         {
-            if (SelectedGame is null || SelectedSnapshot is null)
+            if (gameId is null || snapshotId is null)
                 throw new InvalidOperationException("请先选择游戏和要预览的快照");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
-            CloudSnapshotManifest manifest = await _apiClient.GetSnapshotAsync(server, token, SelectedGame.GameId,
-                SelectedSnapshot.SnapshotId, CancellationToken.None);
+            CloudSnapshotManifest manifest = await _apiClient.GetSnapshotAsync(
+                server, token, gameId, snapshotId, CancellationToken.None);
+            if (!IsSelectedGame(gameId) || !string.Equals(SelectedSnapshot?.SnapshotId, snapshotId, StringComparison.Ordinal)) return;
             long totalSize = manifest.Files.Sum(file => file.Size);
             string examples = string.Join("、", manifest.Files.Take(3).Select(file => file.RelativePath));
             RestorePreviewText = $"将恢复 {manifest.Files.Count} 个文件，共 {FormatBytes(totalSize)}。" +
                 (string.IsNullOrWhiteSpace(examples) ? string.Empty : $" 示例：{examples}");
             StatusText = "恢复预览已加载；真正恢复前仍会创建安全备份并逐文件校验。";
         }
-        catch (Exception exception) { ShowError("加载恢复预览失败", exception); }
+        catch (Exception exception)
+        {
+            if (gameId is null || IsSelectedGame(gameId)) ShowError("加载恢复预览失败", exception);
+        }
     }
 
     private async Task ExportSnapshotAsync()
     {
+        CloudGame? game = SelectedGame;
+        CloudSnapshotSummary? snapshot = SelectedSnapshot;
         try
         {
-            if (SelectedGame is null || SelectedSnapshot is null)
+            if (game is null || snapshot is null)
                 throw new InvalidOperationException("请先选择游戏和要导出的快照");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
             string downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-            string name = string.Concat(SelectedGame.Name.Select(character => Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
-            string destination = Path.Combine(downloads, $"{name}-{SelectedSnapshot.LocalCreateTime:yyyyMMdd-HHmmss}.zip");
-            StatusText = "正在下载并校验快照内容，然后导出 ZIP…";
-            string exported = await _snapshotExportService.ExportAsync(server, token, SelectedGame.GameId,
-                SelectedSnapshot.SnapshotId, destination, CancellationToken.None);
-            StatusText = $"快照已导出到：{exported}";
+            string name = string.Concat(game.Name.Select(character => Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
+            string destination = Path.Combine(downloads, $"{name}-{snapshot.LocalCreateTime:yyyyMMdd-HHmmss}.zip");
+            if (IsSelectedGame(game.GameId)) StatusText = "正在下载并校验快照内容，然后导出 ZIP…";
+            string exported = await _snapshotExportService.ExportAsync(
+                server, token, game.GameId, snapshot.SnapshotId, destination, CancellationToken.None);
+            if (IsSelectedGame(game.GameId)) StatusText = $"快照已导出到：{exported}";
         }
-        catch (Exception exception) { ShowError("导出快照失败", exception); }
+        catch (Exception exception)
+        {
+            if (game is null || IsSelectedGame(game.GameId)) ShowError("导出快照失败", exception);
+        }
     }
     /// <summary>删除已明确确认的历史快照；服务端会拒绝删除当前同步 HEAD。</summary>
     private async Task DeleteSnapshotAsync()
     {
+        string? gameId = SelectedGame?.GameId;
+        string? snapshotId = SelectedSnapshot?.SnapshotId;
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
-            if (SelectedSnapshot is null) throw new InvalidOperationException("请从时间线选择要删除的历史快照");
+            if (gameId is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (snapshotId is null) throw new InvalidOperationException("请从时间线选择要删除的历史快照");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
-            string snapshotId = SelectedSnapshot.SnapshotId;
             await _apiClient.DeleteSnapshotAsync(
-                server, token, SelectedGame.GameId, snapshotId, CancellationToken.None);
-            await ReloadSnapshotsAsync(server, token);
+                server, token, gameId, snapshotId, CancellationToken.None);
+            await ReloadSnapshotsAsync(server, token, gameId);
             await ReloadQuotaAsync(server, token);
-            StatusText = $"已删除历史快照 {snapshotId}；未被其他快照引用的内容将按云端清理策略回收。";
+            if (IsSelectedGame(gameId))
+                StatusText = $"已删除历史快照 {snapshotId}；未被其他快照引用的内容将按云端清理策略回收。";
         }
-        catch (Exception exception) { ShowError("删除历史快照失败", exception); }
+        catch (Exception exception)
+        {
+            if (gameId is null || IsSelectedGame(gameId)) ShowError("删除历史快照失败", exception);
+        }
     }
 
     public async Task SetAutoSnapshotExecutablePathAsync(string executablePath)
@@ -2560,41 +2744,54 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
     private async Task StartAutoSnapshotAsync()
     {
+        string? gameId = SelectedGame?.GameId;
         try
         {
-            if (SelectedGame is null) throw new InvalidOperationException("请先选择云端游戏");
+            if (gameId is null) throw new InvalidOperationException("请先选择云端游戏");
             Uri server = ParseServerUri();
             string token = await RequireDeviceTokenAsync(server);
-            if (!_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? savedProfile) || !IsAutomaticSyncProfileReady(savedProfile))
+            if (!_localGameProfiles.TryGetValue(gameId, out LocalGameProfile? savedProfile) || !IsAutomaticSyncProfileReady(savedProfile))
                 throw new InvalidOperationException("启动入口或存档目录尚未配置完成，请先在游戏详情中完成配置");
             LocalGameProfile profile = savedProfile with { AutoSnapshotEnabled = true };
-            await EnableAutomaticSyncAsync(server, token, SelectedGame.GameId, profile);
-            IsAutoSyncEnabled = _autoSyncCoordinator.ActiveGameIds.Contains(SelectedGame.GameId);
-            if (!IsAutoSyncEnabled) throw new InvalidOperationException("自动同步监听未能启动，请检查启动入口和存档目录");
+            await EnableAutomaticSyncAsync(server, token, gameId, profile);
+            bool enabled = _autoSyncCoordinator.ActiveGameIds.Contains(gameId);
+            if (!enabled) throw new InvalidOperationException("自动同步监听未能启动，请检查启动入口和存档目录");
             await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
             _localGameProfiles[profile.GameId] = profile;
             RefreshGameRuntimeStatus();
-            StatusText = "自动同步已启用：每个已启用的游戏都会独立监听，游戏退出后排队增量同步。";
+            if (IsSelectedGame(gameId))
+            {
+                IsAutoSyncEnabled = true;
+                StatusText = "自动同步已启用：每个已启用的游戏都会独立监听，游戏退出后排队增量同步。";
+            }
         }
-        catch (Exception exception) { ShowError("启用自动同步失败", exception); }
+        catch (Exception exception)
+        {
+            if (gameId is null || IsSelectedGame(gameId)) ShowError("启用自动同步失败", exception);
+        }
     }
 
     private async Task StopAutoSnapshotAsync()
     {
-        if (SelectedGame is null) return;
+        string? gameId = SelectedGame?.GameId;
+        if (gameId is null) return;
         Uri server = ParseServerUri();
-        await _autoSyncCoordinator.DisableAsync(SelectedGame.GameId);
+        await _autoSyncCoordinator.DisableAsync(gameId);
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
-        LocalGameProfile? profile = await _localGameProfileStore.GetAsync(serverKey, RequireAuthenticatedUserId(), SelectedGame.GameId, CancellationToken.None);
+        LocalGameProfile? profile = await _localGameProfileStore.GetAsync(
+            serverKey, RequireAuthenticatedUserId(), gameId, CancellationToken.None);
         if (profile is not null)
         {
             LocalGameProfile disabledProfile = profile with { AutoSnapshotEnabled = false };
             await _localGameProfileStore.SaveAsync(disabledProfile, CancellationToken.None);
             _localGameProfiles[disabledProfile.GameId] = disabledProfile;
         }
-        IsAutoSyncEnabled = false;
         RefreshGameRuntimeStatus();
-        StatusText = "已停止当前游戏的自动同步；其他游戏的自动同步不受影响。";
+        if (IsSelectedGame(gameId))
+        {
+            IsAutoSyncEnabled = false;
+            StatusText = "已停止当前游戏的自动同步；其他游戏的自动同步不受影响。";
+        }
     }
 
     private async Task<string> RequireDeviceTokenAsync(Uri server)

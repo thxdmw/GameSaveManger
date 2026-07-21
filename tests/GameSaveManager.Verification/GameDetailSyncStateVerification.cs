@@ -35,6 +35,10 @@ internal static class GameDetailSyncStateVerification
             "切换到游戏 B 后不得展示游戏 A 的进度。");
         Ensure(viewModel.SelectedGameSyncProgressText == "等待立即备份",
             "未备份的游戏应展示独立的等待状态。");
+        Ensure(viewModel.SyncProgressText == "等待立即备份" && viewModel.SyncProgressValue == 0,
+            "切换游戏后原始进度字段也必须恢复为当前游戏状态。");
+        Ensure(viewModel.SyncSummaryText == "暂无同步记录",
+            "切换游戏后同步摘要输入缓存不得残留上一游戏数据。");
 
     }
 
