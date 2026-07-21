@@ -256,17 +256,20 @@ internal static class AddGameWizardValidationVerification
 
     private sealed class FailingProfileStore : ILocalGameProfileStore
     {
-        public Task<LocalGameProfile?> GetAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
+        public Task<LocalGameProfile?> GetAsync(string serverKey, string userId, string gameId, CancellationToken cancellationToken) =>
             Task.FromResult<LocalGameProfile?>(null);
 
         public Task SaveAsync(LocalGameProfile profile, CancellationToken cancellationToken) =>
             Task.FromException(new IOException("模拟 SQLite 持久化失败。"));
 
         public Task<IReadOnlyList<LocalGameProfile>> ListAsync(
-            string serverKey, CancellationToken cancellationToken) =>
+            string serverKey, string userId, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<LocalGameProfile>>([]);
 
-        public Task DeleteAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
+        public Task ClaimLegacyAsync(string serverKey, string userId, IReadOnlyCollection<string> ownedGameIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task DeleteAsync(string serverKey, string userId, string gameId, CancellationToken cancellationToken) =>
             Task.CompletedTask;
     }
 
@@ -275,7 +278,7 @@ internal static class AddGameWizardValidationVerification
         public LocalGameProfile? SavedProfile { get; private set; }
         public bool FailSaves { get; set; }
 
-        public Task<LocalGameProfile?> GetAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
+        public Task<LocalGameProfile?> GetAsync(string serverKey, string userId, string gameId, CancellationToken cancellationToken) =>
             Task.FromResult<LocalGameProfile?>(null);
 
         public Task SaveAsync(LocalGameProfile profile, CancellationToken cancellationToken)
@@ -286,10 +289,13 @@ internal static class AddGameWizardValidationVerification
         }
 
         public Task<IReadOnlyList<LocalGameProfile>> ListAsync(
-            string serverKey, CancellationToken cancellationToken) =>
+            string serverKey, string userId, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<LocalGameProfile>>([]);
 
-        public Task DeleteAsync(string serverKey, string gameId, CancellationToken cancellationToken) =>
+        public Task ClaimLegacyAsync(string serverKey, string userId, IReadOnlyCollection<string> ownedGameIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task DeleteAsync(string serverKey, string userId, string gameId, CancellationToken cancellationToken) =>
             Task.CompletedTask;
     }
 

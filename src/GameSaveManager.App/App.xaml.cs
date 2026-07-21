@@ -60,10 +60,13 @@ public partial class App : System.Windows.Application
             };
             var apiClient = new GameSaveApiClient(_httpClient);
             var syncStateStore = new SqliteSyncStateStore(database);
+            var credentialStore = new WindowsCredentialStore();
+            var pathTemplateService = new WindowsSavePathTemplateService();
             var syncService = new CloudSyncService(
                 manifestBuilder,
                 apiClient,
-                syncStateStore);
+                syncStateStore,
+                pathTemplateService);
             var registrySaveSnapshotService = new WindowsRegistrySaveSnapshotService();
             var restoreService = new SafeRestoreService(
                 apiClient,
@@ -98,8 +101,9 @@ public partial class App : System.Windows.Application
                     new GameLaunchProfileMerger(),
                     new WindowsShortcutResolver(),
                     new SqliteLocalGameProfileStore(database),
-                    new WindowsCredentialStore(),
-                    new SqliteDeviceIdentityProvider(database),
+                    credentialStore,
+                    new CredentialDeviceIdentityProvider(credentialStore, new SqliteDeviceIdentityProvider(database)),
+                    pathTemplateService,
                     _appLogger,
                     new WindowsAutoStartService(),
                     new TextFileServerAddressStore(),

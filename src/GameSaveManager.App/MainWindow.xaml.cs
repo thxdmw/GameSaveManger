@@ -123,6 +123,7 @@ public partial class MainWindow : Window
             _subscribedViewModel.PasswordClearRequested -= ViewModel_OnPasswordClearRequested;
             _subscribedViewModel.SyncConflictDetected -= ViewModel_OnSyncConflictDetected;
             _subscribedViewModel.UpdateInstallationRequested -= ViewModel_OnUpdateInstallationRequested;
+            _subscribedViewModel.WindowsNotificationRequested -= ViewModel_OnWindowsNotificationRequested;
         }
         _subscribedViewModel = e.NewValue as MainViewModel;
         if (_subscribedViewModel is not null)
@@ -130,7 +131,25 @@ public partial class MainWindow : Window
             _subscribedViewModel.PasswordClearRequested += ViewModel_OnPasswordClearRequested;
             _subscribedViewModel.SyncConflictDetected += ViewModel_OnSyncConflictDetected;
             _subscribedViewModel.UpdateInstallationRequested += ViewModel_OnUpdateInstallationRequested;
+            _subscribedViewModel.WindowsNotificationRequested += ViewModel_OnWindowsNotificationRequested;
         }
+    }
+
+    private void ViewModel_OnWindowsNotificationRequested(object? sender, WindowsNotificationEventArgs e)
+    {
+        void ShowNotification()
+        {
+            _trayIcon.Visible = true;
+            Forms.ToolTipIcon icon = e.Kind switch
+            {
+                WindowsNotificationKind.Error => Forms.ToolTipIcon.Error,
+                WindowsNotificationKind.Warning => Forms.ToolTipIcon.Warning,
+                _ => Forms.ToolTipIcon.Info
+            };
+            _trayIcon.ShowBalloonTip(5000, e.Title, e.Message, icon);
+        }
+        if (Dispatcher.CheckAccess()) ShowNotification();
+        else Dispatcher.Invoke(ShowNotification);
     }
 
     private void ViewModel_OnUpdateInstallationRequested(object? sender, EventArgs e)

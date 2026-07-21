@@ -53,6 +53,16 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             deviceName
         }, cancellationToken);
 
+    public async Task<CloudAccountSession> GetSessionAsync(
+        Uri server,
+        string deviceToken,
+        CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = CreateRequest(
+            HttpMethod.Get, server, "api/game-save/v1/account/session", deviceToken);
+        return await SendForDataAsync<CloudAccountSession>(request, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<CloudGame>> ListGamesAsync(
         Uri server,
         string deviceToken,
@@ -240,6 +250,7 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         string? expectedHeadSnapshotId,
         SnapshotTrigger trigger,
         string? description,
+        IReadOnlyList<SnapshotRootDescriptor> roots,
         IReadOnlyList<SnapshotFile> files,
         CancellationToken cancellationToken)
     {
@@ -249,6 +260,7 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             expectedHeadSnapshotId,
             triggerType = SnapshotTriggerNames.ToApiValue(trigger),
             description,
+            roots,
             files = files.Select(file => new
             {
                 path = file.RelativePath,

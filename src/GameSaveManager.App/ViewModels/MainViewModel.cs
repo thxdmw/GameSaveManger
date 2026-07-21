@@ -51,6 +51,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly ILocalGameProfileStore _localGameProfileStore;
     private readonly ICredentialStore _credentialStore;
     private readonly IDeviceIdentityProvider _deviceIdentityProvider;
+    private readonly ISavePathTemplateService _savePathTemplateService;
     private readonly IAppLogger _appLogger;
     private readonly IAutoStartService _autoStartService;
     private readonly IServerAddressStore _serverAddressStore;
@@ -83,6 +84,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _gameSearchText = string.Empty;
     private bool _isAuthenticated;
     private string _authenticatedUsername = string.Empty;
+    private string _authenticatedUserId = string.Empty;
     private bool _isAutoSyncEnabled;
     private bool _resumeAutomaticSyncAfterConfiguration;
     private bool _isAddGameWizardActive;
@@ -138,6 +140,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ILocalGameProfileStore localGameProfileStore,
         ICredentialStore credentialStore,
         IDeviceIdentityProvider deviceIdentityProvider,
+        ISavePathTemplateService savePathTemplateService,
         IAppLogger appLogger,
         IAutoStartService autoStartService,
         IServerAddressStore serverAddressStore,
@@ -163,6 +166,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _localGameProfileStore = localGameProfileStore;
         _credentialStore = credentialStore;
         _deviceIdentityProvider = deviceIdentityProvider;
+        _savePathTemplateService = savePathTemplateService;
         _appLogger = appLogger;
         _autoStartService = autoStartService;
         _serverAddressStore = serverAddressStore;
@@ -620,6 +624,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public event EventHandler? GameCreated;
     public event EventHandler? SyncConflictDetected;
     public event EventHandler? UpdateInstallationRequested;
+    public event EventHandler<WindowsNotificationEventArgs>? WindowsNotificationRequested;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>密码仅暂存于内存，并由 PasswordBox 调用此方法传入。</summary>
@@ -640,7 +645,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             string? token = await _credentialStore.ReadAsync(CredentialTargets.ForDeviceToken(server), CancellationToken.None);
             if (string.IsNullOrWhiteSpace(token)) return;
 
-            AuthenticatedUsername = await _credentialStore.ReadAsync(CredentialTargets.ForAccountName(server), CancellationToken.None) ?? "已登录账号";
+            CloudAccountSession session = await _apiClient.GetSessionAsync(server, token, CancellationToken.None);
+            _authenticatedUserId = session.UserId;
+            AuthenticatedUsername = session.Username;
+            await _credentialStore.SaveAsync(CredentialTargets.ForAccountUserId(server), session.UserId, CancellationToken.None);
+            await _credentialStore.SaveAsync(CredentialTargets.ForAccountName(server), session.Username, CancellationToken.None);
+            await _credentialStore.SaveAsync(CredentialTargets.StableDeviceId, session.DeviceId, CancellationToken.None);
             IsAuthenticated = true;
             await ReloadGamesAsync(server, token);
             await ReloadDevicesAsync(server, token);
@@ -652,8 +662,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Uri server = ParseServerUri();
             await _credentialStore.DeleteAsync(CredentialTargets.ForDeviceToken(server), CancellationToken.None);
             await _credentialStore.DeleteAsync(CredentialTargets.ForAccountName(server), CancellationToken.None);
+            await _credentialStore.DeleteAsync(CredentialTargets.ForAccountUserId(server), CancellationToken.None);
             IsAuthenticated = false;
             AuthenticatedUsername = string.Empty;
+            _authenticatedUserId = string.Empty;
             StatusText = "登录状态已过期，请重新登录。";
         }
         catch (Exception exception)
@@ -934,7 +946,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : await _apiClient.LoginAsync(server, Username, _password, deviceId, Environment.MachineName, CancellationToken.None);
             await _credentialStore.SaveAsync(CredentialTargets.ForDeviceToken(server), session.DeviceToken, CancellationToken.None);
             await _credentialStore.SaveAsync(CredentialTargets.ForAccountName(server), Username.Trim(), CancellationToken.None);
+            await _credentialStore.SaveAsync(CredentialTargets.ForAccountUserId(server), session.UserId, CancellationToken.None);
+            await _credentialStore.SaveAsync(CredentialTargets.StableDeviceId, session.DeviceId, CancellationToken.None);
             await _serverAddressStore.SaveAsync(server.AbsoluteUri.TrimEnd('/'), CancellationToken.None);
+            _authenticatedUserId = session.UserId;
             AuthenticatedUsername = Username.Trim();
             IsAuthenticated = true;
             try
@@ -965,6 +980,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IReadOnlyList<CloudGame> games = await _apiClient.ListGamesAsync(server, token, CancellationToken.None);
         Games.Clear();
         foreach (CloudGame game in games) Games.Add(game);
+        await _localGameProfileStore.ClaimLegacyAsync(
+            GameSaveServerIdentity.CreateStableKey(server),
+            RequireAuthenticatedUserId(),
+            games.Select(game => game.GameId).ToArray(),
+            CancellationToken.None);
         SelectedGame = Games.FirstOrDefault();
         await RestoreAutomaticSyncProfilesAsync(server, token);
         if (SelectedGame is not null)
@@ -979,7 +999,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (SelectedGame is null) return;
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
-        LocalGameProfile? profile = await _localGameProfileStore.GetAsync(serverKey, SelectedGame.GameId, CancellationToken.None);
+        LocalGameProfile? profile = await _localGameProfileStore.GetAsync(serverKey, RequireAuthenticatedUserId(), SelectedGame.GameId, CancellationToken.None);
         if (profile is null) return;
 
         _localGameProfiles[profile.GameId] = profile;
@@ -1004,7 +1024,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task RestoreAutomaticSyncProfilesAsync(Uri server, string token)
     {
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
-        IReadOnlyList<LocalGameProfile> profiles = await _localGameProfileStore.ListAsync(serverKey, CancellationToken.None);
+        IReadOnlyList<LocalGameProfile> profiles = await _localGameProfileStore.ListAsync(serverKey, RequireAuthenticatedUserId(), CancellationToken.None);
         _localGameProfiles.Clear();
         foreach (LocalGameProfile profile in profiles)
         {
@@ -1033,7 +1053,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             LocalGameProfile? profile = await _localGameProfileStore.GetAsync(
-                GameSaveServerIdentity.CreateStableKey(server), gameId, cancellationToken);
+                GameSaveServerIdentity.CreateStableKey(server), RequireAuthenticatedUserId(), gameId, cancellationToken);
             if (profile is null) throw new InvalidOperationException("未找到该游戏的本机同步配置。");
             CloudSyncResult result = await RunQueuedSyncAsync(server, token, gameId, profile,
                 SnapshotTrigger.GameExit, "游戏退出自动同步", false, cancellationToken);
@@ -1050,6 +1070,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 SetGameSyncError(gameId, $"自动同步失败：{exception.Message}");
                 if (SelectedGame?.GameId == gameId) StatusText = $"自动同步失败：{exception.Message}";
+                string gameName = Games.FirstOrDefault(game => game.GameId == gameId)?.Name ?? "游戏";
+                RequestWindowsNotification($"{gameName} 自动备份失败", exception.Message, WindowsNotificationKind.Error);
             });
             throw;
         }
@@ -1082,7 +1104,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await PrepareRegistrySnapshotsAsync(server, gameId, profile.EffectiveRegistrySaveRules);
             IProgress<CloudSyncProgress> progress = new Progress<CloudSyncProgress>(
                 item => ReportSyncProgress(gameId, item));
-            return await _cloudSyncService.SyncAsync(server, token, gameId, roots, trigger, description,
+            return await _cloudSyncService.SyncAsync(server, token, RequireAuthenticatedUserId(), gameId, roots, trigger, description,
                 linked.Token, keepLocalOnConflict, progress);
         }
         finally
@@ -1124,6 +1146,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : throw new InvalidOperationException("请先保存并确认该游戏的本机存档配置。");
     private void ApplySyncResult(string gameId, CloudSyncResult result)
     {
+        string gameName = Games.FirstOrDefault(game => game.GameId == gameId)?.Name ?? "游戏";
         string statusText = result.Status == CloudSyncStatus.RemoteAhead
             ? result.Message + " 请从时间线恢复云端快照，或明确选择保留本机版本。"
             : result.Message;
@@ -1153,6 +1176,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 SyncConflictDetected?.Invoke(this, EventArgs.Empty);
             }
         }
+        RequestWindowsNotification(
+            result.Status == CloudSyncStatus.Success ? $"{gameName} 备份完成" : $"{gameName} 需要处理同步冲突",
+            statusText,
+            result.Status == CloudSyncStatus.Success ? WindowsNotificationKind.Success : WindowsNotificationKind.Warning);
     }
 
     private GameSyncUiState? GetSelectedGameSyncState() =>
@@ -1370,7 +1397,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SelectedSaveLocationCandidate?.Confidence ?? (userConfirmed ? 100 : 0),
             userConfirmed, autoSnapshotEnabled && userConfirmed && launchProfile is not null,
             BuildConfiguredSaveRoots(server, SelectedGame.GameId, userConfirmed, additionalRoots, registryRules),
-            registryRules, identityExecutablePath, launchProfile);
+            registryRules, identityExecutablePath, launchProfile, RequireAuthenticatedUserId());
         await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
         _localGameProfiles[profile.GameId] = profile;
         RefreshGameRuntimeStatus();
@@ -1879,10 +1906,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         server, token, game.GameId, CancellationToken.None);
                     await _localGameProfileStore.DeleteAsync(
                         GameSaveServerIdentity.CreateStableKey(server),
+                        RequireAuthenticatedUserId(),
                         game.GameId,
                         CancellationToken.None);
                     await _cloudSyncService.DeleteLocalStateAsync(
-                        server, game.GameId, CancellationToken.None);
+                        server, RequireAuthenticatedUserId(), game.GameId, CancellationToken.None);
                 }
                 catch (Exception compensationFailure)
                 {
@@ -1911,8 +1939,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             IsAutoSyncEnabled = false;
             await _apiClient.DeleteGameAsync(server, token, gameId, CancellationToken.None);
             string serverKey = GameSaveServerIdentity.CreateStableKey(server);
-            await _localGameProfileStore.DeleteAsync(serverKey, gameId, CancellationToken.None);
-            await _cloudSyncService.DeleteLocalStateAsync(server, gameId, CancellationToken.None);
+            await _localGameProfileStore.DeleteAsync(serverKey, RequireAuthenticatedUserId(), gameId, CancellationToken.None);
+            await _cloudSyncService.DeleteLocalStateAsync(server, RequireAuthenticatedUserId(), gameId, CancellationToken.None);
             _localGameProfiles.Remove(gameId);
             _gameSyncUiStates.Remove(gameId);
             DeleteGeneratedGameData(server, gameId);
@@ -1949,12 +1977,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await _autoSyncCoordinator.DisableAllAsync();
             await _credentialStore.DeleteAsync(CredentialTargets.ForDeviceToken(server), CancellationToken.None);
             await _credentialStore.DeleteAsync(CredentialTargets.ForAccountName(server), CancellationToken.None);
+            await _credentialStore.DeleteAsync(CredentialTargets.ForAccountUserId(server), CancellationToken.None);
             IsAutoSyncEnabled = false;
             IsAuthenticated = false;
             AuthenticatedUsername = string.Empty;
+            _authenticatedUserId = string.Empty;
             _gameSyncUiStates.Clear();
+            _localGameProfiles.Clear();
             Games.Clear(); Snapshots.Clear(); Devices.Clear();
             SelectedGame = null; SelectedSnapshot = null; SelectedDevice = null;
+            SaveDirectory = string.Empty;
+            AdditionalSaveRoots.Clear();
+            RegistrySaveRules.Clear();
             QuotaUsageText = "尚未加载存储容量";
             NavigateTo("账户");
             StatusText = "已退出登录；本机游戏存档文件不会被删除。";
@@ -1996,10 +2030,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (gameId is not null) SetGameSyncError(gameId, "同步已取消；下次同步会安全复用已上传内容。");
             StatusText = "同步已取消；下次同步会安全复用已上传内容。";
+            RequestWindowsNotification("存档备份已取消", StatusText, WindowsNotificationKind.Warning);
         }
         catch (Exception exception)
         {
             if (gameId is not null) SetGameSyncError(gameId, $"同步失败：{ClientOperationError.FromException(exception).UserMessage}");
+            RequestWindowsNotification("存档备份失败", ClientOperationError.FromException(exception).UserMessage, WindowsNotificationKind.Error);
             ShowError("同步失败", exception);
         }
     }
@@ -2057,6 +2093,43 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Snapshots.Clear();
         foreach (CloudSnapshotSummary snapshot in snapshots) Snapshots.Add(snapshot);
         SelectedSnapshot = Snapshots.FirstOrDefault();
+        ApplyCloudPathSuggestions();
+    }
+
+    /// <summary>仅把云端历史路径当作待确认参考，不会绕过目录预览或自动写入本机配置。</summary>
+    private void ApplyCloudPathSuggestions()
+    {
+        if (SelectedGame is null || _localGameProfiles.ContainsKey(SelectedGame.GameId)) return;
+        CloudSnapshotRoot[] fileRoots = Snapshots.FirstOrDefault()?.Roots?
+            .Where(root => string.Equals(root.RootType, "FILE", StringComparison.OrdinalIgnoreCase)
+                           && !string.IsNullOrWhiteSpace(root.PathTemplate))
+            .ToArray() ?? [];
+        if (fileRoots.Length == 0) return;
+
+        var resolved = fileRoots
+            .Select(root => (Root: root, Path: _savePathTemplateService.Resolve(root.PathTemplate!)))
+            .Where(item => !string.IsNullOrWhiteSpace(item.Path) && Directory.Exists(item.Path))
+            .ToArray();
+        if (resolved.Length == 0) return;
+
+        SaveLocationCandidates.Clear();
+        foreach (var item in resolved)
+        {
+            SaveLocationCandidates.Add(new SaveLocationCandidate(
+                item.Path!, Math.Clamp(item.Root.Confidence, 0, 100), SaveLocationSource.CloudHistory,
+                $"来自最近一次云端备份的路径记录：{item.Root.PathTemplate}", 0, 0, null, [], true));
+        }
+        SaveDirectory = resolved[0].Path!;
+        SelectedSaveLocationCandidate = SaveLocationCandidates[0];
+        IsSaveDirectoryConfirmed = false;
+        AdditionalSaveRoots.Clear();
+        foreach (var item in resolved.Skip(1))
+        {
+            AdditionalSaveRoots.Add(new SaveRootRule(
+                item.Root.RootId, item.Path!, item.Root.IncludePatterns ?? [], item.Root.ExcludePatterns ?? [],
+                SaveLocationSource.CloudHistory, Math.Clamp(item.Root.Confidence, 0, 100), false));
+        }
+        StatusText = "已根据云端备份记录找到本机可能的存档路径；请预览并确认后再启用同步。";
     }
 
     /// <summary>恢复与同步共用 _syncQueue，避免恢复移动存档目录时与正在进行的（含自动）同步竞争同一目录。</summary>
@@ -2076,7 +2149,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 StatusText = "正在下载、校验并安全恢复快照…";
                 results = await _safeRestoreService.RestoreAsync(
-                    server, token, SelectedGame.GameId, SelectedSnapshot.SnapshotId, GetConfiguredSaveRoots(server, SelectedGame.GameId), RegistrySaveRules.ToArray(), CancellationToken.None);
+                    server, token, RequireAuthenticatedUserId(), SelectedGame.GameId, SelectedSnapshot.SnapshotId, GetConfiguredSaveRoots(server, SelectedGame.GameId), RegistrySaveRules.ToArray(), CancellationToken.None);
             }
             finally
             {
@@ -2325,6 +2398,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             IsSaveDirectoryConfirmed = profile.UserConfirmed;
             AutoSnapshotExecutablePath = profile.ExecutablePath ?? launchProfile.Target;
 
+            if (!await EnsureCloudFreshBeforeLaunchAsync(game, profile)) return;
+
             IReadOnlyList<string> effectiveNames = GameProcessNameRules.GetEffectiveNames(launchProfile, profile.ProcessName);
             launchProfile = launchProfile with { MonitoredProcessNames = effectiveNames };
             string primaryProcessName = launchProfile.TargetType == GameLaunchTargetType.Executable
@@ -2394,6 +2469,49 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>游戏尚未启动时检查云端 HEAD；只有本机未改动才允许自动拉取，歧义场景必须由用户处理。</summary>
+    private async Task<bool> EnsureCloudFreshBeforeLaunchAsync(CloudGame game, LocalGameProfile profile)
+    {
+        Uri server = ParseServerUri();
+        string token = await RequireDeviceTokenAsync(server);
+        await PrepareRegistrySnapshotsAsync(server, game.GameId, profile.EffectiveRegistrySaveRules);
+        CloudFreshnessResult freshness = await _cloudSyncService.CheckFreshnessAsync(
+            server, token, RequireAuthenticatedUserId(), game.GameId, profile.EffectiveSaveRoots, CancellationToken.None);
+        if (freshness.Status == CloudFreshnessStatus.UpToDate) return true;
+
+        if (freshness.Status == CloudFreshnessStatus.RemoteAheadLocalUnchanged
+            && !string.IsNullOrWhiteSpace(freshness.RemoteHeadSnapshotId))
+        {
+            StatusText = "检测到云端有更新，正在启动游戏前安全拉取最新存档…";
+            await _syncQueue.WaitAsync(CancellationToken.None);
+            try
+            {
+                IReadOnlyList<RestoreResult> results = await _safeRestoreService.RestoreAsync(
+                    server, token, RequireAuthenticatedUserId(), game.GameId, freshness.RemoteHeadSnapshotId,
+                    profile.EffectiveSaveRoots, profile.EffectiveRegistrySaveRules, CancellationToken.None);
+                int safetyBackups = results.Count(result => result.SafetyBackupDirectory is not null);
+                StatusText = safetyBackups > 0
+                    ? $"已拉取云端最新存档，并保留 {safetyBackups} 份本机安全备份；正在启动游戏。"
+                    : "已拉取云端最新存档；正在启动游戏。";
+                RequestWindowsNotification($"{game.Name} 云端存档已更新", StatusText, WindowsNotificationKind.Success);
+                return true;
+            }
+            finally
+            {
+                _syncQueue.Release();
+            }
+        }
+
+        await ReloadSnapshotsAsync(server, token, game.GameId);
+        CurrentPage = "时间线";
+        StatusText = freshness.Status == CloudFreshnessStatus.Diverged
+            ? "云端和本机存档都发生了变化，已阻止启动；请先选择要保留的进度。"
+            : "本机没有可信的同步基线且已有存档，已阻止启动；请先恢复云端版本或明确保留本机版本。";
+        RequestWindowsNotification($"{game.Name} 启动已暂停", StatusText, WindowsNotificationKind.Warning);
+        SyncConflictDetected?.Invoke(this, EventArgs.Empty);
+        return false;
+    }
+
     private bool IsGameRunning(LocalGameProfile profile) =>
         GetMonitoredProcessNames(profile).Any(name => _runningProcessNames.Contains(GameProcessNameRules.Normalize(name)));
 
@@ -2446,7 +2564,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Uri server = ParseServerUri();
         await _autoSyncCoordinator.DisableAsync(SelectedGame.GameId);
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
-        LocalGameProfile? profile = await _localGameProfileStore.GetAsync(serverKey, SelectedGame.GameId, CancellationToken.None);
+        LocalGameProfile? profile = await _localGameProfileStore.GetAsync(serverKey, RequireAuthenticatedUserId(), SelectedGame.GameId, CancellationToken.None);
         if (profile is not null)
         {
             LocalGameProfile disabledProfile = profile with { AutoSnapshotEnabled = false };
@@ -2466,6 +2584,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : token;
     }
 
+    private string RequireAuthenticatedUserId() => string.IsNullOrWhiteSpace(_authenticatedUserId)
+        ? throw new InvalidOperationException("当前账号身份尚未恢复，请重新登录")
+        : _authenticatedUserId;
+
+    private void RequestWindowsNotification(string title, string message, WindowsNotificationKind kind) =>
+        WindowsNotificationRequested?.Invoke(this, new WindowsNotificationEventArgs(title, message, kind));
+
     private Uri ParseServerUri() => GameSaveServerIdentity.ParseAndValidate(ServerAddress);
 
     private void ShowError(string operation, Exception exception)
@@ -2476,7 +2601,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             IsAuthenticated = false;
             AuthenticatedUsername = string.Empty;
+            _authenticatedUserId = string.Empty;
             _gameSyncUiStates.Clear();
+            _localGameProfiles.Clear();
             Games.Clear();
             SelectedGame = null;
             CurrentPage = "账户";
@@ -2501,10 +2628,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Uri server = ParseServerUri();
+            await _autoSyncCoordinator.DisableAllAsync();
             await _credentialStore.DeleteAsync(
                 CredentialTargets.ForDeviceToken(server), CancellationToken.None);
             await _credentialStore.DeleteAsync(
                 CredentialTargets.ForAccountName(server), CancellationToken.None);
+            await _credentialStore.DeleteAsync(
+                CredentialTargets.ForAccountUserId(server), CancellationToken.None);
         }
         catch (Exception exception)
         {
@@ -2680,4 +2810,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         public string Summary { get; set; } = string.Empty;
         public string Error { get; set; } = string.Empty;
     }
+}
+
+public sealed record WindowsNotificationEventArgs(
+    string Title,
+    string Message,
+    WindowsNotificationKind Kind);
+
+public enum WindowsNotificationKind
+{
+    Success,
+    Warning,
+    Error
 }

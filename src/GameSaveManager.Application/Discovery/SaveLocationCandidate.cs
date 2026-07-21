@@ -6,6 +6,7 @@ public enum SaveLocationSource
     StoreMetadata,
     InstallDirectory,
     RuntimeLearning,
+    CloudHistory,
     Heuristic,
     Manual
 }

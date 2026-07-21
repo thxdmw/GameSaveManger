@@ -3,6 +3,7 @@ using GameSaveManager.Application.Snapshots;
 using GameSaveManager.Application.Games;
 using GameSaveManager.Domain.Snapshots;
 using System.Diagnostics;
+using GameSaveManager.Application.Discovery;
 
 namespace GameSaveManager.Application.Sync;
 
@@ -13,20 +14,22 @@ namespace GameSaveManager.Application.Sync;
 public sealed class CloudSyncService(
     SaveManifestBuilder manifestBuilder,
     IGameSaveApiClient apiClient,
-    ILocalSyncStateStore localSyncStateStore)
+    ILocalSyncStateStore localSyncStateStore,
+    ISavePathTemplateService pathTemplateService)
 {
-    public Task DeleteLocalStateAsync(Uri server, string gameId, CancellationToken cancellationToken) =>
-        localSyncStateStore.DeleteAsync(GameSaveServerIdentity.CreateStableKey(server), gameId, cancellationToken);
+    public Task DeleteLocalStateAsync(Uri server, string userId, string gameId, CancellationToken cancellationToken) =>
+        localSyncStateStore.DeleteAsync(GameSaveServerIdentity.CreateStableKey(server), userId, gameId, cancellationToken);
 
-    public Task<CloudSyncResult> SyncAsync(Uri server, string deviceToken, string gameId, string saveDirectory, SnapshotTrigger trigger, string? description, CancellationToken cancellationToken, bool keepLocalOnConflict = false, IProgress<CloudSyncProgress>? progress = null) =>
-        SyncCoreAsync(server, deviceToken, gameId, [SaveRootRule.CreateDefault(saveDirectory, Discovery.SaveLocationSource.Manual, 100, true)], trigger, description, cancellationToken, keepLocalOnConflict, progress);
+    public Task<CloudSyncResult> SyncAsync(Uri server, string deviceToken, string userId, string gameId, string saveDirectory, SnapshotTrigger trigger, string? description, CancellationToken cancellationToken, bool keepLocalOnConflict = false, IProgress<CloudSyncProgress>? progress = null) =>
+        SyncCoreAsync(server, deviceToken, userId, gameId, [SaveRootRule.CreateDefault(saveDirectory, Discovery.SaveLocationSource.Manual, 100, true)], trigger, description, cancellationToken, keepLocalOnConflict, progress);
 
-    public Task<CloudSyncResult> SyncAsync(Uri server, string deviceToken, string gameId, IReadOnlyList<SaveRootRule> saveRoots, SnapshotTrigger trigger, string? description, CancellationToken cancellationToken, bool keepLocalOnConflict = false, IProgress<CloudSyncProgress>? progress = null) =>
-        SyncCoreAsync(server, deviceToken, gameId, saveRoots, trigger, description, cancellationToken, keepLocalOnConflict, progress);
+    public Task<CloudSyncResult> SyncAsync(Uri server, string deviceToken, string userId, string gameId, IReadOnlyList<SaveRootRule> saveRoots, SnapshotTrigger trigger, string? description, CancellationToken cancellationToken, bool keepLocalOnConflict = false, IProgress<CloudSyncProgress>? progress = null) =>
+        SyncCoreAsync(server, deviceToken, userId, gameId, saveRoots, trigger, description, cancellationToken, keepLocalOnConflict, progress);
 
     private async Task<CloudSyncResult> SyncCoreAsync(
         Uri server,
         string deviceToken,
+        string userId,
         string gameId,
         IReadOnlyList<SaveRootRule> saveRoots,
         SnapshotTrigger trigger,
@@ -40,6 +43,7 @@ public sealed class CloudSyncService(
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
         LocalSyncState? localState = await localSyncStateStore.GetAsync(
             serverKey,
+            userId,
             gameId,
             cancellationToken);
         CloudHead remoteHead = await apiClient.GetHeadAsync(server, deviceToken, gameId, cancellationToken);
@@ -98,11 +102,12 @@ public sealed class CloudSyncService(
             remoteHead.HeadSnapshotId,
             trigger,
             description,
+            BuildRootDescriptors(saveRoots),
             manifest,
             cancellationToken);
 
         await localSyncStateStore.SaveAsync(
-            new LocalSyncState(serverKey, gameId, committed.SnapshotId, committed.HeadVersion),
+            new LocalSyncState(serverKey, gameId, committed.SnapshotId, committed.HeadVersion, userId),
             cancellationToken);
 
         progress?.Report(new CloudSyncProgress("完成", missing.Count, missing.Count, "同步完成。"));
@@ -147,5 +152,61 @@ public sealed class CloudSyncService(
         string relative = Path.GetRelativePath(root, fullPath);
         if (Path.IsPathRooted(relative) || relative.Equals("..", StringComparison.Ordinal) || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)) throw new IOException($"快照路径越过存档根目录边界: {manifestPath}");
         return fullPath;
+    }
+
+    public async Task<CloudFreshnessResult> CheckFreshnessAsync(
+        Uri server,
+        string deviceToken,
+        string userId,
+        string gameId,
+        IReadOnlyList<SaveRootRule> saveRoots,
+        CancellationToken cancellationToken)
+    {
+        string serverKey = GameSaveServerIdentity.CreateStableKey(server);
+        LocalSyncState? localState = await localSyncStateStore.GetAsync(serverKey, userId, gameId, cancellationToken);
+        CloudHead remoteHead = await apiClient.GetHeadAsync(server, deviceToken, gameId, cancellationToken);
+        if (HeadsMatch(localState, remoteHead))
+            return new CloudFreshnessResult(CloudFreshnessStatus.UpToDate, remoteHead.HeadSnapshotId, null);
+        if (localState?.HeadSnapshotId is null && remoteHead.HeadSnapshotId is not null)
+        {
+            IReadOnlyList<SnapshotFile> untrackedLocalFiles = await manifestBuilder.BuildAsync(saveRoots, cancellationToken);
+            return new CloudFreshnessResult(
+                untrackedLocalFiles.Count == 0 ? CloudFreshnessStatus.RemoteAheadLocalUnchanged : CloudFreshnessStatus.BaselineMissing,
+                remoteHead.HeadSnapshotId,
+                null);
+        }
+        if (localState?.HeadSnapshotId is null || remoteHead.HeadSnapshotId is null)
+            return new CloudFreshnessResult(CloudFreshnessStatus.BaselineMissing, remoteHead.HeadSnapshotId, localState?.HeadSnapshotId);
+
+        IReadOnlyList<SnapshotFile> localFiles = await manifestBuilder.BuildAsync(saveRoots, cancellationToken);
+        CloudSnapshotManifest baseline = await apiClient.GetSnapshotAsync(
+            server, deviceToken, gameId, localState.HeadSnapshotId, cancellationToken);
+        bool localUnchanged = ManifestsMatch(localFiles, baseline.Files);
+        return new CloudFreshnessResult(
+            localUnchanged ? CloudFreshnessStatus.RemoteAheadLocalUnchanged : CloudFreshnessStatus.Diverged,
+            remoteHead.HeadSnapshotId,
+            localState.HeadSnapshotId);
+    }
+
+    private IReadOnlyList<SnapshotRootDescriptor> BuildRootDescriptors(IReadOnlyList<SaveRootRule> roots) =>
+        roots.Select(root => new SnapshotRootDescriptor(
+            root.RootId,
+            string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase) ? "REGISTRY" : "FILE",
+            string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase) ? "HKCU" : pathTemplateService.Encode(root.Path),
+            root.Source.ToString(),
+            root.Confidence,
+            root.IncludePatterns,
+            root.ExcludePatterns)).ToArray();
+
+    private static bool ManifestsMatch(IReadOnlyList<SnapshotFile> localFiles, IReadOnlyList<CloudSnapshotFile> cloudFiles)
+    {
+        if (localFiles.Count != cloudFiles.Count) return false;
+        Dictionary<string, (string Hash, long Size)> cloud = cloudFiles.ToDictionary(
+            file => file.RelativePath,
+            file => (file.Sha256, file.Size),
+            StringComparer.OrdinalIgnoreCase);
+        return localFiles.All(file => cloud.TryGetValue(file.RelativePath, out var value)
+            && value.Size == file.Size
+            && string.Equals(value.Hash, file.Sha256, StringComparison.OrdinalIgnoreCase));
     }
 }

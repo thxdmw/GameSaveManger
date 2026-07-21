@@ -5,6 +5,7 @@ public interface ILocalSyncStateStore
 {
     Task<LocalSyncState?> GetAsync(
         string serverKey,
+        string userId,
         string gameId,
         CancellationToken cancellationToken);
 
@@ -12,6 +13,7 @@ public interface ILocalSyncStateStore
 
     Task DeleteAsync(
         string serverKey,
+        string userId,
         string gameId,
         CancellationToken cancellationToken);
 }

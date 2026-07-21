@@ -21,6 +21,12 @@ public interface IGameSaveApiClient
         string deviceName,
         CancellationToken cancellationToken);
 
+    /// <summary>使用已保存 Token 恢复稳定账号和设备身份。</summary>
+    Task<CloudAccountSession> GetSessionAsync(
+        Uri server,
+        string deviceToken,
+        CancellationToken cancellationToken);
+
     /// <summary>读取单个云端游戏的快照保留策略。</summary>
     Task<CloudRetentionPolicy> GetRetentionPolicyAsync(
         Uri server,
@@ -123,6 +129,7 @@ public interface IGameSaveApiClient
         string? expectedHeadSnapshotId,
         SnapshotTrigger trigger,
         string? description,
+        IReadOnlyList<SnapshotRootDescriptor> roots,
         IReadOnlyList<SnapshotFile> files,
         CancellationToken cancellationToken);
 

@@ -20,7 +20,7 @@ internal static class SqliteSchemaVerification
             await using SqliteCommand command = connection.CreateCommand();
             command.CommandText = "SELECT version FROM schema_version WHERE id = 1;";
             long version = Convert.ToInt64(await command.ExecuteScalarAsync());
-            Ensure(version == 6, "本地数据库应被记录为当前 schema 版本。");
+            Ensure(version == 8, "本地数据库应被记录为当前 schema 版本。");
         }
         finally
         {

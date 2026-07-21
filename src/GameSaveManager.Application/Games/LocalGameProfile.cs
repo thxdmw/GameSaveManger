@@ -19,7 +19,8 @@ public sealed record LocalGameProfile(
     IReadOnlyList<SaveRootRule>? SaveRoots = null,
     IReadOnlyList<RegistrySaveRule>? RegistrySaveRules = null,
     string? IdentityExecutablePath = null,
-    GameLaunchProfile? LaunchProfile = null)
+    GameLaunchProfile? LaunchProfile = null,
+    string UserId = "")
 {
     public GameLaunchProfile? EffectiveLaunchProfile => LaunchProfile ?? (string.IsNullOrWhiteSpace(ExecutablePath) ? null : new GameLaunchProfile(
         Path.GetExtension(ExecutablePath).Equals(".lnk", StringComparison.OrdinalIgnoreCase) ? GameLaunchTargetType.Shortcut : GameLaunchTargetType.Executable, ExecutablePath, null, Path.GetDirectoryName(ExecutablePath), false,

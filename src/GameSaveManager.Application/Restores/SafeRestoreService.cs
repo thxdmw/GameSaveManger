@@ -39,7 +39,7 @@ public sealed class SafeRestoreService(
         ValidateManifest(manifest);
         CloudHead remoteHead = await apiClient.GetHeadAsync(server, deviceToken, gameId, cancellationToken);
         RestoreResult result = await RestoreOneAsync(server, deviceToken, manifest, remoteHead, saveDirectory, cancellationToken);
-        await SaveRestoreStateAsync(server, gameId, remoteHead, cancellationToken);
+        await SaveRestoreStateAsync(server, string.Empty, gameId, remoteHead, cancellationToken);
         return result;
     }
 
@@ -51,11 +51,12 @@ public sealed class SafeRestoreService(
         string snapshotId,
         IReadOnlyList<SaveRootRule> roots,
         CancellationToken cancellationToken) =>
-        RestoreAsync(server, deviceToken, gameId, snapshotId, roots, [], cancellationToken);
+        RestoreAsync(server, deviceToken, string.Empty, gameId, snapshotId, roots, [], cancellationToken);
 
     public async Task<IReadOnlyList<RestoreResult>> RestoreAsync(
         Uri server,
         string deviceToken,
+        string userId,
         string gameId,
         string snapshotId,
         IReadOnlyList<SaveRootRule> roots,
@@ -76,13 +77,23 @@ public sealed class SafeRestoreService(
             if (registryRules.Count > 0) throw new InvalidDataException("旧版单根快照不包含注册表数据，拒绝混合恢复。");
             SaveRootRule root = roots.Single(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase));
             RestoreResult result = await RestoreOneAsync(server, deviceToken, manifest, remoteHead, root.Path, cancellationToken);
-            await SaveRestoreStateAsync(server, gameId, remoteHead, cancellationToken);
+            await SaveRestoreStateAsync(server, userId, gameId, remoteHead, cancellationToken);
             return [result];
         }
         IReadOnlyList<RestoreResult> results = await RestoreNamespacedRootsAsync(server, deviceToken, gameId, manifest, roots, registryRules, cancellationToken);
-        await SaveRestoreStateAsync(server, gameId, remoteHead, cancellationToken);
+        await SaveRestoreStateAsync(server, userId, gameId, remoteHead, cancellationToken);
         return results;
     }
+
+    public Task<IReadOnlyList<RestoreResult>> RestoreAsync(
+        Uri server,
+        string deviceToken,
+        string gameId,
+        string snapshotId,
+        IReadOnlyList<SaveRootRule> roots,
+        IReadOnlyList<RegistrySaveRule> registryRules,
+        CancellationToken cancellationToken) =>
+        RestoreAsync(server, deviceToken, string.Empty, gameId, snapshotId, roots, registryRules, cancellationToken);
 
     private async Task<IReadOnlyList<RestoreResult>> RestoreNamespacedRootsAsync(
         Uri server, string deviceToken, string gameId, CloudSnapshotManifest manifest,
@@ -380,8 +391,8 @@ public sealed class SafeRestoreService(
         }
     }
 
-    private Task SaveRestoreStateAsync(Uri server, string gameId, CloudHead remoteHead, CancellationToken cancellationToken) =>
-        localSyncStateStore.SaveAsync(new LocalSyncState(GameSaveServerIdentity.CreateStableKey(server), gameId, remoteHead.HeadSnapshotId, remoteHead.Version), cancellationToken);
+    private Task SaveRestoreStateAsync(Uri server, string userId, string gameId, CloudHead remoteHead, CancellationToken cancellationToken) =>
+        localSyncStateStore.SaveAsync(new LocalSyncState(GameSaveServerIdentity.CreateStableKey(server), gameId, remoteHead.HeadSnapshotId, remoteHead.Version, userId), cancellationToken);
     /// <summary>
     /// 应用启动时调用。只在“原目录已移走且目标目录不存在”这一确定场景自动回滚；
     /// 其他场景保留现场，避免用猜测覆盖可能已恢复成功的用户数据。

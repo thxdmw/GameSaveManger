@@ -36,11 +36,12 @@ internal static class SmokeViewModelFactory
             new SqliteFileHashCache(database));
         var apiClient = new GameSaveApiClient(new HttpClient());
         var syncStateStore = new SqliteSyncStateStore(database);
-        var syncService = new CloudSyncService(manifestBuilder, apiClient, syncStateStore);
+        var pathTemplateService = new WindowsSavePathTemplateService();
+        var syncService = new CloudSyncService(manifestBuilder, apiClient, syncStateStore, pathTemplateService);
         var registrySaveSnapshotService = new WindowsRegistrySaveSnapshotService();
         var restoreService = new SafeRestoreService(apiClient, new ContentObjectCache(fileHashService), fileHashService, syncStateStore, registrySaveSnapshotService);
 
-        return new MainViewModel(
+        var viewModel = new MainViewModel(
             manifestBuilder,
             new SaveDirectoryPreviewService(new SaveDirectoryScanner()),
             apiClient,
@@ -58,6 +59,7 @@ internal static class SmokeViewModelFactory
             profileStore ?? new SqliteLocalGameProfileStore(database),
             credentialStore ?? new WindowsCredentialStore(),
             new SqliteDeviceIdentityProvider(database),
+            pathTemplateService,
             new NullLogger(),
             new DisabledAutoStartService(),
             new TextFileServerAddressStore(Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", "smoke-server-address.txt")),
@@ -67,6 +69,9 @@ internal static class SmokeViewModelFactory
                 new HttpClient(),
                 Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", "updates")),
             new SqliteUpdatePreferenceStore(database));
+        typeof(MainViewModel).GetField("_authenticatedUserId", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(viewModel, "smoke-user");
+        return viewModel;
     }
 
     private sealed class NullLogger : IAppLogger

@@ -50,7 +50,7 @@ Run("服务端基础路径大小写必须保持隔离", () =>
 
 await RunAsync("旧 sync_state 表迁移并按服务端隔离 HEAD", VerifySyncStateMigrationAsync);
 await RunAsync("SQLite schema 版本迁移可重复执行", SqliteSchemaVerification.VerifySchemaVersionAsync);
-await RunAsync("本机游戏配置按服务端隔离", VerifyLocalGameProfileAsync);
+await RunAsync("本机游戏配置按服务端和账号隔离", VerifyLocalGameProfileAsync);
 await RunAsync("旧本机游戏配置可迁移 EXE 路径字段", VerifyLocalGameProfileSchemaResetAsync);
 await RunAsync("HKCU 注册表存档可安全往返", VerifyRegistrySnapshotAsync);
 await RunAsync("Glob 与注册表 JSON 会进入多根 Manifest", VerifyGlobAndRegistryManifestAsync);
@@ -63,6 +63,15 @@ Run("网络错误会转换为可操作的统一错误", GameSaveManager.Verifica
 await RunAsync("游戏进程检测会等待并确认稳定进程", GameSaveManager.Verification.GameProcessDetectionVerification.VerifyDelayedPollingAndStableProcessAsync);
 await RunAsync("游戏启动不会保存或确认无关系统进程", GameSaveManager.Verification.GameLaunchSafetyVerification.VerifySystemProcessIsNeverPersistedOrConfirmedAsync);
 Run("CMS 无时区日期与时间戳可以兼容解析", CmsDateTimeOffsetVerification.Verify);
+Run("Windows 存档路径模板可跨用户目录往返解析", () =>
+{
+    var service = new WindowsSavePathTemplateService();
+    string source = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "My Games", "TemplateTest");
+    string template = service.Encode(source);
+    string? resolved = service.Resolve(template);
+    Check(template.StartsWith("%DOCUMENTS%", StringComparison.OrdinalIgnoreCase), "文档目录应转换为可移植模板");
+    Check(string.Equals(Path.GetFullPath(source), resolved, StringComparison.OrdinalIgnoreCase), "路径模板往返解析失败");
+});
 Run("客户端与服务端协议限制和 JSON 样例保持一致", GameSaveManager.Verification.ProtocolContractVerification.Verify);
 Run("新增游戏来源切换不会复用上一款游戏配置", GameSaveManager.Verification.AddGameWizardStateVerification.VerifySelectionIsolationAndSaveNavigation);
 await RunAsync("添加向导逐步门禁与多根聚合预览有效", GameSaveManager.Verification.AddGameWizardValidationVerification.VerifyStepGatesAndAggregatePreviewAsync);
@@ -120,10 +129,10 @@ async Task VerifyLocalGameProfileAsync()
         var database = new SqliteDatabase(databasePath);
         await database.InitializeAsync(CancellationToken.None);
         var store = new SqliteLocalGameProfileStore(database);
-        await store.SaveAsync(new LocalGameProfile("server-a", "same-game", "LOCAL", null, "D:\\Games\\A", "D:\\Saves\\A", "game-a.exe", "D:\\Games\\A\\game-a.exe", SaveLocationSource.Manual, 100, true, true, [SaveRootRule.CreateDefault("D:\\Saves\\A", SaveLocationSource.Manual, 100, true), new SaveRootRule("root2", "D:\\Saves\\A2", ["**/*.sav"], ["**/cache/**"], SaveLocationSource.Manual, 100, true)]), CancellationToken.None);
-        await store.SaveAsync(new LocalGameProfile("server-b", "same-game", "STEAM", "123", "E:\\Games\\B", "E:\\Saves\\B", "game-b.exe", null, SaveLocationSource.StoreMetadata, 90, true, false), CancellationToken.None);
-        LocalGameProfile? serverA = await store.GetAsync("server-a", "same-game", CancellationToken.None);
-        LocalGameProfile? serverB = await store.GetAsync("server-b", "same-game", CancellationToken.None);
+        await store.SaveAsync(new LocalGameProfile("server-a", "same-game", "LOCAL", null, "D:\\Games\\A", "D:\\Saves\\A", "game-a.exe", "D:\\Games\\A\\game-a.exe", SaveLocationSource.Manual, 100, true, true, [SaveRootRule.CreateDefault("D:\\Saves\\A", SaveLocationSource.Manual, 100, true), new SaveRootRule("root2", "D:\\Saves\\A2", ["**/*.sav"], ["**/cache/**"], SaveLocationSource.Manual, 100, true)], UserId: "user-a"), CancellationToken.None);
+        await store.SaveAsync(new LocalGameProfile("server-a", "same-game", "STEAM", "123", "E:\\Games\\B", "E:\\Saves\\B", "game-b.exe", null, SaveLocationSource.StoreMetadata, 90, true, false, UserId: "user-b"), CancellationToken.None);
+        LocalGameProfile? serverA = await store.GetAsync("server-a", "user-a", "same-game", CancellationToken.None);
+        LocalGameProfile? serverB = await store.GetAsync("server-a", "user-b", "same-game", CancellationToken.None);
         Check(serverA is { Provider: "LOCAL", SaveDirectory: "D:\\Saves\\A", ProcessName: "game-a.exe", ExecutablePath: "D:\\Games\\A\\game-a.exe", UserConfirmed: true, AutoSnapshotEnabled: true } && serverA.EffectiveSaveRoots.Count == 2 && serverA.EffectiveSaveRoots[1].RootId == "root2", "server-a local profile read failed");
         Check(serverB is { Provider: "STEAM", ProviderGameId: "123", SaveDirectory: "E:\\Saves\\B", ProcessName: "game-b.exe", ExecutablePath: null, UserConfirmed: true, AutoSnapshotEnabled: false }, "server-b local profile read failed");
     }
@@ -293,16 +302,16 @@ async Task VerifySyncStateMigrationAsync()
 
         var store = new SqliteSyncStateStore(database);
         await store.SaveAsync(
-            new LocalSyncState("server-a", "same-game", "head-a", 1),
+            new LocalSyncState("server-a", "same-game", "head-a", 1, "user-a"),
             CancellationToken.None);
         await store.SaveAsync(
-            new LocalSyncState("server-b", "same-game", "head-b", 9),
+            new LocalSyncState("server-a", "same-game", "head-b", 9, "user-b"),
             CancellationToken.None);
 
         LocalSyncState? serverA = await store.GetAsync(
-            "server-a", "same-game", CancellationToken.None);
+            "server-a", "user-a", "same-game", CancellationToken.None);
         LocalSyncState? serverB = await store.GetAsync(
-            "server-b", "same-game", CancellationToken.None);
+            "server-a", "user-b", "same-game", CancellationToken.None);
 
         Check(serverA?.HeadSnapshotId == "head-a" && serverA.HeadVersion == 1,
             "server-a HEAD 读取错误");

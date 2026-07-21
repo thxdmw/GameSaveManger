@@ -5,4 +5,5 @@ public sealed record LocalSyncState(
     string ServerKey,
     string GameId,
     string? HeadSnapshotId,
-    long HeadVersion);
+    long HeadVersion,
+    string UserId = "");

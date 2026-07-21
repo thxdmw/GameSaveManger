@@ -5,6 +5,9 @@ namespace GameSaveManager.Application.Api;
 /// <summary>注册或登录成功后的设备会话；DeviceToken 应立即交给系统凭据存储。</summary>
 public sealed record AuthSession(string UserId, string DeviceId, string DeviceToken);
 
+/// <summary>当前设备 Token 对应的稳定账号与设备身份。</summary>
+public sealed record CloudAccountSession(string UserId, string DeviceId, string Username);
+
 /// <summary>云端逻辑游戏，不包含任何本机绝对路径。</summary>
 public sealed record CloudGame(string GameId, string Name, string Provider, string? ProviderGameId);
 /// <summary>当前账号已登记设备的安全摘要，不含 Token。</summary>
@@ -54,10 +57,14 @@ public sealed record CloudSnapshotSummary(
     int FileCount,
     long LogicalSize,
     int ChangedFileCount,
-    DateTimeOffset CreateTime)
+    DateTimeOffset CreateTime,
+    IReadOnlyList<CloudSnapshotRoot>? Roots = null)
 {
     public DateTimeOffset LocalCreateTime => CreateTime.ToLocalTime();
     public string TriggerDisplayText => SnapshotTriggerNames.ToDisplayName(TriggerType);
+    public string RootSummaryText => Roots is not { Count: > 0 }
+        ? "未记录存档路径"
+        : string.Join("；", Roots.Select(root => $"{root.RootId}: {root.PathTemplate ?? root.RootType}"));
 }
 
 /// <summary>统一的快照触发类型字符串转换。</summary>
@@ -90,7 +97,28 @@ public sealed record CloudSnapshotManifest(
     string TriggerType,
     string? Description,
     DateTimeOffset CreateTime,
+    IReadOnlyList<CloudSnapshotRoot>? Roots,
     IReadOnlyList<CloudSnapshotFile> Files);
+
+/// <summary>快照创建时使用的可移植存档根目录描述。</summary>
+public sealed record CloudSnapshotRoot(
+    string RootId,
+    string RootType,
+    string? PathTemplate,
+    string Source,
+    int Confidence,
+    IReadOnlyList<string>? IncludePatterns,
+    IReadOnlyList<string>? ExcludePatterns);
+
+/// <summary>客户端提交的快照根目录元数据。</summary>
+public sealed record SnapshotRootDescriptor(
+    string RootId,
+    string RootType,
+    string? PathTemplate,
+    string Source,
+    int Confidence,
+    IReadOnlyList<string> IncludePatterns,
+    IReadOnlyList<string> ExcludePatterns);
 
 /// <summary>??????????????ObjectId ???? GameSave ????????</summary>
 public sealed record CloudSnapshotFile(
