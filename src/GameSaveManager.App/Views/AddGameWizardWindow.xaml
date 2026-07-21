@@ -93,7 +93,10 @@
                                     <Button Margin="0,0,10,10" Style="{StaticResource ButtonStyle}" Command="{Binding Host.SuggestSaveDirectoriesCommand}" Content="自动检测"/>
                                     <Button Margin="0,0,10,10" Style="{StaticResource ButtonStyle}" Click="ChooseSaveDirectoryButton_OnClick" Content="手动选择"/>
                                     <Button Margin="0,0,10,10" Style="{StaticResource ButtonStyle}" Command="{Binding Host.StartSaveLearningCommand}" Content="运行游戏学习"/>
+                                    <Button Margin="0,0,10,10" Style="{StaticResource Primary}" Command="{Binding Host.CompleteSaveLearningCommand}" Content="完成学习"/>
+                                    <Button Margin="0,0,10,10" Style="{StaticResource ButtonStyle}" Command="{Binding Host.CancelSaveLearningCommand}" Content="取消学习"/>
                                 </WrapPanel>
+                                <TextBlock Margin="0,2,0,6" Foreground="{DynamicResource Muted}" Text="{Binding Host.StatusText}" TextWrapping="Wrap"/>
                                 <ListBox Margin="0,8,0,0" MaxHeight="260" Style="{StaticResource ThemedListBox}"
                                          ItemContainerStyle="{StaticResource ThemedListBoxItem}"
                                          ItemsSource="{Binding Host.SaveLocationCandidates}" SelectedItem="{Binding Host.SelectedSaveLocationCandidate}">

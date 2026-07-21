@@ -1779,29 +1779,45 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         try
         {
+            if (_learningBefore is not null) throw new InvalidOperationException("存档学习已经开始，请先完成或取消当前学习。");
             GameIdentity game = GetCurrentGameIdentity();
             if (string.IsNullOrWhiteSpace(game.ExecutablePath) || !File.Exists(game.ExecutablePath)) throw new InvalidOperationException("请先配置游戏 EXE。");
-            _learningCancellation?.Cancel();
-            _learningCancellation?.Dispose();
             _learningCancellation = new CancellationTokenSource();
+            StatusText = "正在记录游戏运行前的文件元数据…";
             _learningBefore = await _runtimeSaveLearningService.CaptureBeforeAsync(game, _learningCancellation.Token);
+            RaiseCommandStates();
             GameLaunchResult launchResult = await LaunchGameAsync(game, _learningCancellation.Token);
             StatusText = launchResult.Warning is null
                 ? "已记录文件元数据并确认游戏正在运行；保存并退出后点击完成学习。"
                 : $"已记录文件元数据并发送启动请求，但{launchResult.Warning}";
         }
-        catch (OperationCanceledException) { StatusText = "存档学习已取消。"; }
-        catch (Exception exception) { ShowError("启动存档学习失败", exception); }
+        catch (OperationCanceledException)
+        {
+            ResetSaveLearningState(cancel: false);
+            StatusText = "存档学习已取消。";
+        }
+        catch (Exception exception)
+        {
+            ResetSaveLearningState(cancel: true);
+            ShowError("启动存档学习失败", exception);
+        }
     }
 
     private void CancelSaveLearning()
     {
-        _learningCancellation?.Cancel();
+        ResetSaveLearningState(cancel: true);
+        StatusText = "存档学习已取消。";
+    }
+
+    private void ResetSaveLearningState(bool cancel)
+    {
+        if (cancel) _learningCancellation?.Cancel();
         _learningCancellation?.Dispose();
         _learningCancellation = null;
         _learningBefore = null;
-        StatusText = "存档学习已取消。";
+        RaiseCommandStates();
     }
+
     private async Task CompleteSaveLearningAsync()
     {
         try
@@ -1813,8 +1829,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SaveLocationCandidates.Clear();
             foreach (SaveLocationCandidate candidate in candidates) SaveLocationCandidates.Add(candidate);
             SelectedSaveLocationCandidate = null;
-            _learningBefore = null;
+            ResetSaveLearningState(cancel: false);
             StatusText = $"学习完成：找到 {candidates.Count} 个候选目录，仍需用户确认。";
+        }
+        catch (OperationCanceledException)
+        {
+            ResetSaveLearningState(cancel: false);
+            StatusText = "存档学习已取消。";
         }
         catch (Exception exception) { ShowError("完成存档学习失败", exception); }
     }
@@ -2741,7 +2762,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool CanStartSaveLearning()
     {
         GameIdentity game = GetCurrentGameIdentity();
-        return IsLaunchTargetValid(CreateLaunchProfile(game));
+        return _learningBefore is null && IsLaunchTargetValid(CreateLaunchProfile(game));
     }
 
     private bool HasConfirmedExistingFileRoots()

@@ -53,6 +53,21 @@ internal static class AddGameWizardValidationVerification
                 "测试发现的多个真实进程必须保留到最终启动配置。" );
             Ensure(wizard.TryMoveNext() && wizard.Step == 3, "有效启动目标应允许进入存档检测。");
 
+            Ensure(viewModel.StartSaveLearningCommand.CanExecute(null), "未开始学习时应允许运行游戏学习。");
+            typeof(MainViewModel).GetField("_learningBefore", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(viewModel, new FileMetadataSnapshot[]
+                {
+                    new(Path.Combine(gameDirectory, "baseline.dat"), 1, DateTime.UtcNow)
+                });
+            Ensure(!viewModel.StartSaveLearningCommand.CanExecute(null)
+                   && viewModel.CompleteSaveLearningCommand.CanExecute(null)
+                   && viewModel.CancelSaveLearningCommand.CanExecute(null),
+                "学习开始后必须禁用重复开始，并启用完成和取消操作。");
+            InvokePrivate(viewModel, "CancelSaveLearning");
+            Ensure(viewModel.StartSaveLearningCommand.CanExecute(null)
+                   && !viewModel.CompleteSaveLearningCommand.CanExecute(null),
+                "取消学习后应清理基线并允许重新开始。");
+
             viewModel.SaveDirectory = primary;
             Ensure(wizard.TryMoveNext() && wizard.Step == 4, "选择存在的主目录后应进入预览确认。");
             viewModel.AdditionalSaveRootPath = additional;
@@ -217,6 +232,18 @@ internal static class AddGameWizardValidationVerification
             await (Task)(method.Invoke(viewModel, null)
                 ?? throw new InvalidOperationException($"方法未返回任务：{methodName}"));
         }
+        catch (TargetInvocationException exception) when (exception.InnerException is not null)
+        {
+            throw exception.InnerException;
+        }
+    }
+
+    private static void InvokePrivate(MainViewModel viewModel, string methodName)
+    {
+        MethodInfo method = typeof(MainViewModel).GetMethod(methodName,
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"未找到待验证方法：{methodName}");
+        try { method.Invoke(viewModel, null); }
         catch (TargetInvocationException exception) when (exception.InnerException is not null)
         {
             throw exception.InnerException;
