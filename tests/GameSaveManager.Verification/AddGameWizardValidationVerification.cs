@@ -333,7 +333,8 @@ internal static class AddGameWizardValidationVerification
         public AutoSnapshotProfile? LastProfile { get; private set; }
 
         public Task EnableAsync(string gameId, AutoSnapshotProfile profile,
-            Func<CancellationToken, Task> onDirtyGameExitedAsync, CancellationToken cancellationToken)
+            Func<CancellationToken, Task> onDirtyGameExitedAsync, CancellationToken cancellationToken,
+            Func<CancellationToken, Task>? onGameStartedAsync = null)
         {
             LastProfile = profile;
             _active.Add(gameId);

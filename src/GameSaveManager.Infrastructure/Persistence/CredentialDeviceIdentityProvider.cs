@@ -1,3 +1,5 @@
+using System.Runtime.Versioning;
+using System.Security;
 using GameSaveManager.Application.Device;
 using GameSaveManager.Application.Security;
 
@@ -7,9 +9,11 @@ namespace GameSaveManager.Infrastructure.Persistence;
 /// 把设备标识保存在 Windows Credential Manager，并从旧 SQLite 设置迁移。
 /// 因此清理 LocalAppData 后，同一 Windows 用户仍会被识别为原设备。
 /// </summary>
+[SupportedOSPlatform("windows")]
 public sealed class CredentialDeviceIdentityProvider(
     ICredentialStore credentialStore,
-    IDeviceIdentityProvider legacyProvider) : IDeviceIdentityProvider
+    IDeviceIdentityProvider legacyProvider,
+    IDeviceIdentityProvider? machineProvider = null) : IDeviceIdentityProvider
 {
     public async Task<string> GetOrCreateDeviceIdAsync(CancellationToken cancellationToken)
     {
@@ -17,7 +21,19 @@ public sealed class CredentialDeviceIdentityProvider(
             CredentialTargets.StableDeviceId, cancellationToken);
         if (IsValid(persisted)) return persisted!;
 
-        string deviceId = await legacyProvider.GetOrCreateDeviceIdAsync(cancellationToken);
+        string deviceId;
+        try
+        {
+            deviceId = await (machineProvider ?? new WindowsMachineDeviceIdentityProvider())
+                .GetOrCreateDeviceIdAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException
+                                                   or UnauthorizedAccessException
+                                                   or SecurityException
+                                                   or IOException)
+        {
+            deviceId = await legacyProvider.GetOrCreateDeviceIdAsync(cancellationToken);
+        }
         if (!IsValid(deviceId)) throw new InvalidOperationException("生成的设备标识不符合协议要求。");
         await credentialStore.SaveAsync(CredentialTargets.StableDeviceId, deviceId, cancellationToken);
         return deviceId;

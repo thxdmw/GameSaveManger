@@ -13,6 +13,11 @@ internal static class ProtocolContractVerification
         Ensure(GameSaveProtocolLimits.MaximumSnapshotListLimit == 200, "快照列表上限必须为 200。");
         Ensure(GameSaveProtocolLimits.RelativePathMaxLength == 1024, "相对路径上限必须为 1024。");
         Ensure(GameSaveProtocolLimits.DescriptionMaxLength == 500, "描述上限必须为 500。");
+        Ensure(GameSaveProtocolLimits.MaximumSnapshotRoots == 32, "快照根目录上限必须为 32。");
+        Ensure(GameSaveProtocolLimits.RootIdMaxLength == 64, "根目录 ID 上限必须为 64。");
+        Ensure(GameSaveProtocolLimits.PathTemplateMaxLength == 1024, "路径模板上限必须为 1024。");
+        Ensure(GameSaveProtocolLimits.MaximumPatternsPerRoot == 64, "单类扫描规则上限必须为 64。");
+        Ensure(GameSaveProtocolLimits.PatternMaxLength == 256, "扫描规则长度上限必须为 256。");
 
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         options.Converters.Add(new CmsDateTimeOffsetConverter());

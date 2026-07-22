@@ -51,7 +51,7 @@ internal static class SafeGlobMatcher
     public static string NormalizePattern(string pattern)
     {
         if (Path.IsPathRooted(pattern)) throw new InvalidOperationException("Glob 规则必须是相对路径。");
-        string normalized = pattern.Replace('\\', '/').TrimStart('!').TrimStart('/');
+        string normalized = pattern.Trim().Replace('\\', '/').TrimStart('!').TrimStart('/');
         if (normalized.Split('/').Any(segment => segment is "" or "." or "..")) throw new InvalidOperationException("Glob 规则不能包含空段、. 或 ..。");
         return normalized;
     }

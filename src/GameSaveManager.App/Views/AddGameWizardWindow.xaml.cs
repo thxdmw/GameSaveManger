@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
+using System.ComponentModel;
+using GameSaveManager.App.Common;
 using GameSaveManager.App.ViewModels;
 
 namespace GameSaveManager.App.Views;
@@ -14,11 +16,24 @@ public partial class AddGameWizardWindow : Window
         viewModel.BeginAddGameWizard();
         DataContext = viewModel.AddGameWizard;
         viewModel.GameCreated += ViewModel_OnGameCreated;
+        Closing += AddGameWizardWindow_OnClosing;
         Closed += (_, _) =>
         {
             viewModel.GameCreated -= ViewModel_OnGameCreated;
             viewModel.EndAddGameWizard(_completed);
         };
+    }
+
+    private void AddGameWizardWindow_OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (_completed || DataContext is not AddGameWizardViewModel wizard) return;
+        if (wizard.Host.CreateGameCommand is not AsyncCommand { IsExecuting: true }) return;
+        e.Cancel = true;
+        ThemedDialogWindow.ShowThemed(
+            this,
+            "正在创建游戏",
+            "创建请求正在确认服务端结果，暂时不能关闭窗口。完成后窗口会自动关闭；失败时可以修改后重试。",
+            "知道了");
     }
 
 
@@ -32,7 +47,12 @@ public partial class AddGameWizardWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "游戏启动入口 (*.exe;*.lnk)|*.exe;*.lnk", CheckFileExists = true };
         if (dialog.ShowDialog(this) != true || DataContext is not AddGameWizardViewModel wizard) return;
-        await wizard.Host.AddLocalGameFromExecutableAsync(dialog.FileName);
+        try { await wizard.Host.AddLocalGameFromExecutableAsync(dialog.FileName); }
+        catch (OperationCanceledException) { }
+        catch (Exception exception)
+        {
+            ThemedDialogWindow.ShowThemed(this, "选择本地游戏失败", exception.Message, "知道了");
+        }
     }
 
     private void ChooseSaveDirectoryButton_OnClick(object sender, RoutedEventArgs e)

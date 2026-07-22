@@ -29,6 +29,10 @@ public sealed record RestoreResult(
     string SnapshotId,
     string SaveDirectory,
     string? SafetyBackupDirectory);
+
+/// <summary>恢复失败后无法完整回滚；调用方必须保留待处理基线并阻止自动同步。</summary>
+public sealed class RestoreRollbackFailedException(string message, Exception innerException)
+    : IOException(message, innerException);
 public enum MultiRootRestoreState { Prepared, BuildingStaging, StagingBuilt, MovingOriginals, OriginalsMoved, ApplyingTargets, TargetsApplied, Verifying, Verified, Completed, RollingBack, RolledBack, Failed }
 public enum RestoreRootState { Prepared, StagingBuilding, StagingBuilt, MovingOriginal, OriginalMoved, ApplyingTarget, Applied, Verifying, Verified, RollingBack, RolledBack, Failed }
 public sealed record RestoreRootJournalItem(string RootId, string TargetDirectory, string StagingDirectory, string SafetyBackupDirectory, RestoreRootState State, bool OriginalExisted, bool OriginalMoved, bool TargetApplied);

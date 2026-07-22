@@ -14,8 +14,8 @@
   <Style x:Key="GameCardMenuSeparatorStyle" TargetType="Separator"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="1" Margin="8,4" Background="{DynamicResource Border}"/></ControlTemplate></Setter.Value></Setter></Style>
 </UserControl.Resources>
 <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="34,28,34,32"><TextBlock Foreground="{DynamicResource Text}" FontSize="30" FontWeight="Bold" Text="游戏库"/><TextBlock Margin="0,8,0,24" Foreground="{DynamicResource Muted}" Text="添加和管理需要保护的游戏。通过卡片右下角菜单管理存档或删除游戏。"/>
-<Border Padding="24" Style="{StaticResource PanelStyle}"><StackPanel><TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="添加游戏"/><TextBlock Margin="0,8,0,16" Foreground="{DynamicResource Muted}" Text="使用统一向导导入平台游戏、选择本地启动入口，或手动创建游戏。"/><Button Width="140" Height="40" HorizontalAlignment="Left" Style="{StaticResource Primary}" Click="OpenAddGameWizardButton_OnClick" Content="＋ 添加游戏"/></StackPanel></Border>
-<TextBlock Margin="0,26,0,14" Foreground="{DynamicResource Text}" FontSize="20" FontWeight="SemiBold" Text="已添加的游戏"/>
+<Border Padding="24" Style="{StaticResource PanelStyle}"><StackPanel><TextBlock Foreground="{DynamicResource Text}" FontSize="18" FontWeight="SemiBold" Text="添加游戏"/><TextBlock Margin="0,8,0,16" Foreground="{DynamicResource Muted}" Text="使用统一向导导入平台游戏、选择本地启动入口，或手动创建游戏。"/><Button Width="140" Height="40" HorizontalAlignment="Left" Style="{StaticResource Primary}" IsEnabled="{Binding IsAuthenticated}" Click="OpenAddGameWizardButton_OnClick" Content="＋ 添加游戏"/></StackPanel></Border>
+<DockPanel Margin="0,26,0,14"><TextBlock VerticalAlignment="Center" Foreground="{DynamicResource Text}" FontSize="20" FontWeight="SemiBold" Text="已添加的游戏"/><Button DockPanel.Dock="Right" Style="{StaticResource ButtonStyle}" Command="{Binding ReloadGamesCommand}" Content="刷新游戏库"/></DockPanel>
 <ItemsControl MinHeight="230" ItemsSource="{Binding FilteredGames}">
   <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
   <ItemsControl.ItemTemplate><DataTemplate>

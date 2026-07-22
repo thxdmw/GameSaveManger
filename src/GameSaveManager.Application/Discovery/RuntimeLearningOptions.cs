@@ -5,6 +5,8 @@ public sealed record RuntimeLearningOptions(
     int MaxDepth = 6,
     int MaxFilesPerRoot = 100000,
     long MaxTotalFiles = 300000,
+    int MaxCandidateDirectories = 32,
+    int MaxScanSeconds = 60,
     IReadOnlyList<string>? ExcludedDirectoryNames = null)
 {
     public IReadOnlyList<string> EffectiveExcludedDirectoryNames => ExcludedDirectoryNames ??

@@ -48,6 +48,35 @@ internal static class GameSelectionConsistencyVerification
         Ensure(string.IsNullOrEmpty(viewModel.RegistrySaveKeyPath), "切换游戏后必须清空注册表路径输入框。");
         Ensure(viewModel.FileCount == 0 && viewModel.LogicalSizeText == "0 B",
             "切换游戏后必须清空上一游戏的预览统计。");
+
+        Ensure(!viewModel.SelectGameCommand.CanExecute(first),
+            "已经不在当前账号游戏库中的旧对象不得重新成为选择目标。");
+        Ensure(viewModel.SelectGameCommand.CanExecute(second),
+            "当前账号游戏库中的有效对象应允许选择。");
+
+        viewModel.NewGameName = "未提交草稿";
+        viewModel.AdditionalSaveRootPath = @"D:\Draft";
+        viewModel.RegistrySaveKeyPath = @"HKEY_CURRENT_USER\Software\Draft";
+        viewModel.AutoSnapshotProcessName = "draft.exe";
+        InvokePrivate(viewModel, "ClearAuthenticatedUiState");
+        Ensure(viewModel.Games.Count == 0 && viewModel.SelectedGame is null,
+            "退出账号后必须同时清空游戏列表和当前选择。");
+        Ensure(string.IsNullOrEmpty(viewModel.NewGameName)
+               && string.IsNullOrEmpty(viewModel.SaveDirectory)
+               && string.IsNullOrEmpty(viewModel.AdditionalSaveRootPath)
+               && string.IsNullOrEmpty(viewModel.RegistrySaveKeyPath)
+               && string.IsNullOrEmpty(viewModel.AutoSnapshotProcessName)
+               && viewModel.SaveLocationCandidates.Count == 0,
+            "退出账号后必须清空游戏草稿、路径输入和候选缓存，不能带入下一个账号。");
+        Ensure(!viewModel.SelectGameCommand.CanExecute(second),
+            "退出账号后必须拒绝旧账号残留列表项触发选择。");
+        Ensure(viewModel.LoginCommand.CanExecute(null) && viewModel.RegisterCommand.CanExecute(null),
+            "退出账号后应恢复登录和注册入口。");
+        typeof(MainViewModel).GetField("_authenticationInProgress",
+                BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(viewModel, 1);
+        Ensure(!viewModel.LoginCommand.CanExecute(null) && !viewModel.RegisterCommand.CanExecute(null),
+            "登录或注册进行期间必须同时禁用两个入口，防止交叉连点切换会话。");
     }
 
     private static object? InvokePrivate(MainViewModel viewModel, string methodName, params object[] arguments)

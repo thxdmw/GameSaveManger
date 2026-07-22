@@ -17,6 +17,8 @@ public partial class MainWindow : Window
     private readonly Forms.NotifyIcon _trayIcon;
     private MainViewModel? _subscribedViewModel;
     private bool _allowClose;
+    private bool _shutdownInProgress;
+    private int _notificationGeneration;
 
     public MainWindow()
     {
@@ -31,18 +33,17 @@ public partial class MainWindow : Window
         };
         _trayIcon.ContextMenuStrip = CreateTrayMenu();
         _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
-        Closed += (_, _) => _trayIcon.Dispose();
+        Closed += (_, _) =>
+        {
+            Interlocked.Increment(ref _notificationGeneration);
+            _trayIcon.Dispose();
+        };
     }
     private Forms.ContextMenuStrip CreateTrayMenu()
     {
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("打开 GameSave Manager", null, (_, _) => RestoreFromTray());
-        menu.Items.Add("退出", null, (_, _) =>
-        {
-            _allowClose = true;
-            _trayIcon.Visible = false;
-            Close();
-        });
+        menu.Items.Add("退出", null, async (_, _) => await CompleteShutdownAndCloseAsync());
         return menu;
     }
 
@@ -72,10 +73,11 @@ public partial class MainWindow : Window
 
     private void OpenAddGameWizardButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (DataContext is MainViewModel viewModel) new Views.AddGameWizardWindow(viewModel) { Owner = this }.ShowDialog();
+        if (DataContext is MainViewModel { IsAuthenticated: true } viewModel)
+            new Views.AddGameWizardWindow(viewModel) { Owner = this }.ShowDialog();
     }
 
-    private void MainWindow_OnClosing(object? sender, CancelEventArgs e)
+    private async void MainWindow_OnClosing(object? sender, CancelEventArgs e)
     {
         if (_allowClose) return;
         Views.ThemedDialogResult choice = Views.ThemedDialogWindow.ShowThemed(
@@ -96,8 +98,43 @@ public partial class MainWindow : Window
         }
         else
         {
+            e.Cancel = true;
+            await CompleteShutdownAndCloseAsync();
+        }
+    }
+
+    private async Task<bool> CompleteShutdownAndCloseAsync()
+    {
+        if (_shutdownInProgress) return false;
+        _shutdownInProgress = true;
+        IsEnabled = false;
+        try
+        {
+            if (DataContext is MainViewModel viewModel)
+                await viewModel.PrepareForShutdownAsync();
             _allowClose = true;
             _trayIcon.Visible = false;
+            Close();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            if (DataContext is MainViewModel viewModel)
+                await viewModel.ResumeAfterCancelledShutdownAsync();
+            Views.ThemedDialogWindow.ShowThemed(
+                this,
+                "退出前清理失败",
+                $"无法安全停止正在进行的存档任务：{exception.Message}。客户端将继续运行，请稍后重试。",
+                "知道了");
+            return false;
+        }
+        finally
+        {
+            if (!_allowClose)
+            {
+                IsEnabled = true;
+                _shutdownInProgress = false;
+            }
         }
     }
 
@@ -124,6 +161,7 @@ public partial class MainWindow : Window
             _subscribedViewModel.SyncConflictDetected -= ViewModel_OnSyncConflictDetected;
             _subscribedViewModel.UpdateInstallationRequested -= ViewModel_OnUpdateInstallationRequested;
             _subscribedViewModel.WindowsNotificationRequested -= ViewModel_OnWindowsNotificationRequested;
+            _subscribedViewModel.UserConfirmationRequested -= ViewModel_OnUserConfirmationRequested;
         }
         _subscribedViewModel = e.NewValue as MainViewModel;
         if (_subscribedViewModel is not null)
@@ -132,27 +170,74 @@ public partial class MainWindow : Window
             _subscribedViewModel.SyncConflictDetected += ViewModel_OnSyncConflictDetected;
             _subscribedViewModel.UpdateInstallationRequested += ViewModel_OnUpdateInstallationRequested;
             _subscribedViewModel.WindowsNotificationRequested += ViewModel_OnWindowsNotificationRequested;
+            _subscribedViewModel.UserConfirmationRequested += ViewModel_OnUserConfirmationRequested;
         }
+    }
+
+    private void ViewModel_OnUserConfirmationRequested(object? sender, UserConfirmationEventArgs e)
+    {
+        e.Confirmed = Views.ThemedDialogWindow.ShowThemed(
+            this,
+            e.Title,
+            e.Message,
+            e.ConfirmText,
+            "取消") == Views.ThemedDialogResult.Primary;
     }
 
     private void ViewModel_OnWindowsNotificationRequested(object? sender, WindowsNotificationEventArgs e)
     {
         void ShowNotification()
         {
-            _trayIcon.Visible = true;
-            Forms.ToolTipIcon icon = e.Kind switch
+            try
             {
-                WindowsNotificationKind.Error => Forms.ToolTipIcon.Error,
-                WindowsNotificationKind.Warning => Forms.ToolTipIcon.Warning,
-                _ => Forms.ToolTipIcon.Info
-            };
-            _trayIcon.ShowBalloonTip(5000, e.Title, e.Message, icon);
+                bool keepVisible = !IsVisible || _trayIcon.Visible;
+                int generation = Interlocked.Increment(ref _notificationGeneration);
+                _trayIcon.Visible = true;
+                Forms.ToolTipIcon icon = e.Kind switch
+                {
+                    WindowsNotificationKind.Error => Forms.ToolTipIcon.Error,
+                    WindowsNotificationKind.Warning => Forms.ToolTipIcon.Warning,
+                    _ => Forms.ToolTipIcon.Info
+                };
+                _trayIcon.ShowBalloonTip(
+                    5000,
+                    TruncateNotificationText(e.Title, 63),
+                    TruncateNotificationText(e.Message, 255),
+                    icon);
+                if (!keepVisible) _ = HideTransientTrayIconAsync(generation);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException
+                                                       or ArgumentException)
+            {
+                System.Diagnostics.Trace.TraceWarning($"Windows 通知显示失败：{exception.GetType().Name}");
+            }
         }
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
         if (Dispatcher.CheckAccess()) ShowNotification();
-        else Dispatcher.Invoke(ShowNotification);
+        else _ = Dispatcher.InvokeAsync(ShowNotification);
     }
 
-    private void ViewModel_OnUpdateInstallationRequested(object? sender, EventArgs e)
+    private async Task HideTransientTrayIconAsync(int generation)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(6));
+            if (generation == Volatile.Read(ref _notificationGeneration)
+                && !_allowClose && IsVisible && WindowState != WindowState.Minimized)
+                _trayIcon.Visible = false;
+        }
+        catch (ObjectDisposedException) { }
+    }
+
+    private static string TruncateNotificationText(string? value, int maximumLength)
+    {
+        string normalized = string.IsNullOrWhiteSpace(value) ? "GameSave Manager" : value.Trim();
+        return normalized.Length <= maximumLength
+            ? normalized
+            : normalized[..(maximumLength - 1)] + "…";
+    }
+
+    private async void ViewModel_OnUpdateInstallationRequested(object? sender, EventArgs e)
     {
         if (sender is not MainViewModel viewModel) return;
         Views.ThemedDialogResult choice = Views.ThemedDialogWindow.ShowThemed(
@@ -162,15 +247,48 @@ public partial class MainWindow : Window
             "退出并安装",
             null,
             "取消");
-        if (choice != Views.ThemedDialogResult.Primary || !viewModel.TryLaunchPreparedUpdate()) return;
-        _allowClose = true;
-        _trayIcon.Visible = false;
-        Close();
+        if (choice != Views.ThemedDialogResult.Primary || _shutdownInProgress) return;
+        _shutdownInProgress = true;
+        IsEnabled = false;
+        try
+        {
+            if (!await viewModel.PrepareForShutdownAsync())
+            {
+                await viewModel.ResumeAfterCancelledShutdownAsync();
+                return;
+            }
+            if (!viewModel.TryLaunchPreparedUpdate())
+            {
+                await viewModel.ResumeAfterCancelledShutdownAsync();
+                return;
+            }
+            _allowClose = true;
+            _trayIcon.Visible = false;
+            Close();
+        }
+        catch (Exception exception)
+        {
+            await viewModel.ResumeAfterCancelledShutdownAsync();
+            Views.ThemedDialogWindow.ShowThemed(
+                this,
+                "安装更新失败",
+                $"无法安全停止客户端并启动更新：{exception.Message}",
+                "知道了");
+        }
+        finally
+        {
+            if (!_allowClose)
+            {
+                IsEnabled = true;
+                _shutdownInProgress = false;
+            }
+        }
     }
 
-    private void ViewModel_OnSyncConflictDetected(object? sender, EventArgs e)
+    private void ViewModel_OnSyncConflictDetected(object? sender, SyncConflictEventArgs e)
     {
-        if (sender is MainViewModel viewModel)
+        if (sender is MainViewModel viewModel
+            && string.Equals(viewModel.SelectedGame?.GameId, e.GameId, StringComparison.Ordinal))
             new Views.ConflictResolutionDialog(viewModel) { Owner = this }.ShowDialog();
     }
 

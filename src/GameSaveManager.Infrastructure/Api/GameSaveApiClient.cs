@@ -11,6 +11,7 @@ namespace GameSaveManager.Infrastructure.Api;
 /// <summary>基于 HttpClient 的 GameSave 服务端 API 实现。</summary>
 public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClient
 {
+    private const long MaximumJsonResponseBytes = 32L * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
     private static JsonSerializerOptions CreateJsonOptions()
@@ -70,7 +71,9 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
     {
         using HttpRequestMessage request = CreateRequest(
             HttpMethod.Get, server, "api/game-save/v1/games", deviceToken);
-        return await SendForDataAsync<List<CloudGame>>(request, cancellationToken);
+        List<CloudGame> games = await SendForDataAsync<List<CloudGame>>(request, cancellationToken);
+        CloudApiResponseValidator.ValidateGames(games);
+        return games;
     }
 
     public async Task<CloudRetentionPolicy> GetRetentionPolicyAsync(
@@ -81,10 +84,12 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
     {
         string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/retention";
         using HttpRequestMessage request = CreateRequest(HttpMethod.Get, server, path, deviceToken);
-        return await SendForDataAsync<CloudRetentionPolicy>(request, cancellationToken);
+        CloudRetentionPolicy policy = await SendForDataAsync<CloudRetentionPolicy>(request, cancellationToken);
+        CloudApiResponseValidator.ValidateRetentionPolicy(policy, gameId);
+        return policy;
     }
 
-    public Task<CloudRetentionPolicy> UpdateRetentionPolicyAsync(
+    public async Task<CloudRetentionPolicy> UpdateRetentionPolicyAsync(
         Uri server,
         string deviceToken,
         string gameId,
@@ -94,23 +99,27 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         CancellationToken cancellationToken)
     {
         string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/retention";
-        return PutJsonAsync<CloudRetentionPolicy>(server, path, deviceToken, new
+        CloudRetentionPolicy policy = await PutJsonAsync<CloudRetentionPolicy>(server, path, deviceToken, new
         {
             enabled,
             retentionCount,
             retentionDays
         }, cancellationToken);
+        CloudApiResponseValidator.ValidateRetentionPolicy(policy, gameId);
+        return policy;
     }
 
-    public Task<CloudRetentionCleanupResult> CleanupRetentionAsync(
+    public async Task<CloudRetentionCleanupResult> CleanupRetentionAsync(
         Uri server,
         string deviceToken,
         string gameId,
         CancellationToken cancellationToken)
     {
         string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/retention/cleanup";
-        return PostJsonAsync<CloudRetentionCleanupResult>(
+        CloudRetentionCleanupResult result = await PostJsonAsync<CloudRetentionCleanupResult>(
             server, path, deviceToken, new { }, cancellationToken);
+        CloudApiResponseValidator.ValidateRetentionCleanup(result, gameId);
+        return result;
     }
     public async Task<CloudQuota> GetQuotaAsync(
         Uri server,
@@ -119,7 +128,9 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
     {
         using HttpRequestMessage request = CreateRequest(
             HttpMethod.Get, server, "api/game-save/v1/account/quota", deviceToken);
-        return await SendForDataAsync<CloudQuota>(request, cancellationToken);
+        CloudQuota quota = await SendForDataAsync<CloudQuota>(request, cancellationToken);
+        CloudApiResponseValidator.ValidateQuota(quota);
+        return quota;
     }
     public async Task<IReadOnlyList<CloudDevice>> ListDevicesAsync(
         Uri server,
@@ -128,7 +139,9 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
     {
         using HttpRequestMessage request = CreateRequest(
             HttpMethod.Get, server, "api/game-save/v1/devices", deviceToken);
-        return await SendForDataAsync<List<CloudDevice>>(request, cancellationToken);
+        List<CloudDevice> devices = await SendForDataAsync<List<CloudDevice>>(request, cancellationToken);
+        CloudApiResponseValidator.ValidateDevices(devices);
+        return devices;
     }
 
     public async Task RevokeDeviceAsync(
@@ -141,19 +154,23 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         using HttpRequestMessage request = CreateRequest(HttpMethod.Delete, server, path, deviceToken);
         await SendForSuccessAsync(request, cancellationToken);
     }
-    public Task<CloudGame> CreateGameAsync(
+    public async Task<CloudGame> CreateGameAsync(
         Uri server,
         string deviceToken,
         string name,
         string provider,
         string? providerGameId,
-        CancellationToken cancellationToken) =>
-        PostJsonAsync<CloudGame>(server, "api/game-save/v1/games", deviceToken, new
+        CancellationToken cancellationToken)
+    {
+        CloudGame game = await PostJsonAsync<CloudGame>(server, "api/game-save/v1/games", deviceToken, new
         {
             name,
             provider,
             providerGameId
         }, cancellationToken);
+        CloudApiResponseValidator.ValidateCreatedGame(game, name, provider);
+        return game;
+    }
 
     public async Task DeleteGameAsync(
         Uri server,
@@ -187,7 +204,9 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         int safeLimit = Math.Clamp(limit, 1, 200);
         string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/snapshots?limit={safeLimit}";
         using HttpRequestMessage request = CreateRequest(HttpMethod.Get, server, path, deviceToken);
-        return await SendForDataAsync<List<CloudSnapshotSummary>>(request, cancellationToken);
+        List<CloudSnapshotSummary> snapshots = await SendForDataAsync<List<CloudSnapshotSummary>>(request, cancellationToken);
+        CloudApiResponseValidator.ValidateSnapshots(snapshots, safeLimit);
+        return snapshots;
     }
 
     public async Task DeleteSnapshotAsync(
@@ -227,9 +246,11 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             filePath,
             FileMode.Open,
             FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete,
+            FileShare.Read,
             bufferSize: 1024 * 1024,
             options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+        if (stream.Length != descriptor.Size)
+            throw new IOException($"待上传文件在扫描后发生变化：{Path.GetFileName(filePath)}");
         using var multipart = new MultipartFormDataContent();
         using var fileContent = new StreamContent(stream, 1024 * 1024);
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
@@ -240,7 +261,11 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         using HttpRequestMessage request = CreateRequest(
             HttpMethod.Post, server, "api/game-save/v1/objects", deviceToken);
         request.Content = multipart;
-        await SendForDataAsync<GameObjectResponse>(request, cancellationToken);
+        GameObjectResponse uploaded = await SendForDataAsync<GameObjectResponse>(request, cancellationToken);
+        if (string.IsNullOrWhiteSpace(uploaded.ObjectId)
+            || uploaded.Size != descriptor.Size
+            || !string.Equals(uploaded.Sha256, descriptor.Sha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("服务端返回的上传对象描述与本机内容不一致，已停止提交快照。");
     }
 
     public Task<CloudSnapshotResult> CommitSnapshotAsync(
@@ -279,7 +304,9 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
     {
         string path = $"api/game-save/v1/games/{Uri.EscapeDataString(gameId)}/snapshots/{Uri.EscapeDataString(snapshotId)}";
         using HttpRequestMessage request = CreateRequest(HttpMethod.Get, server, path, deviceToken);
-        return await SendForDataAsync<CloudSnapshotManifest>(request, cancellationToken);
+        CloudSnapshotManifest manifest = await SendForDataAsync<CloudSnapshotManifest>(request, cancellationToken);
+        CloudApiResponseValidator.ValidateManifest(manifest, gameId, snapshotId);
+        return manifest;
     }
 
     public async Task DownloadObjectAsync(
@@ -287,8 +314,10 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         string deviceToken,
         string objectId,
         string destinationPath,
+        long expectedSize,
         CancellationToken cancellationToken)
     {
+        if (expectedSize < 0) throw new ArgumentOutOfRangeException(nameof(expectedSize));
         string path = $"api/game-save/v1/objects/{Uri.EscapeDataString(objectId)}/download-url";
         using HttpRequestMessage authorizationRequest = CreateRequest(HttpMethod.Get, server, path, deviceToken);
         string downloadUrl = await SendForDataAsync<string>(authorizationRequest, cancellationToken);
@@ -296,6 +325,9 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
         {
             throw new InvalidDataException("服务端返回的对象下载地址不合法");
         }
+        if (!string.Equals(downloadUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            && !(downloadUri.IsLoopback && string.Equals(downloadUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException("对象下载地址必须使用 HTTPS；仅本机回环开发地址允许 HTTP。");
 
         // 预签名地址已携带访问授权；禁止把设备 Token 转发给对象存储服务。
         using HttpRequestMessage request = new(HttpMethod.Get, downloadUri);
@@ -310,6 +342,8 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
                 "OBJECT_DOWNLOAD_FAILED",
                 $"对象下载请求失败: {(int)response.StatusCode}", GetRetryDelay(response), GetRequestId(response));
         }
+        if (response.Content.Headers.ContentLength is long contentLength && contentLength > expectedSize)
+            throw new InvalidDataException($"对象下载响应超过预期大小：{contentLength} > {expectedSize}");
 
         string? parent = Path.GetDirectoryName(destinationPath);
         if (string.IsNullOrWhiteSpace(parent))
@@ -325,7 +359,19 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             FileShare.None,
             bufferSize: 1024 * 1024,
             options: FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await input.CopyToAsync(output, 1024 * 1024, cancellationToken);
+        byte[] buffer = new byte[1024 * 1024];
+        long total = 0;
+        while (true)
+        {
+            int read = await input.ReadAsync(buffer, cancellationToken);
+            if (read == 0) break;
+            total = checked(total + read);
+            if (total > expectedSize)
+                throw new InvalidDataException($"对象下载内容超过预期大小：{total} > {expectedSize}");
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+        }
+        if (total != expectedSize)
+            throw new InvalidDataException($"对象下载大小不完整：{total} != {expectedSize}");
         await output.FlushAsync(cancellationToken);
     }
 
@@ -365,10 +411,8 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             cancellationToken);
         if (response.IsSuccessStatusCode) return;
 
-        string json = await response.Content.ReadAsStringAsync(cancellationToken);
-        ApiEnvelope<object>? envelope = string.IsNullOrWhiteSpace(json)
-            ? null
-            : JsonSerializer.Deserialize<ApiEnvelope<object>>(json, JsonOptions);
+        string json = await ReadBoundedJsonAsync(response.Content, cancellationToken);
+        ApiEnvelope<object>? envelope = DeserializeEnvelope<object>(json);
         throw new GameSaveApiException(
             (int)response.StatusCode,
             envelope?.Code ?? "HTTP_ERROR",
@@ -383,10 +427,8 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             request,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
-        string json = await response.Content.ReadAsStringAsync(cancellationToken);
-        ApiEnvelope<T>? envelope = string.IsNullOrWhiteSpace(json)
-            ? null
-            : JsonSerializer.Deserialize<ApiEnvelope<T>>(json, JsonOptions);
+        string json = await ReadBoundedJsonAsync(response.Content, cancellationToken);
+        ApiEnvelope<T>? envelope = DeserializeEnvelope<T>(json);
         if (!response.IsSuccessStatusCode)
         {
             throw new GameSaveApiException(
@@ -399,6 +441,35 @@ public sealed class GameSaveApiClient(HttpClient httpClient) : IGameSaveApiClien
             throw new InvalidDataException("GameSave API 成功响应缺少 data 字段");
         }
         return envelope.Data;
+    }
+
+    private static async Task<string> ReadBoundedJsonAsync(
+        HttpContent content,
+        CancellationToken cancellationToken)
+    {
+        if (content.Headers.ContentLength is long contentLength
+            && contentLength > MaximumJsonResponseBytes)
+            throw new InvalidDataException("GameSave API 响应超过客户端允许的大小上限。");
+        try
+        {
+            await content.LoadIntoBufferAsync(MaximumJsonResponseBytes, cancellationToken);
+            return await content.ReadAsStringAsync(cancellationToken);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new InvalidDataException("GameSave API 响应超过客户端允许的大小或无法完整读取。", exception);
+        }
+    }
+
+    private static ApiEnvelope<T>? DeserializeEnvelope<T>(string json)
+        where T : class
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<ApiEnvelope<T>>(json, JsonOptions); }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("GameSave API 返回了无法识别的 JSON 数据。", exception);
+        }
     }
 
     private static TimeSpan? GetRetryDelay(HttpResponseMessage response)

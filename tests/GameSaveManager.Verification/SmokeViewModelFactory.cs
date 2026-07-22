@@ -71,6 +71,8 @@ internal static class SmokeViewModelFactory
             new SqliteUpdatePreferenceStore(database));
         typeof(MainViewModel).GetField("_authenticatedUserId", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .SetValue(viewModel, "smoke-user");
+        typeof(MainViewModel).GetField("_isAuthenticated", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(viewModel, true);
         return viewModel;
     }
 

@@ -71,6 +71,18 @@ Run("Windows 存档路径模板可跨用户目录往返解析", () =>
     string? resolved = service.Resolve(template);
     Check(template.StartsWith("%DOCUMENTS%", StringComparison.OrdinalIgnoreCase), "文档目录应转换为可移植模板");
     Check(string.Equals(Path.GetFullPath(source), resolved, StringComparison.OrdinalIgnoreCase), "路径模板往返解析失败");
+    Check(service.Resolve("%LOCALAPPDATA%\\..\\Windows") is null, "路径模板不应允许越过令牌根目录");
+    Check(service.Resolve("%LOCALAPPDATA%伪后缀") is null, "路径模板令牌后必须是目录分隔符");
+
+    string driveRoot = Path.GetPathRoot(Path.GetTempPath())!;
+    string encodedRoot = service.Encode(driveRoot);
+    string? resolvedRoot = service.Resolve(encodedRoot);
+    Check(
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(driveRoot)),
+            resolvedRoot is null ? null : Path.TrimEndingDirectorySeparator(resolvedRoot),
+            StringComparison.OrdinalIgnoreCase),
+        "盘符根目录不应在编码时退化为盘符相对路径");
 });
 Run("客户端与服务端协议限制和 JSON 样例保持一致", GameSaveManager.Verification.ProtocolContractVerification.Verify);
 Run("新增游戏来源切换不会复用上一款游戏配置", GameSaveManager.Verification.AddGameWizardStateVerification.VerifySelectionIsolationAndSaveNavigation);
@@ -79,6 +91,13 @@ await RunAsync("注册表规则会在确认前执行真实可读性预览", Game
 Run("游戏详情同步摘要与进度按游戏隔离", GameSaveManager.Verification.GameDetailSyncStateVerification.VerifyPerGameSyncStateIsolation);
 Run("删除目标与切换游戏临时状态严格隔离", GameSaveManager.Verification.GameSelectionConsistencyVerification.VerifyDeleteTargetAndTransientStateIsolation);
 await RunAsync("客户端更新会验证签名清单、摘要链和 Windows 发布者", GameSaveManager.Verification.ClientUpdateVerification.VerifyAsync);
+await RunAsync("破坏性同步会阻断且提交歧义可安全核对", GameSaveManager.Verification.DataSafetyRegressionVerification.VerifyDestructiveSyncAndAmbiguousCommitAsync);
+await RunAsync("历史快照按声明根目录精确恢复且保留安全备份", GameSaveManager.Verification.DataSafetyRegressionVerification.VerifyExactHistoricalRestoreAsync);
+await RunAsync("正式备份不会让元数据 Hash 缓存覆盖文件真实内容", GameSaveManager.Verification.DataSafetyRegressionVerification.VerifyHashCacheCannotOverrideFileContentAsync);
+await RunAsync("删除本地数据后同一电脑仍保持稳定设备身份", GameSaveManager.Verification.DataSafetyRegressionVerification.VerifyStablePhysicalDeviceIdentityAsync);
+await RunAsync("账号切换后拒绝旧会话延迟写入新缓存", GameSaveManager.Verification.DataSafetyRegressionVerification.VerifyLateOldSessionWriteIsRejectedAsync);
+Run("运行游戏学习保留具体存档子目录并降低游戏根目录优先级", GameSaveManager.Verification.DataSafetyRegressionVerification.VerifyRuntimeLearningKeepsSpecificSaveDirectory);
+Run("云端列表、策略与配额响应会校验身份和字段一致性", GameSaveManager.Verification.CloudApiResponseValidationVerification.Verify);
 Run("Desktop UI starts without WPF binding errors", GameSaveManager.Verification.WpfSmokeVerification.VerifyMainWindowLoadsWithoutBindingErrors);
 
 if (failures.Count > 0)
@@ -136,6 +155,18 @@ async Task VerifyLocalGameProfileAsync()
         LocalGameProfile? serverB = await store.GetAsync("server-a", "user-b", "same-game", CancellationToken.None);
         Check(serverA is { Provider: "LOCAL", SaveDirectory: "D:\\Saves\\A", ProcessName: "game-a.exe", ExecutablePath: "D:\\Games\\A\\game-a.exe", UserConfirmed: true, AutoSnapshotEnabled: true } && serverA.EffectiveSaveRoots.Count == 2 && serverA.EffectiveSaveRoots[1].RootId == "root2", "server-a local profile read failed");
         Check(serverB is { Provider: "STEAM", ProviderGameId: "123", SaveDirectory: "E:\\Saves\\B", ProcessName: "game-b.exe", ExecutablePath: null, UserConfirmed: true, AutoSnapshotEnabled: false }, "server-b local profile read failed");
+
+        await using (SqliteConnection connection = database.CreateConnection())
+        {
+            await connection.OpenAsync();
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = "UPDATE local_game_profile SET save_roots_json = '[null]' WHERE server_key = 'server-a' AND account_id = 'user-a' AND game_id = 'same-game';";
+            await command.ExecuteNonQueryAsync();
+        }
+        bool corruptedProfileRejected = false;
+        try { await store.GetAsync("server-a", "user-a", "same-game", CancellationToken.None); }
+        catch (InvalidDataException) { corruptedProfileRejected = true; }
+        Check(corruptedProfileRejected, "包含空根目录的损坏配置必须停止加载，不能继续错绑或漏备份");
     }
     finally
     {

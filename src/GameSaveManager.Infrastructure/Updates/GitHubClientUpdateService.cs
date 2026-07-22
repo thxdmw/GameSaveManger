@@ -22,6 +22,7 @@ public sealed class GitHubClientUpdateService : IClientUpdateService
     private const long MaximumInstallerBytes = 1024L * 1024 * 1024;
     private readonly HttpClient _httpClient;
     private readonly string _downloadRoot;
+    private readonly string _downloadBoundaryRoot;
     private readonly IAuthenticodeVerifier _authenticodeVerifier;
     private readonly string[] _manifestPublicKeys;
 
@@ -33,6 +34,9 @@ public sealed class GitHubClientUpdateService : IClientUpdateService
     {
         _httpClient = httpClient;
         _downloadRoot = Path.GetFullPath(downloadRoot ?? AppDataPaths.UpdateDirectory);
+        _downloadBoundaryRoot = Path.GetFullPath(downloadRoot is null
+            ? AppDataPaths.RootDirectory
+            : _downloadRoot);
         _authenticodeVerifier = authenticodeVerifier ?? new WindowsAuthenticodeVerifier();
         _manifestPublicKeys = manifestPublicKeyPem is null
             ? LoadEmbeddedPublicKeys()
@@ -87,8 +91,11 @@ public sealed class GitHubClientUpdateService : IClientUpdateService
             throw new InvalidDataException("签名清单、GitHub 资产摘要与 SHA256SUMS.txt 不一致，已阻止下载。");
 
         string versionDirectory = GetSafeVersionDirectory(release.Version);
+        EnsureNoReparsePointTraversal(versionDirectory);
         Directory.CreateDirectory(versionDirectory);
+        EnsureNoReparsePointTraversal(versionDirectory);
         string installerPath = Path.Combine(versionDirectory, release.Installer.Name);
+        EnsureNoReparsePointTraversal(installerPath);
         if (File.Exists(installerPath)
             && string.Equals(await ComputeSha256Async(installerPath, cancellationToken), expectedInstallerHash, StringComparison.OrdinalIgnoreCase))
         {
@@ -98,10 +105,12 @@ public sealed class GitHubClientUpdateService : IClientUpdateService
         }
 
         string temporaryPath = installerPath + ".download";
+        EnsureNoReparsePointTraversal(temporaryPath);
         try
         {
             if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
             await DownloadInstallerAsync(release.Installer, temporaryPath, progress, cancellationToken);
+            EnsureNoReparsePointTraversal(temporaryPath);
             string actualHash = await ComputeSha256Async(temporaryPath, cancellationToken);
             if (!string.Equals(actualHash, expectedInstallerHash, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("下载的安装包 SHA-256 校验失败，文件已删除。");
@@ -111,7 +120,7 @@ public sealed class GitHubClientUpdateService : IClientUpdateService
         }
         catch
         {
-            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            TryDeleteTemporary(temporaryPath);
             throw;
         }
     }
@@ -120,6 +129,7 @@ public sealed class GitHubClientUpdateService : IClientUpdateService
     {
         string installerPath = Path.GetFullPath(update.InstallerPath);
         EnsureWithinDownloadRoot(installerPath);
+        EnsureNoReparsePointTraversal(installerPath);
         if (!File.Exists(installerPath)) throw new InvalidOperationException("待安装更新文件不存在。");
         using FileStream stream = File.OpenRead(installerPath);
         string actualHash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
@@ -433,6 +443,28 @@ public sealed class GitHubClientUpdateService : IClientUpdateService
             throw new InvalidDataException("更新目录越界。");
     }
 
+    private void EnsureNoReparsePointTraversal(string path)
+    {
+        string boundary = Path.TrimEndingDirectorySeparator(_downloadBoundaryRoot);
+        string target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        string relative = Path.GetRelativePath(boundary, target);
+        if (Path.IsPathRooted(relative)
+            || relative.Equals("..", StringComparison.Ordinal)
+            || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new InvalidDataException("更新目录越过受控应用数据边界。");
+
+        string current = boundary;
+        foreach (string segment in relative.Split(
+                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                     StringSplitOptions.RemoveEmptyEntries).Prepend(string.Empty))
+        {
+            if (segment.Length > 0) current = Path.Combine(current, segment);
+            if ((Directory.Exists(current) || File.Exists(current))
+                && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("更新目录包含重解析点，已停止下载或启动安装包。");
+        }
+    }
+
     private static HttpRequestMessage CreateRequest(Uri uri)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, uri);
@@ -453,6 +485,12 @@ public sealed class GitHubClientUpdateService : IClientUpdateService
             FileOptions.Asynchronous | FileOptions.SequentialScan);
         byte[] hash = await SHA256.HashDataAsync(stream, cancellationToken);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static void TryDeleteTemporary(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
     }
 
     private static string ParseInstallerChecksum(string content, string installerName)

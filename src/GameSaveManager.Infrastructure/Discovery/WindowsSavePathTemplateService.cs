@@ -16,7 +16,7 @@ public sealed class WindowsSavePathTemplateService : ISavePathTemplateService
 
     public string Encode(string path)
     {
-        string fullPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         foreach ((string token, Func<string> resolver) in Tokens
                      .Select(item => (item.Token, item.Resolve, Value: Normalize(item.Resolve())))
                      .Where(item => item.Value.Length > 0)
@@ -34,17 +34,42 @@ public sealed class WindowsSavePathTemplateService : ISavePathTemplateService
     public string? Resolve(string pathTemplate)
     {
         if (string.IsNullOrWhiteSpace(pathTemplate)) return null;
-        string value = pathTemplate.Trim();
-        foreach ((string token, Func<string> resolver) in Tokens)
+        try
         {
-            if (!value.StartsWith(token, StringComparison.OrdinalIgnoreCase)) continue;
-            string suffix = value[token.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            return Path.GetFullPath(Path.Combine(resolver(), suffix));
+            string value = pathTemplate.Trim();
+            foreach ((string token, Func<string> resolver) in Tokens)
+            {
+                if (!value.StartsWith(token, StringComparison.OrdinalIgnoreCase)) continue;
+                string remainder = value[token.Length..];
+                if (remainder.Length > 0
+                    && remainder[0] != Path.DirectorySeparatorChar
+                    && remainder[0] != Path.AltDirectorySeparatorChar)
+                    return null;
+                string resolvedRoot = resolver();
+                if (string.IsNullOrWhiteSpace(resolvedRoot)) return null;
+                string root = Path.GetFullPath(resolvedRoot);
+                string suffix = remainder.TrimStart(
+                    Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string candidate = Path.GetFullPath(Path.Combine(root, suffix));
+                string relative = Path.GetRelativePath(root, candidate);
+                if (Path.IsPathRooted(relative)
+                    || relative.Equals("..", StringComparison.Ordinal)
+                    || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                    || relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
+                    return null;
+                return candidate;
+            }
+            return Path.IsPathFullyQualified(value) ? Path.GetFullPath(value) : null;
         }
-        return Path.IsPathFullyQualified(value) ? Path.GetFullPath(value) : null;
+        catch (Exception exception) when (exception is ArgumentException
+                                                   or NotSupportedException
+                                                   or IOException)
+        {
+            return null;
+        }
     }
 
     private static string Normalize(string path) => string.IsNullOrWhiteSpace(path)
         ? string.Empty
-        : Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        : Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 }

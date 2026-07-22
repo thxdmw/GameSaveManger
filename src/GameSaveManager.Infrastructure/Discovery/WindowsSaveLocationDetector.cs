@@ -20,9 +20,20 @@ public sealed class WindowsSaveLocationDetector : ISaveLocationDetector
         Task<IReadOnlyList<SaveLocationCandidate>> steam = RunDetectorAsync("steam-userdata", () => DetectSteamUserdata(game, cancellationToken), cancellationToken);
         IReadOnlyList<SaveLocationCandidate>[] groups = await Task.WhenAll(manifest, install, common, steam);
         progress?.Report(new SaveDetectionProgress("合并", "正在整理候选目录…", 3, 4));
+        string? installRoot = string.IsNullOrWhiteSpace(game.InstallDirectory)
+            ? null
+            : Path.TrimEndingDirectorySeparator(Path.GetFullPath(game.InstallDirectory));
         IReadOnlyList<SaveLocationCandidate> result = groups.SelectMany(group => group)
             .GroupBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.OrderByDescending(candidate => candidate.Confidence).ThenByDescending(candidate => candidate.LatestWriteTimeUtc).First())
+            .Select(candidate => installRoot is not null
+                                 && string.Equals(Path.TrimEndingDirectorySeparator(candidate.Path), installRoot, StringComparison.OrdinalIgnoreCase)
+                ? candidate with
+                {
+                    Confidence = Math.Min(candidate.Confidence, 20),
+                    Reason = candidate.Reason + "；该候选是游戏根目录，仅作低可信参考，通常不应直接作为存档目录"
+                }
+                : candidate)
             .OrderByDescending(candidate => candidate.Confidence).ThenByDescending(candidate => candidate.LatestWriteTimeUtc).ToArray();
         progress?.Report(new SaveDetectionProgress("完成", $"完成：找到 {result.Count} 个候选目录，仍需用户确认。", 4, 4));
         return result;
@@ -46,26 +57,41 @@ public sealed class WindowsSaveLocationDetector : ISaveLocationDetector
         {
             cancellationToken.ThrowIfCancellationRequested();
             SaveLocationCandidate? candidate = SaveLocationCandidateFactory.Create(Path.Combine(game.InstallDirectory, name), 70,
-                SaveLocationSource.InstallDirectory, $"命中安装目录常见规则：{name}");
+                SaveLocationSource.InstallDirectory, $"命中安装目录常见规则：{name}", cancellationToken: cancellationToken);
             if (candidate is not null) results.Add(candidate);
         }
-        try
+        var pending = new Queue<(string Directory, int Depth)>();
+        pending.Enqueue((Path.GetFullPath(game.InstallDirectory), 0));
+        int visitedDirectories = 0;
+        var stopwatch = Stopwatch.StartNew();
+        while (pending.Count > 0 && visitedDirectories < 2_000 && stopwatch.Elapsed < TimeSpan.FromSeconds(8))
         {
-            foreach (string directory in Directory.EnumerateDirectories(game.InstallDirectory, "*", SearchOption.AllDirectories))
+            cancellationToken.ThrowIfCancellationRequested();
+            (string parent, int depth) = pending.Dequeue();
+            if (depth >= 4) continue;
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                string relative = Path.GetRelativePath(game.InstallDirectory, directory);
-                if (relative.Count(character => character == Path.DirectorySeparatorChar || character == Path.AltDirectorySeparatorChar) >= 4) continue;
-                string leaf = Path.GetFileName(directory);
-                if (ExcludedTerms.Any(term => leaf.Contains(term, StringComparison.OrdinalIgnoreCase))) continue;
-                if (!SaveTerms.Any(term => leaf.Contains(term, StringComparison.OrdinalIgnoreCase))) continue;
-                SaveLocationCandidate? candidate = SaveLocationCandidateFactory.Create(directory, 55, SaveLocationSource.InstallDirectory,
-                    $"安装目录下的存档关键词目录：{leaf}");
-                if (candidate is not null) results.Add(candidate);
+                foreach (string directory in Directory.EnumerateDirectories(parent, "*", SearchOption.TopDirectoryOnly))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (++visitedDirectories > 2_000) break;
+                    if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) continue;
+                    string leaf = Path.GetFileName(directory);
+                    if (ExcludedTerms.Any(term => leaf.Contains(term, StringComparison.OrdinalIgnoreCase))) continue;
+                    if (SaveTerms.Any(term => leaf.Contains(term, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        SaveLocationCandidate? candidate = SaveLocationCandidateFactory.Create(directory, 55, SaveLocationSource.InstallDirectory,
+                            $"安装目录下的存档关键词目录：{leaf}", cancellationToken: cancellationToken);
+                        if (candidate is not null) results.Add(candidate);
+                    }
+                    pending.Enqueue((directory, depth + 1));
+                }
+            }
+            catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+            {
+                Trace.TraceWarning($"安装目录子树检测失败：{exception.Message}");
             }
         }
-        catch (UnauthorizedAccessException exception) { Trace.TraceWarning($"安装目录检测被拒绝：{exception.Message}"); }
-        catch (IOException exception) { Trace.TraceWarning($"安装目录检测失败：{exception.Message}"); }
         return results;
     }
 
@@ -81,7 +107,7 @@ public sealed class WindowsSaveLocationDetector : ISaveLocationDetector
         return paths.Select(path =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return SaveLocationCandidateFactory.Create(path, 45, SaveLocationSource.Heuristic, "命中常见 Windows 用户目录规则");
+            return SaveLocationCandidateFactory.Create(path, 45, SaveLocationSource.Heuristic, "命中常见 Windows 用户目录规则", cancellationToken: cancellationToken);
         }).Where(candidate => candidate is not null).Cast<SaveLocationCandidate>().ToArray();
     }
 
@@ -100,7 +126,7 @@ public sealed class WindowsSaveLocationDetector : ISaveLocationDetector
             foreach (string name in new[] { "remote", "local", "save", "saves", "profile" })
             {
                 SaveLocationCandidate? candidate = SaveLocationCandidateFactory.Create(Path.Combine(appDirectory, name), name == "remote" ? 90 : 80,
-                    SaveLocationSource.StoreMetadata, $"Steam userdata/{Path.GetFileName(userDirectory)}/{game.ProviderGameId}/{name}");
+                    SaveLocationSource.StoreMetadata, $"Steam userdata/{Path.GetFileName(userDirectory)}/{game.ProviderGameId}/{name}", cancellationToken: cancellationToken);
                 if (candidate is not null) results.Add(candidate);
             }
         }

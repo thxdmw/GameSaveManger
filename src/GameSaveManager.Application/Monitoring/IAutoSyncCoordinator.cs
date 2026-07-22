@@ -9,7 +9,8 @@ public interface IAutoSyncCoordinator : IAsyncDisposable
         string gameId,
         AutoSnapshotProfile profile,
         Func<CancellationToken, Task> onDirtyGameExitedAsync,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        Func<CancellationToken, Task>? onGameStartedAsync = null);
 
     Task DisableAsync(string gameId);
 

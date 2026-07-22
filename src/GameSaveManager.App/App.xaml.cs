@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Windows;
 using GameSaveManager.App.ViewModels;
+using GameSaveManager.App.Common;
 using GameSaveManager.Application.Diagnostics;
 using GameSaveManager.Application.Discovery;
 using GameSaveManager.Application.Monitoring;
@@ -37,7 +38,13 @@ public partial class App : System.Windows.Application
             _appLogger = new JsonFileLogger();
             _appLogger.Information("application.starting", "客户端正在启动。");
             DispatcherUnhandledException += (_, args) =>
+            {
                 _appLogger.Error("application.unhandled_ui_exception", args.Exception, "未处理的界面线程异常。");
+                if (Current.MainWindow?.DataContext is MainViewModel viewModel)
+                    viewModel.HandleUnhandledCommandException(args.Exception);
+                args.Handled = true;
+            };
+            AsyncCommand.ExecutionFailed += OnAsyncCommandExecutionFailed;
             AppDomain.CurrentDomain.UnhandledException += (_, args) =>
             {
                 if (args.ExceptionObject is Exception exception)
@@ -76,13 +83,6 @@ public partial class App : System.Windows.Application
                 registrySaveSnapshotService);
             _autoSyncCoordinator = new MultiGameAutoSyncCoordinator();
 
-            IReadOnlyList<string> recoveryMessages = await restoreService.RecoverInterruptedRestoresAsync(
-                CancellationToken.None);
-            if (recoveryMessages.Count > 0)
-            {
-                Views.ThemedDialogWindow.ShowThemed(null, "存档恢复检查", string.Join(Environment.NewLine, recoveryMessages), "知道了");
-            }
-
             var window = new MainWindow
             {
                 DataContext = new MainViewModel(
@@ -102,7 +102,10 @@ public partial class App : System.Windows.Application
                     new WindowsShortcutResolver(),
                     new SqliteLocalGameProfileStore(database),
                     credentialStore,
-                    new CredentialDeviceIdentityProvider(credentialStore, new SqliteDeviceIdentityProvider(database)),
+                    new CredentialDeviceIdentityProvider(
+                        credentialStore,
+                        new SqliteDeviceIdentityProvider(database),
+                        new WindowsMachineDeviceIdentityProvider()),
                     pathTemplateService,
                     _appLogger,
                     new WindowsAutoStartService(),
@@ -112,14 +115,22 @@ public partial class App : System.Windows.Application
                     new GitHubClientUpdateService(_httpClient),
                     new SqliteUpdatePreferenceStore(database))
             };
+            window.IsEnabled = false;
             window.Show();
-            if (window.DataContext is MainViewModel viewModel) await viewModel.InitializeAsync();
             if (!UpdateHealthReporter.TryReport(Environment.GetCommandLineArgs(), out string? healthError))
                 _appLogger.Error(
                     "update.health_report_failed",
                     new InvalidOperationException(healthError ?? "更新启动确认写入失败"),
                     "更新后的客户端未能写入启动确认");
             UpdateHealthReporter.CleanupStaleArtifacts();
+            IReadOnlyList<string> recoveryMessages = await restoreService.RecoverInterruptedRestoresAsync(
+                CancellationToken.None);
+            if (recoveryMessages.Count > 0)
+            {
+                Views.ThemedDialogWindow.ShowThemed(window, "存档恢复检查", string.Join(Environment.NewLine, recoveryMessages), "知道了");
+            }
+            window.IsEnabled = true;
+            if (window.DataContext is MainViewModel viewModel) await viewModel.InitializeAsync();
         }
         catch (Exception exception)
         {
@@ -129,14 +140,40 @@ public partial class App : System.Windows.Application
         }
     }
 
-    protected override async void OnExit(ExitEventArgs e)
+    protected override void OnExit(ExitEventArgs e)
     {
-        if (_autoSyncCoordinator is not null)
+        try
         {
-            await _autoSyncCoordinator.DisposeAsync();
+            if (_autoSyncCoordinator is not null)
+            {
+                Task cleanup = _autoSyncCoordinator.DisposeAsync().AsTask();
+                if (cleanup.IsCompleted)
+                    cleanup.GetAwaiter().GetResult();
+                else
+                    _appLogger?.Information(
+                        "application.shutdown_cleanup_deferred",
+                        "退出流程已取消剩余自动监控；后台清理将由进程退出完成。");
+            }
         }
+        catch (Exception exception)
+        {
+            _appLogger?.Error("application.shutdown_cleanup_failed", exception, "退出时停止自动同步失败");
+        }
+        AsyncCommand.ExecutionFailed -= OnAsyncCommandExecutionFailed;
         _httpClient?.Dispose();
         _appLogger?.Information("application.stopped", "客户端已退出。");
         base.OnExit(e);
+    }
+
+    private void OnAsyncCommandExecutionFailed(object? sender, AsyncCommandFailedEventArgs e)
+    {
+        _appLogger?.Error("application.command_failed", e.Exception, "异步命令出现未处理异常");
+        void Report()
+        {
+            if (Current.MainWindow?.DataContext is MainViewModel viewModel)
+                viewModel.HandleUnhandledCommandException(e.Exception);
+        }
+        if (Dispatcher.CheckAccess()) Report();
+        else Dispatcher.Invoke(Report);
     }
 }

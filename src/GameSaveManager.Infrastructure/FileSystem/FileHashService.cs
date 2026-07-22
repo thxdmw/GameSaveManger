@@ -16,7 +16,7 @@ public sealed class FileHashService : IFileHashService
             filePath,
             FileMode.Open,
             FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete,
+            FileShare.Read,
             BufferSize,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
 

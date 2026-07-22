@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using GameSaveManager.App.ViewModels;
+using GameSaveManager.Application.Api;
 using Forms = System.Windows.Forms;
 
 namespace GameSaveManager.App.Views;
@@ -8,6 +9,14 @@ namespace GameSaveManager.App.Views;
 public partial class SyncView : UserControl
 {
     public SyncView() => InitializeComponent();
+
+    private void GameSelection_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not MainViewModel viewModel
+            || sender is not ComboBox { SelectedItem: CloudGame game } comboBox
+            || (!comboBox.IsDropDownOpen && !comboBox.IsKeyboardFocusWithin)) return;
+        if (viewModel.SelectGameCommand.CanExecute(game)) viewModel.SelectGameCommand.Execute(game);
+    }
 
     private void ChooseSaveDirectoryButton_OnClick(object sender, RoutedEventArgs e)
     {

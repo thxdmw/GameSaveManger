@@ -23,7 +23,9 @@ public sealed class LudusaviManifestUpdateService(HttpClient client) : IManifest
 
     public async Task<ManifestUpdateStatus> UpdateAsync(CancellationToken cancellationToken)
     {
+        EnsureSafeManifestPath(DirectoryPath);
         Directory.CreateDirectory(DirectoryPath);
+        EnsureSafeManifestPath(DirectoryPath);
         Metadata old = await ReadMetadataAsync(cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Get, Url);
         if (!string.IsNullOrWhiteSpace(old.ETag)) request.Headers.TryAddWithoutValidation("If-None-Match", old.ETag);
@@ -31,8 +33,11 @@ public sealed class LudusaviManifestUpdateService(HttpClient client) : IManifest
         if (response.StatusCode == HttpStatusCode.NotModified) return old.ToStatus();
         response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength is > MaximumManifestBytes) throw new InvalidDataException("下载的 Ludusavi Manifest 超过大小上限。");
-        string temporary = ManifestPath + ".tmp";
-        string metadataTemporary = MetadataPath + ".tmp";
+        string suffix = "." + Guid.NewGuid().ToString("N") + ".tmp";
+        string temporary = ManifestPath + suffix;
+        string metadataTemporary = MetadataPath + suffix;
+        EnsureSafeManifestPath(temporary);
+        EnsureSafeManifestPath(metadataTemporary);
         try
         {
             await using Stream input = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -59,10 +64,39 @@ public sealed class LudusaviManifestUpdateService(HttpClient client) : IManifest
         }
         finally
         {
-            if (File.Exists(temporary)) File.Delete(temporary);
-            if (File.Exists(metadataTemporary)) File.Delete(metadataTemporary);
+            TryDeleteTemporary(temporary);
+            TryDeleteTemporary(metadataTemporary);
         }
     }
+
+    private static void TryDeleteTemporary(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static void EnsureSafeManifestPath(string path)
+    {
+        string boundary = Path.TrimEndingDirectorySeparator(Path.GetFullPath(AppDataPaths.RootDirectory));
+        string target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        string relative = Path.GetRelativePath(boundary, target);
+        if (Path.IsPathRooted(relative)
+            || relative.Equals("..", StringComparison.Ordinal)
+            || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new IOException("Ludusavi Manifest 路径越过应用数据边界。");
+
+        string current = boundary;
+        foreach (string segment in relative.Split(
+                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                     StringSplitOptions.RemoveEmptyEntries).Prepend(string.Empty))
+        {
+            if (segment.Length > 0) current = Path.Combine(current, segment);
+            if ((Directory.Exists(current) || File.Exists(current))
+                && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Ludusavi Manifest 路径包含重解析点。");
+        }
+    }
+
     private static async Task<Metadata> ReadMetadataAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(MetadataPath)) return new Metadata("内置版本", null, null, null);

@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 
 namespace GameSaveManager.Infrastructure.Persistence;
 
-/// <summary>SQLite 持久化 SHA-256 缓存；size/mtime 只用于判断缓存是否仍可复用。</summary>
+/// <summary>SQLite 持久化 SHA-256 观测结果；正式 Manifest 会重新读取文件，缓存不能替代内容校验。</summary>
 public sealed class SqliteFileHashCache(SqliteDatabase database) : IFileHashCache
 {
     public async Task<string?> TryGetAsync(

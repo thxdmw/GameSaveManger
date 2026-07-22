@@ -48,7 +48,8 @@ internal static class UpdateHealthReporter
         try
         {
             var threshold = DateTime.UtcNow.AddDays(-7);
-            if (Directory.Exists(AppDataPaths.UpdateTransactionDirectory))
+            if (Directory.Exists(AppDataPaths.UpdateTransactionDirectory)
+                && IsSafeManagedDirectory(AppDataPaths.UpdateTransactionDirectory))
             {
                 foreach (string path in Directory.EnumerateFiles(AppDataPaths.UpdateTransactionDirectory))
                 {
@@ -64,7 +65,8 @@ internal static class UpdateHealthReporter
                 }
             }
 
-            if (Directory.Exists(AppDataPaths.RollbackInstallerDirectory))
+            if (Directory.Exists(AppDataPaths.RollbackInstallerDirectory)
+                && IsSafeManagedDirectory(AppDataPaths.RollbackInstallerDirectory))
             {
                 foreach (FileInfo oldInstaller in new DirectoryInfo(AppDataPaths.RollbackInstallerDirectory)
                              .EnumerateFiles("GameSaveManager-Setup-*.exe")
@@ -75,9 +77,56 @@ internal static class UpdateHealthReporter
                     catch (UnauthorizedAccessException) { }
                 }
             }
+
+            if (Directory.Exists(AppDataPaths.UpdateDirectory)
+                && IsSafeManagedDirectory(AppDataPaths.UpdateDirectory))
+            {
+                foreach (DirectoryInfo oldVersion in new DirectoryInfo(AppDataPaths.UpdateDirectory)
+                             .EnumerateDirectories()
+                             .Where(directory => !string.Equals(directory.FullName, AppDataPaths.UpdateTransactionDirectory, StringComparison.OrdinalIgnoreCase))
+                             .Where(directory => (directory.Attributes & FileAttributes.ReparsePoint) == 0)
+                             .OrderByDescending(directory => directory.LastWriteTimeUtc)
+                             .Skip(2)
+                             .Where(directory => directory.LastWriteTimeUtc < threshold))
+                {
+                    try { oldVersion.Delete(recursive: true); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
+    }
+
+    private static bool IsSafeManagedDirectory(string path)
+    {
+        try
+        {
+            string boundary = Path.TrimEndingDirectorySeparator(Path.GetFullPath(AppDataPaths.RootDirectory));
+            string target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            string relative = Path.GetRelativePath(boundary, target);
+            if (Path.IsPathRooted(relative)
+                || relative.Equals("..", StringComparison.Ordinal)
+                || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                return false;
+
+            string current = boundary;
+            foreach (string segment in relative.Split(
+                         [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                         StringSplitOptions.RemoveEmptyEntries).Prepend(string.Empty))
+            {
+                if (segment.Length > 0) current = Path.Combine(current, segment);
+                if (Directory.Exists(current)
+                    && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    return false;
+            }
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return false;
+        }
     }
 
     private static string? GetOption(string[] arguments, string name)

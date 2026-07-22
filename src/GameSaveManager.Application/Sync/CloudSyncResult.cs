@@ -8,7 +8,9 @@ public sealed record CloudSyncResult(
     int UploadedObjectCount,
     int FileCount,
     long LogicalSize,
-    TimeSpan Duration);
+    TimeSpan Duration,
+    string? RemoteHeadSnapshotId = null,
+    int RemovedFileCount = 0);
 
 public enum CloudSyncStatus
 {

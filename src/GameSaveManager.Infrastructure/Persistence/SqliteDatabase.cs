@@ -4,7 +4,7 @@ namespace GameSaveManager.Infrastructure.Persistence;
 
 public sealed class SqliteDatabase
 {
-    private const long CurrentSchemaVersion = 8;
+    private const long CurrentSchemaVersion = 9;
     private readonly string _connectionString;
     private readonly string _databasePath;
 
@@ -58,9 +58,43 @@ public sealed class SqliteDatabase
     {
         await using SqliteCommand command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'local_game_profile';";
-        if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) == 0) return false;
-        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('local_game_profile') WHERE name IN ('launch_profile_json', 'account_id');";
-        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) != 2;
+        bool localProfileExists = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) > 0;
+        bool localProfileMigrationRequired = false;
+        if (localProfileExists)
+        {
+            command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('local_game_profile') WHERE name IN ('launch_profile_json', 'account_id');";
+            localProfileMigrationRequired = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) != 2;
+            if (!localProfileMigrationRequired)
+            {
+                command.CommandText = """
+                    SELECT COUNT(*) FROM pragma_table_info('local_game_profile')
+                    WHERE (name = 'server_key' AND pk = 1)
+                       OR (name = 'account_id' AND pk = 2)
+                       OR (name = 'game_id' AND pk = 3);
+                    """;
+                localProfileMigrationRequired = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) != 3;
+            }
+        }
+
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_state';";
+        bool syncStateExists = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) > 0;
+        bool syncStateMigrationRequired = false;
+        if (syncStateExists)
+        {
+            command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('sync_state') WHERE name IN ('server_key', 'account_id');";
+            syncStateMigrationRequired = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) != 2;
+            if (!syncStateMigrationRequired)
+            {
+                command.CommandText = """
+                    SELECT COUNT(*) FROM pragma_table_info('sync_state')
+                    WHERE (name = 'server_key' AND pk = 1)
+                       OR (name = 'account_id' AND pk = 2)
+                       OR (name = 'game_id' AND pk = 3);
+                    """;
+                syncStateMigrationRequired = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) != 3;
+            }
+        }
+        return localProfileMigrationRequired || syncStateMigrationRequired;
     }
 
     private async Task CreateMigrationBackupAsync(SqliteConnection source, CancellationToken cancellationToken)
@@ -86,11 +120,20 @@ public sealed class SqliteDatabase
             else
             {
                 long hasAccountId = await ScalarLongAsync(connection, transaction, "SELECT COUNT(*) FROM pragma_table_info('sync_state') WHERE name = 'account_id';", cancellationToken);
-                if (hasAccountId == 0)
+                long accountScopedPrimaryKeyColumns = hasAccountId == 0
+                    ? 0
+                    : await ScalarLongAsync(connection, transaction, """
+                        SELECT COUNT(*) FROM pragma_table_info('sync_state')
+                        WHERE (name = 'server_key' AND pk = 1)
+                           OR (name = 'account_id' AND pk = 2)
+                           OR (name = 'game_id' AND pk = 3);
+                        """, cancellationToken);
+                if (hasAccountId == 0 || accountScopedPrimaryKeyColumns != 3)
                 {
                     await ExecuteAsync(connection, transaction, "ALTER TABLE sync_state RENAME TO sync_state_legacy;", cancellationToken);
                     await ExecuteAsync(connection, transaction, "CREATE TABLE sync_state (server_key TEXT NOT NULL, account_id TEXT NOT NULL, game_id TEXT NOT NULL, head_snapshot_id TEXT NULL, head_version INTEGER NOT NULL, PRIMARY KEY(server_key, account_id, game_id));", cancellationToken);
-                    await ExecuteAsync(connection, transaction, "INSERT INTO sync_state(server_key, account_id, game_id, head_snapshot_id, head_version) SELECT server_key, '', game_id, head_snapshot_id, head_version FROM sync_state_legacy;", cancellationToken);
+                    string accountExpression = hasAccountId == 0 ? "''" : "COALESCE(account_id, '')";
+                    await ExecuteAsync(connection, transaction, $"INSERT OR REPLACE INTO sync_state(server_key, account_id, game_id, head_snapshot_id, head_version) SELECT server_key, {accountExpression}, game_id, head_snapshot_id, head_version FROM sync_state_legacy;", cancellationToken);
                     await ExecuteAsync(connection, transaction, "DROP TABLE sync_state_legacy;", cancellationToken);
                 }
             }
@@ -185,9 +228,22 @@ public sealed class SqliteDatabase
         command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('local_game_profile') WHERE name IN ('executable_path', 'identity_executable_path', 'launch_profile_json', 'account_id');";
         if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) != 4)
             throw new InvalidOperationException("本地游戏配置迁移后的结构校验失败。");
-        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('local_game_profile') WHERE pk > 0;";
+        command.CommandText = """
+            SELECT COUNT(*) FROM pragma_table_info('local_game_profile')
+            WHERE (name = 'server_key' AND pk = 1)
+               OR (name = 'account_id' AND pk = 2)
+               OR (name = 'game_id' AND pk = 3);
+            """;
         if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) != 3)
             throw new InvalidOperationException("本地游戏配置的账号隔离主键校验失败。");
+        command.CommandText = """
+            SELECT COUNT(*) FROM pragma_table_info('sync_state')
+            WHERE (name = 'server_key' AND pk = 1)
+               OR (name = 'account_id' AND pk = 2)
+               OR (name = 'game_id' AND pk = 3);
+            """;
+        if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) != 3)
+            throw new InvalidOperationException("本地同步状态的账号隔离主键校验失败。");
         command.CommandText = "PRAGMA integrity_check;";
         if (!string.Equals(Convert.ToString(await command.ExecuteScalarAsync(cancellationToken)), "ok", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("本地数据库完整性校验失败。");

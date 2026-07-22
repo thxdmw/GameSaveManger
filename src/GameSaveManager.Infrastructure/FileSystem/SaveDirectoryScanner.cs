@@ -95,7 +95,8 @@ public sealed class SaveDirectoryScanner : ISaveDirectoryScanner
                 }
                 catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
                 {
-                    // 与原 IgnoreInaccessible 语义一致；单个不可访问目录不会中断其余预览。
+                    // 预览可以显示部分结果，但真正构建 Manifest 时必须失败关闭，不能把漏扫目录提交成删除。
+                    truncationReason = $"无法完整读取目录“{directory}”：{exception.Message}";
                 }
             }
             return new SaveDirectoryScanResult(result, Math.Min(visitedFiles, budget.MaximumVisitedFiles),

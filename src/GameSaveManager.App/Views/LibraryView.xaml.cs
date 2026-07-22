@@ -11,7 +11,7 @@ public partial class LibraryView : UserControl
 
     private void OpenAddGameWizardButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (DataContext is MainViewModel viewModel)
+        if (DataContext is MainViewModel { IsAuthenticated: true } viewModel)
             new AddGameWizardWindow(viewModel) { Owner = Window.GetWindow(this) }.ShowDialog();
     }
 

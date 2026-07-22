@@ -6,4 +6,8 @@ public sealed record LocalSyncState(
     string GameId,
     string? HeadSnapshotId,
     long HeadVersion,
-    string UserId = "");
+    string UserId = "")
+{
+    /// <summary>用户主动恢复了非当前 HEAD；在明确选择版本前禁止自动拉取覆盖。</summary>
+    public const long IntentionalRestorePendingVersion = -1;
+}

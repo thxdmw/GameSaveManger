@@ -147,5 +147,6 @@ public interface IGameSaveApiClient
         string deviceToken,
         string objectId,
         string destinationPath,
+        long expectedSize,
         CancellationToken cancellationToken);
 }

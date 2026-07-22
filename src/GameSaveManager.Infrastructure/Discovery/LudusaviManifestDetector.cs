@@ -43,13 +43,18 @@ internal static class LudusaviManifestDetector
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!IsRuleAllowed(rule, game.Provider)) continue;
+            // Ludusavi 明确标为 config 等非存档用途的路径不能成为存档候选；
+            // 无 tags 的旧规则继续兼容，config+save 规则也仍然有效。
+            if (rule.Tags.Count > 0
+                && !rule.Tags.Contains("save", StringComparer.OrdinalIgnoreCase)) continue;
             foreach (string directory in ResolveDirectories(rule.Path, game, match, cancellationToken))
             {
                 SaveLocationCandidate? candidate = SaveLocationCandidateFactory.Create(
                     directory,
                     match.Confidence,
                     SaveLocationSource.LudusaviManifest,
-                    $"Ludusavi Manifest：{match.Entry.Name}");
+                    $"Ludusavi Manifest：{match.Entry.Name}",
+                    cancellationToken: cancellationToken);
                 if (candidate is not null) candidates.TryAdd(candidate.Path, candidate);
             }
         }
@@ -133,7 +138,10 @@ internal static class LudusaviManifestDetector
         foreach ((YamlNode pathNode, YamlNode detailsNode) in files.Children)
         {
             if (pathNode is not YamlScalarNode { Value: { Length: > 0 } path }) continue;
-            result.Add(new ManifestFileRule(path, ReadConditions(detailsNode)));
+            IReadOnlyList<string> tags = detailsNode is YamlMappingNode details
+                ? Sequence(details, "tags").ToArray()
+                : [];
+            result.Add(new ManifestFileRule(path, ReadConditions(detailsNode), tags));
         }
         return result;
     }
@@ -364,7 +372,10 @@ internal static class LudusaviManifestDetector
         .Replace("remastered", string.Empty)
         .Replace("deluxeedition", string.Empty);
 
-    private sealed record ManifestFileRule(string Path, IReadOnlyList<ManifestCondition> Conditions);
+    private sealed record ManifestFileRule(
+        string Path,
+        IReadOnlyList<ManifestCondition> Conditions,
+        IReadOnlyList<string> Tags);
     private sealed record ManifestCondition(string? Os, string? Store);
     private sealed record ManifestMatch(
         ManifestEntry Entry,

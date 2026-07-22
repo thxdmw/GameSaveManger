@@ -16,7 +16,18 @@ public sealed class SqliteSyncStateStore(SqliteDatabase database) : ILocalSyncSt
         await connection.OpenAsync(cancellationToken);
         await using (SqliteCommand claim = connection.CreateCommand())
         {
-            claim.CommandText = "UPDATE sync_state SET account_id = $userId WHERE server_key = $serverKey AND account_id = '' AND game_id = $gameId;";
+            claim.CommandText = """
+                DELETE FROM sync_state
+                WHERE server_key = $serverKey AND account_id = '' AND game_id = $gameId
+                  AND EXISTS (
+                      SELECT 1 FROM sync_state current
+                      WHERE current.server_key = $serverKey
+                        AND current.account_id = $userId
+                        AND current.game_id = $gameId);
+                UPDATE sync_state
+                SET account_id = $userId
+                WHERE server_key = $serverKey AND account_id = '' AND game_id = $gameId;
+                """;
             claim.Parameters.AddWithValue("$serverKey", serverKey);
             claim.Parameters.AddWithValue("$userId", userId);
             claim.Parameters.AddWithValue("$gameId", gameId);

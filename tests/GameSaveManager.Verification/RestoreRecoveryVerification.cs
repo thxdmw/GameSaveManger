@@ -11,13 +11,14 @@ internal static class RestoreRecoveryVerification
     public static async Task VerifyMultiRootJournalRecoveryAsync()
     {
         string root = Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", Guid.NewGuid().ToString("N"));
-        string transactionDirectory = Path.Combine(root, "transaction");
+        string transactionId = Guid.NewGuid().ToString("N");
+        string transactionDirectory = Path.Combine(root, transactionId);
         string targetA = Path.Combine(root, "save-a");
-        string safetyA = Path.Combine(root, "safety-a");
-        string stagingA = Path.Combine(root, "staging-a");
+        string safetyA = Path.Combine(root, $".save-a.gamesave-safety-{transactionId}");
+        string stagingA = Path.Combine(root, $".save-a.gamesave-staging-{transactionId}");
         string targetB = Path.Combine(root, "save-b");
-        string safetyB = Path.Combine(root, "safety-b");
-        string stagingB = Path.Combine(root, "staging-b");
+        string safetyB = Path.Combine(root, $".save-b.gamesave-safety-{transactionId}");
+        string stagingB = Path.Combine(root, $".save-b.gamesave-staging-{transactionId}");
         string journalPath = Path.Combine(transactionDirectory, "multi-root-journal.json");
         try
         {
@@ -30,7 +31,7 @@ internal static class RestoreRecoveryVerification
             await File.WriteAllTextAsync(Path.Combine(safetyB, "old.txt"), "old");
 
             var journal = new MultiRootRestoreJournal(
-                "transaction",
+                transactionId,
                 "game",
                 "snapshot",
                 MultiRootRestoreState.TargetsApplied,
@@ -59,6 +60,33 @@ internal static class RestoreRecoveryVerification
             Ensure(recovered is not null && recovered.Roots.All(item => item.State == RestoreRootState.RolledBack), "恢复完成后根目录状态未持久化。");
             IReadOnlyList<string> repeated = await service.RecoverInterruptedRestoresAsync(root, CancellationToken.None);
             Ensure(repeated.Count == 0, "已回滚事务被重复处理。");
+
+            string protectedDirectory = Path.Combine(root, "protected");
+            Directory.CreateDirectory(protectedDirectory);
+            await File.WriteAllTextAsync(Path.Combine(protectedDirectory, "keep.txt"), "keep");
+            string unsafeTransactionId = Guid.NewGuid().ToString("N");
+            string unsafeDirectory = Path.Combine(root, unsafeTransactionId);
+            Directory.CreateDirectory(unsafeDirectory);
+            var unsafeJournal = new MultiRootRestoreJournal(
+                unsafeTransactionId,
+                "game",
+                "snapshot",
+                MultiRootRestoreState.TargetsApplied,
+                [new RestoreRootJournalItem(
+                    "root", protectedDirectory, Path.Combine(root, "forged-staging"),
+                    Path.Combine(root, "forged-safety"), RestoreRootState.Applied,
+                    true, true, true)],
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow);
+            await File.WriteAllTextAsync(
+                Path.Combine(unsafeDirectory, "multi-root-journal.json"),
+                JsonSerializer.Serialize(unsafeJournal));
+
+            IReadOnlyList<string> rejected = await service.RecoverInterruptedRestoresAsync(
+                root, CancellationToken.None);
+            Ensure(rejected.Count == 1
+                   && File.Exists(Path.Combine(protectedDirectory, "keep.txt")),
+                "路径不符合事务命名规则的恢复日志必须被拒绝，不能删除目标目录。");
         }
         finally
         {

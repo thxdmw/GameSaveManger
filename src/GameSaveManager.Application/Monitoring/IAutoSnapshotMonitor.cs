@@ -11,7 +11,8 @@ public interface IAutoSnapshotMonitor : IAsyncDisposable
     Task StartAsync(
         AutoSnapshotProfile profile,
         Func<CancellationToken, Task> onDirtyGameExitedAsync,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        Func<CancellationToken, Task>? onGameStartedAsync = null);
 
     Task StopAsync();
 }

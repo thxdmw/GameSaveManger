@@ -88,7 +88,7 @@ public static class SnapshotTriggerNames
         _ => throw new ArgumentOutOfRangeException(nameof(trigger), trigger, "未知快照触发类型")
     };
 }
-/// <summary>????????????????????????????</summary>
+/// <summary>云端不可变快照的完整清单，包含根目录元数据与内容对象引用。</summary>
 public sealed record CloudSnapshotManifest(
     string SnapshotId,
     string GameId,
@@ -120,7 +120,7 @@ public sealed record SnapshotRootDescriptor(
     IReadOnlyList<string> IncludePatterns,
     IReadOnlyList<string> ExcludePatterns);
 
-/// <summary>??????????????ObjectId ???? GameSave ????????</summary>
+/// <summary>快照中的单个文件；ObjectId 是服务端授权下载所需的内容对象标识。</summary>
 public sealed record CloudSnapshotFile(
     string RelativePath,
     string ObjectId,

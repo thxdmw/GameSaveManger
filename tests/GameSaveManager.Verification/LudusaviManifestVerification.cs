@@ -51,6 +51,7 @@ internal static class LudusaviManifestVerification
         string root = CreateSteamGameLayout(out string installDirectory);
         string installManifest = Path.Combine(root, "install.yaml");
         string cycleManifest = Path.Combine(root, "cycle.yaml");
+        string taggedManifest = Path.Combine(root, "tagged.yaml");
         string secondaryManifest = Path.Combine(installDirectory, ".ludusavi.yaml");
         try
         {
@@ -80,6 +81,22 @@ internal static class LudusaviManifestVerification
             var cycleGame = localGame with { Name = "Cycle A" };
             Ensure(LudusaviManifestDetector.DetectFromManifestFile(cycleGame, cycleManifest).Count == 0,
                 "Alias 循环必须被拒绝。");
+
+            CreateFile(Path.Combine(installDirectory, "settings.txt"));
+            File.WriteAllText(taggedManifest, """
+                Tagged Game:
+                  installDir:
+                    TestGame: {}
+                  files:
+                    "<base>/settings.txt":
+                      tags:
+                        - config
+                    "<base>/missing/savegame.sav":
+                      tags:
+                        - save
+                """);
+            Ensure(LudusaviManifestDetector.DetectFromManifestFile(localGame, taggedManifest).Count == 0,
+                "仅命中 config 文件时不能把游戏安装根目录误报为存档目录。");
 
             CreateFile(Path.Combine(installDirectory, "ManifestFolder", "slot.sav"));
             File.WriteAllText(secondaryManifest, """
