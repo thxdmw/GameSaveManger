@@ -13,7 +13,10 @@ public sealed class GameLaunchProfileMerger : IGameLaunchProfileMerger
     {
         if (IsStoreIdentity(currentIdentity))
         {
-            if (existing?.TargetType == GameLaunchTargetType.StoreUri) return Sanitize(existing, legacyProcessName);
+            // 平台游戏的进程身份来自当前平台发现结果。界面中的兼容字段可能仍在切换中，
+            // 不能把它无条件追加到另一款平台游戏的监控进程列表。
+            if (existing?.TargetType == GameLaunchTargetType.StoreUri)
+                return Sanitize(existing, currentIdentity.ProcessName);
             return CreateDefault(currentIdentity);
         }
 

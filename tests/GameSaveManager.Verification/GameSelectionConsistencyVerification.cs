@@ -2,11 +2,122 @@ using System.Reflection;
 using GameSaveManager.App.ViewModels;
 using GameSaveManager.Application.Api;
 using GameSaveManager.Application.Discovery;
+using GameSaveManager.Application.Games;
+using GameSaveManager.Application.Launching;
+using GameSaveManager.Application.Security;
 
 namespace GameSaveManager.Verification;
 
 internal static class GameSelectionConsistencyVerification
 {
+    public static void VerifyCachedProfileAndStoreProcessIsolation()
+    {
+        MainViewModel viewModel = SmokeViewModelFactory.Create();
+        var first = new CloudGame("game-a", "游戏 A", "CUSTOM", null);
+        var second = new CloudGame("game-b", "游戏 B", "CUSTOM", null);
+        string serverKey = GameSaveServerIdentity.CreateStableKey(new Uri("http://localhost:8080"));
+        var firstProfile = CreateProfile(serverKey, first.GameId, @"C:\Saves\A", @"C:\Games\A\a.exe", "a.exe");
+        var secondProfile = CreateProfile(serverKey, second.GameId, @"D:\Saves\B", @"D:\Games\B\b.exe", "b.exe");
+        Dictionary<string, LocalGameProfile> profiles = GetProfileCache(viewModel);
+        profiles[first.GameId] = firstProfile;
+        profiles[second.GameId] = secondProfile;
+
+        viewModel.SelectedGame = first;
+        Ensure(viewModel.SaveDirectory == firstProfile.SaveDirectory
+               && viewModel.AutoSnapshotExecutablePath == firstProfile.ExecutablePath
+               && viewModel.AutoSnapshotProcessName == firstProfile.ProcessName,
+            "选择游戏时必须同步恢复该 gameId 自己的本机配置，不能保留上一款游戏字段。");
+
+        viewModel.SelectedGame = second;
+        Ensure(viewModel.SaveDirectory == secondProfile.SaveDirectory
+               && viewModel.AutoSnapshotExecutablePath == secondProfile.ExecutablePath
+               && viewModel.AutoSnapshotProcessName == secondProfile.ProcessName,
+            "连续切换游戏时详情配置必须与当前 gameId 一致。");
+
+        var oxygen = new CloudGame("oxygen", "Oxygen Not Included", GameIdentity.Steam, "457140");
+        profiles[oxygen.GameId] = new LocalGameProfile(
+            serverKey,
+            oxygen.GameId,
+            GameIdentity.Steam,
+            "457140",
+            @"D:\Steam\OxygenNotIncluded",
+            secondProfile.SaveDirectory,
+            secondProfile.ProcessName,
+            secondProfile.ExecutablePath,
+            SaveLocationSource.Manual,
+            100,
+            true,
+            false,
+            [SaveRootRule.CreateDefault(secondProfile.SaveDirectory, SaveLocationSource.Manual, 100, true)],
+            [],
+            @"D:\Steam\OxygenNotIncluded\OxygenNotIncluded.exe",
+            new GameLaunchProfile(
+                GameLaunchTargetType.StoreUri,
+                "steam://run/457140",
+                null,
+                null,
+                false,
+                ["OxygenNotIncluded", "b"]),
+            "smoke-user");
+        viewModel.SelectedGame = oxygen;
+        Ensure(string.IsNullOrEmpty(viewModel.SaveDirectory)
+               && string.IsNullOrEmpty(viewModel.AutoSnapshotExecutablePath),
+            "检测到平台游戏混入其他安装目录时不得把污染配置加载到详情页。");
+        Ensure(viewModel.GetGameRuntimeStatusText(oxygen) == "启动配置异常"
+               && viewModel.GetLaunchDisabledReason(oxygen) is { Length: > 0 },
+            "已污染的本机配置必须同时阻止运行状态判断和游戏启动。");
+
+        var merger = new GameLaunchProfileMerger();
+        var existing = new GameLaunchProfile(
+            GameLaunchTargetType.StoreUri,
+            "steam://run/457140",
+            null,
+            null,
+            false,
+            ["OxygenNotIncluded"]);
+        GameLaunchProfile merged = merger.Merge(
+                existing,
+                new GameIdentity("Oxygen Not Included", GameIdentity.Steam, "457140",
+                    @"D:\Steam\OxygenNotIncluded", @"D:\Steam\OxygenNotIncluded\OxygenNotIncluded.exe",
+                    "OxygenNotIncluded.exe"),
+                @"D:\GameTest\LIMBO\limbo.exe",
+                "limbo.exe")
+            ?? throw new InvalidOperationException("平台启动配置不应在合并后消失。");
+        Ensure(!merged.MonitoredProcessNames.Contains("limbo", StringComparer.OrdinalIgnoreCase),
+            "平台游戏保存配置时不得把界面残留的另一款游戏进程追加到监控列表。");
+    }
+
+    public static async Task VerifySynchronizationNeverPersistsTransientUiAsync()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "GameSaveManager.Verification", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(root, "slot.sav"), "save");
+            var store = new RecordingProfileStore();
+            MainViewModel viewModel = SmokeViewModelFactory.Create(store, credentialStore: new FixedCredentialStore());
+            const string gameId = "sync-write-guard";
+            string serverKey = GameSaveServerIdentity.CreateStableKey(new Uri("http://localhost:8080"));
+            LocalGameProfile profile = CreateProfile(serverKey, gameId, root, null, "correct.exe");
+            GetProfileCache(viewModel)[gameId] = profile;
+            viewModel.SelectedGame = new CloudGame(gameId, "同步写保护", "CUSTOM", null);
+
+            // 模拟切页时界面进程字段被另一款游戏污染；同步必须拒绝，而不是将其保存到当前记录。
+            viewModel.AutoSnapshotProcessName = "foreign-game.exe";
+            Task sync = (Task)(InvokePrivate(viewModel, "SyncAsync")
+                               ?? throw new InvalidOperationException("同步方法未返回任务。"));
+            await sync;
+            Ensure(store.SaveCount == 0,
+                "立即备份只能读取已确认配置，绝不能把瞬态界面字段回写本机游戏记录。");
+            Ensure(GetProfileCache(viewModel)[gameId] == profile,
+                "同步被配置归属校验阻止后，内存缓存也必须保持原样。");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     public static void VerifyDeleteTargetAndTransientStateIsolation()
     {
         MainViewModel viewModel = SmokeViewModelFactory.Create();
@@ -92,6 +203,83 @@ internal static class GameSelectionConsistencyVerification
         {
             throw exception.InnerException;
         }
+    }
+
+    private static Dictionary<string, LocalGameProfile> GetProfileCache(MainViewModel viewModel) =>
+        (Dictionary<string, LocalGameProfile>)(typeof(MainViewModel)
+            .GetField("_localGameProfiles", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(viewModel)
+            ?? throw new InvalidOperationException("无法读取本机游戏配置缓存。"));
+
+    private static LocalGameProfile CreateProfile(
+        string serverKey,
+        string gameId,
+        string saveDirectory,
+        string? executablePath,
+        string processName) => new(
+        serverKey,
+        gameId,
+        GameIdentity.Custom,
+        null,
+        executablePath is null ? string.Empty : Path.GetDirectoryName(executablePath),
+        saveDirectory,
+        processName,
+        executablePath,
+        SaveLocationSource.Manual,
+        100,
+        true,
+        false,
+        [SaveRootRule.CreateDefault(saveDirectory, SaveLocationSource.Manual, 100, true)],
+        [],
+        executablePath,
+        executablePath is null
+            ? null
+            : new GameLaunchProfile(
+                GameLaunchTargetType.Executable,
+                executablePath,
+                null,
+                Path.GetDirectoryName(executablePath),
+                false,
+                [processName]),
+        "smoke-user");
+
+    private sealed class RecordingProfileStore : ILocalGameProfileStore
+    {
+        public int SaveCount { get; private set; }
+
+        public Task<LocalGameProfile?> GetAsync(
+            string serverKey, string userId, string gameId, CancellationToken cancellationToken) =>
+            Task.FromResult<LocalGameProfile?>(null);
+
+        public Task SaveAsync(LocalGameProfile profile, CancellationToken cancellationToken)
+        {
+            SaveCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<LocalGameProfile>> ListAsync(
+            string serverKey, string userId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LocalGameProfile>>([]);
+
+        public Task ClaimLegacyAsync(
+            string serverKey, string userId, IReadOnlyCollection<string> ownedGameIds,
+            CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task DeleteAsync(
+            string serverKey, string userId, string gameId, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+    }
+
+    private sealed class FixedCredentialStore : ICredentialStore
+    {
+        public Task SaveAsync(string target, string secret, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<string?> ReadAsync(string target, CancellationToken cancellationToken) =>
+            Task.FromResult<string?>("verification-token");
+
+        public Task DeleteAsync(string target, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
     }
 
     private static void Ensure(bool condition, string message)

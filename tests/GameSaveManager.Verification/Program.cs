@@ -90,6 +90,8 @@ await RunAsync("添加向导逐步门禁与多根聚合预览有效", GameSaveMa
 await RunAsync("注册表规则会在确认前执行真实可读性预览", GameSaveManager.Verification.RegistryPreviewVerification.VerifyRealRegistryPreviewAsync);
 Run("游戏详情同步摘要与进度按游戏隔离", GameSaveManager.Verification.GameDetailSyncStateVerification.VerifyPerGameSyncStateIsolation);
 Run("删除目标与切换游戏临时状态严格隔离", GameSaveManager.Verification.GameSelectionConsistencyVerification.VerifyDeleteTargetAndTransientStateIsolation);
+Run("切换游戏按 gameId 恢复配置且平台进程不会串联", GameSaveManager.Verification.GameSelectionConsistencyVerification.VerifyCachedProfileAndStoreProcessIsolation);
+await RunAsync("立即备份不会把瞬态界面字段写回本机配置", GameSaveManager.Verification.GameSelectionConsistencyVerification.VerifySynchronizationNeverPersistsTransientUiAsync);
 await RunAsync("客户端更新会验证签名清单、摘要链和 Windows 发布者", GameSaveManager.Verification.ClientUpdateVerification.VerifyAsync);
 await RunAsync("破坏性同步会阻断且提交歧义可安全核对", GameSaveManager.Verification.DataSafetyRegressionVerification.VerifyDestructiveSyncAndAmbiguousCommitAsync);
 await RunAsync("历史快照按声明根目录精确恢复且保留安全备份", GameSaveManager.Verification.DataSafetyRegressionVerification.VerifyExactHistoricalRestoreAsync);

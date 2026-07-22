@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using GameSaveManager.App.Common;
 using GameSaveManager.App.ViewModels;
 using GameSaveManager.Application.Api;
 
@@ -42,11 +43,14 @@ public partial class LibraryView : UserControl
         e.Handled = true;
     }
 
-    private void ManageSaveMenuItem_OnClick(object sender, RoutedEventArgs e)
+    private async void ManageSaveMenuItem_OnClick(object sender, RoutedEventArgs e)
     {
         if (GetMenuGame(sender) is not { } game || DataContext is not MainViewModel viewModel) return;
-        if (viewModel.SelectGameCommand.CanExecute(game)) viewModel.SelectGameCommand.Execute(game);
-        if (viewModel.NavigateCommand.CanExecute("游戏详情")) viewModel.NavigateCommand.Execute("游戏详情");
+        if (viewModel.SelectGameCommand is not AsyncCommand selectCommand
+            || !await selectCommand.ExecuteAsync(game)
+            || !string.Equals(viewModel.SelectedGame?.GameId, game.GameId, StringComparison.Ordinal)) return;
+        if (viewModel.NavigateCommand.CanExecute("游戏详情"))
+            viewModel.NavigateCommand.Execute("游戏详情");
     }
 
     private void DeleteGameMenuItem_OnClick(object sender, RoutedEventArgs e)

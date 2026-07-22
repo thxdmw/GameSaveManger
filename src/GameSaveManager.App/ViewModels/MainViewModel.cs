@@ -72,6 +72,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly SemaphoreSlim _authenticationGate = new(1, 1);
     private CancellationTokenSource _sessionLifetime = new();
     private long _sessionGeneration;
+    private long _gameContextGeneration;
     private int _authenticationInProgress;
 
     private string _serverAddress = "http://localhost:8080";
@@ -120,6 +121,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private SaveRootRule? _selectedAdditionalSaveRoot;
     private RegistrySaveRule? _selectedRegistrySaveRule;
     private bool _isSaveDirectoryConfirmed;
+    private string? _configurationOwnerGameId;
     private IReadOnlyList<FileMetadataSnapshot>? _learningBefore;
     private CancellationTokenSource? _learningCancellation;
     private ConfigurationOperationStamp? _learningOperationStamp;
@@ -434,6 +436,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (SelectedGame is null) return "请先选择游戏。";
             if (!_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? profile)) return "尚未保存启动入口和存档目录。";
+            if (GetLocalProfileIntegrityError(SelectedGame, profile) is { } integrityError) return integrityError;
             if (IsAutoSyncEnabled) return "已启用；游戏退出后会自动创建并上传存档快照。";
             if (!IsAutomaticSyncProfileReady(profile)) return "启动入口或存档目录尚未配置完成，请先在游戏详情中完成配置。";
             int rootCount = profile.EffectiveSaveRoots.Count(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase));
@@ -450,6 +453,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _selectedGame, value))
             {
+                Interlocked.Increment(ref _gameContextGeneration);
+                _configurationOwnerGameId = null;
                 if (_learningBefore is not null || _learningCancellation is not null)
                     ResetSaveLearningState(cancel: true);
                 _resumeAutomaticSyncAfterConfiguration = false;
@@ -476,7 +481,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 SelectedSnapshot = null;
                 SelectedDiscoveredGame = null;
                 InvalidateSavePreview("请选择当前游戏的存档目录并重新预览。");
-                ApplyDiscoveredIdentity(value);
+                if (!_isAddGameWizardActive && value is not null
+                    && _localGameProfiles.TryGetValue(value.GameId, out LocalGameProfile? cachedProfile)
+                    && IsProfileOwnedByCurrentSession(cachedProfile, value.GameId)
+                    && GetLocalProfileIntegrityError(value, cachedProfile) is null)
+                {
+                    ApplyLocalProfileToSelectedGame(cachedProfile);
+                }
+                else
+                {
+                    ApplyDiscoveredIdentity(value);
+                    if (!_isAddGameWizardActive) _configurationOwnerGameId = value?.GameId;
+                }
                 GameSyncUiState? syncState = GetSelectedGameSyncState();
                 SyncProgressText = syncState?.ProgressText ?? "等待立即备份";
                 SyncProgressValue = syncState?.ProgressValue ?? 0;
@@ -488,6 +504,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 NotifySelectedGameSyncStateChanged();
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasActiveConflict)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ActiveConflictRemoteHeadSnapshotId)));
+                RaiseCommandStates();
             }
         }
     }
@@ -568,6 +585,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SaveDirectoryPreviewText,
             FileCount,
             LogicalSizeText);
+        Interlocked.Increment(ref _gameContextGeneration);
+        _configurationOwnerGameId = null;
         _isAddGameWizardActive = true;
         AddGameWizard.Reset();
         NewGameName = string.Empty;
@@ -581,6 +600,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public void EndAddGameWizard(bool completed)
     {
         _isAddGameWizardActive = false;
+        Interlocked.Increment(ref _gameContextGeneration);
         if (_learningBefore is not null || _learningCancellation is not null)
             CancelSaveLearning();
         if (!completed && _addGameWizardReturnState is { } state)
@@ -615,7 +635,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             foreach (RegistrySavePreview preview in state.RegistrySavePreviews)
                 RegistrySavePreviews.Add(preview);
         }
+        _configurationOwnerGameId = SelectedGame?.GameId;
         _addGameWizardReturnState = null;
+        RaiseCommandStates();
     }
 
     private void ClearPendingSaveConfiguration()
@@ -1099,6 +1121,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (!IsAuthenticated || selected is null) return;
         SelectedGame = selected;
         string gameId = selected.GameId;
+        long gameContextGeneration = Volatile.Read(ref _gameContextGeneration);
         Uri? operationServer = null;
         SessionStamp? session = null;
         try
@@ -1108,11 +1131,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             session = CaptureSessionStamp(server);
             string token = await RequireDeviceTokenAsync(server);
             EnsureSessionCurrent(session, server);
+            if (!IsGameContextCurrent(gameId, gameContextGeneration)) return;
             await RestoreLocalProfileAsync(server, token);
             EnsureSessionCurrent(session, server);
+            if (!IsGameContextCurrent(gameId, gameContextGeneration)) return;
             await ReloadSnapshotsAsync(server, token, gameId);
             EnsureSessionCurrent(session, server);
-            if (IsSelectedGame(gameId))
+            if (IsGameContextCurrent(gameId, gameContextGeneration))
                 StatusText = $"已选择 {selected.Name}；可以查看最近快照或点击启动。";
         }
         catch (Exception exception)
@@ -1236,16 +1261,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task RestoreLocalProfileAsync(Uri server, string token)
     {
         string? gameId = SelectedGame?.GameId;
-        if (gameId is null) return;
+        if (gameId is null || _isAddGameWizardActive) return;
+        long gameContextGeneration = Volatile.Read(ref _gameContextGeneration);
         SessionStamp session = CaptureSessionStamp(server);
         string serverKey = GameSaveServerIdentity.CreateStableKey(server);
         LocalGameProfile? profile = await _localGameProfileStore.GetAsync(
             serverKey, session.UserId, gameId, session.CancellationToken);
         EnsureSessionCurrent(session, server);
-        if (profile is null || !IsSelectedGame(gameId)) return;
+        if (profile is null || !IsGameContextCurrent(gameId, gameContextGeneration)) return;
+        ValidateLocalProfileScope(profile, serverKey, session.UserId, gameId);
         profile = await NormalizeGeneratedProfileRootsAsync(server, profile, session.CancellationToken);
+        EnsureSessionCurrent(session, server);
+        if (!IsGameContextCurrent(gameId, gameContextGeneration)) return;
+        ValidateLocalProfileScope(profile, serverKey, session.UserId, gameId);
 
         _localGameProfiles[profile.GameId] = profile;
+        CloudGame? currentGame = Games.FirstOrDefault(game =>
+            string.Equals(game.GameId, profile.GameId, StringComparison.Ordinal)) ?? SelectedGame;
+        string? integrityError = currentGame is null ? null : GetLocalProfileIntegrityError(currentGame, profile);
+        if (integrityError is not null)
+        {
+            StatusText = integrityError;
+            RefreshGameRuntimeStatus();
+            return;
+        }
         ApplyLocalProfileToSelectedGame(profile);
         RefreshGameRuntimeStatus();
         if (profile.AutoSnapshotEnabled)
@@ -1259,7 +1298,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ApplyLocalProfileToSelectedGame(LocalGameProfile profile)
     {
-        if (!IsSelectedGame(profile.GameId)) return;
+        if (_isAddGameWizardActive || !IsSelectedGame(profile.GameId)) return;
         SaveLocationCandidate? candidate = string.IsNullOrWhiteSpace(profile.SaveDirectory)
             ? null
             : new SaveLocationCandidate(
@@ -1284,6 +1323,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RegistrySaveRules.Clear();
         foreach (RegistrySaveRule rule in profile.EffectiveRegistrySaveRules) RegistrySaveRules.Add(rule);
         IsSaveDirectoryConfirmed = profile.UserConfirmed;
+        _configurationOwnerGameId = profile.GameId;
+        RaiseCommandStates();
     }
 
 
@@ -1298,10 +1339,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _localGameProfiles.Clear();
         foreach (LocalGameProfile profile in profiles)
         {
+            ValidateLocalProfileScope(profile, serverKey, session.UserId, profile.GameId);
             LocalGameProfile normalizedProfile = await NormalizeGeneratedProfileRootsAsync(server, profile, session.CancellationToken);
+            ValidateLocalProfileScope(normalizedProfile, serverKey, session.UserId, profile.GameId);
             _localGameProfiles[normalizedProfile.GameId] = normalizedProfile;
-            if (!normalizedProfile.AutoSnapshotEnabled || !Games.Any(game => game.GameId == normalizedProfile.GameId)) continue;
-            await EnableAutomaticSyncAsync(server, token, normalizedProfile.GameId, normalizedProfile, session.CancellationToken);
+        }
+        foreach (LocalGameProfile normalizedProfile in _localGameProfiles.Values)
+        {
+            CloudGame? game = Games.FirstOrDefault(item =>
+                string.Equals(item.GameId, normalizedProfile.GameId, StringComparison.Ordinal));
+            if (!normalizedProfile.AutoSnapshotEnabled || game is null
+                || GetLocalProfileIntegrityError(game, normalizedProfile) is not null) continue;
+            await EnableAutomaticSyncAsync(
+                server, token, normalizedProfile.GameId, normalizedProfile, session.CancellationToken);
             EnsureSessionCurrent(session, server);
         }
         RefreshGameRuntimeStatus();
@@ -1317,7 +1367,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CancellationToken cancellationToken = default)
     {
         IReadOnlyList<SaveRootRule> fileRoots = GetAutomaticSyncFileRoots(profile);
-        if (!IsAutomaticSyncProfileReady(profile)) return;
+        CloudGame? game = Games.FirstOrDefault(item =>
+                              string.Equals(item.GameId, gameId, StringComparison.Ordinal))
+                          ?? (IsSelectedGame(gameId) ? SelectedGame : null);
+        if (game is null || GetLocalProfileIntegrityError(game, profile) is not null
+            || !IsAutomaticSyncProfileReady(profile)) return;
         long sessionGeneration = Volatile.Read(ref _sessionGeneration);
         await _autoSyncCoordinator.EnableAsync(
             gameId,
@@ -1553,10 +1607,190 @@ public sealed class MainViewModel : INotifyPropertyChanged
         else _ = System.Windows.Application.Current.Dispatcher.InvokeAsync(Apply);
     }
 
-    private LocalGameProfile GetRequiredLocalProfile(string gameId) =>
-        _localGameProfiles.TryGetValue(gameId, out LocalGameProfile? profile)
-            ? profile
-            : throw new InvalidOperationException("请先保存并确认该游戏的本机存档配置。");
+    private bool IsGameContextCurrent(string gameId, long expectedGeneration) =>
+        expectedGeneration == Volatile.Read(ref _gameContextGeneration)
+        && !_isAddGameWizardActive
+        && IsSelectedGame(gameId);
+
+    private bool IsProfileOwnedByCurrentSession(LocalGameProfile profile, string gameId)
+    {
+        if (!IsAuthenticated
+            || !string.Equals(profile.GameId, gameId, StringComparison.Ordinal)
+            || !string.Equals(profile.UserId, _authenticatedUserId, StringComparison.Ordinal)) return false;
+        try
+        {
+            return string.Equals(
+                profile.ServerKey,
+                GameSaveServerIdentity.CreateStableKey(ParseServerUri()),
+                StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void ValidateLocalProfileScope(
+        LocalGameProfile profile,
+        string serverKey,
+        string userId,
+        string gameId)
+    {
+        if (!string.Equals(profile.ServerKey, serverKey, StringComparison.Ordinal)
+            || !string.Equals(profile.UserId, userId, StringComparison.Ordinal)
+            || !string.Equals(profile.GameId, gameId, StringComparison.Ordinal))
+            throw new InvalidDataException("本机游戏配置的服务端、账号或游戏归属不一致，已停止读取以避免串用数据。");
+    }
+
+    private LocalGameProfile GetRequiredLocalProfile(Uri server, string userId, string gameId)
+    {
+        if (!_localGameProfiles.TryGetValue(gameId, out LocalGameProfile? profile))
+            throw new InvalidOperationException("请先保存并确认该游戏的本机存档配置。");
+        ValidateLocalProfileScope(
+            profile,
+            GameSaveServerIdentity.CreateStableKey(server),
+            userId,
+            gameId);
+        return profile;
+    }
+
+    private void EnsureDisplayedConfigurationMatches(LocalGameProfile profile)
+    {
+        CloudGame game = SelectedGame ?? throw new InvalidOperationException("请先选择云端游戏。");
+        string? integrityError = GetLocalProfileIntegrityError(game, profile);
+        if (integrityError is not null) throw new InvalidDataException(integrityError);
+        if (!DoesDisplayedConfigurationMatch(profile))
+            throw new InvalidOperationException(
+                "当前详情页尚未完整加载所选游戏的已确认配置，已停止同步。请重新选择该游戏或重新打开详情页后再试。");
+        if (!IsManualSyncProfileReady(profile))
+            throw new InvalidOperationException("该游戏的已确认存档目录已失效或不存在，请重新配置后再同步。");
+    }
+
+    private bool DoesDisplayedConfigurationMatch(LocalGameProfile profile)
+    {
+        if (_isAddGameWizardActive
+            || !IsSelectedGame(profile.GameId)
+            || !string.Equals(_configurationOwnerGameId, profile.GameId, StringComparison.Ordinal)
+            || IsSaveDirectoryConfirmed != profile.UserConfirmed
+            || !PathValuesEqual(SaveDirectory, profile.SaveDirectory)
+            || !PathValuesEqual(AutoSnapshotExecutablePath, profile.ExecutablePath)
+            || !string.Equals(
+                GameProcessNameRules.Normalize(AutoSnapshotProcessName),
+                GameProcessNameRules.Normalize(profile.ProcessName),
+                StringComparison.OrdinalIgnoreCase)) return false;
+
+        SaveRootRule[] persistedAdditionalRoots = profile.EffectiveSaveRoots.Where(root =>
+                !string.Equals(root.RootId, "root", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return SaveRootCollectionsEqual(AdditionalSaveRoots, persistedAdditionalRoots)
+               && RegistryRuleCollectionsEqual(RegistrySaveRules, profile.EffectiveRegistrySaveRules);
+    }
+
+    private static bool IsManualSyncProfileReady(LocalGameProfile profile)
+    {
+        SaveRootRule[] fileRoots = profile.EffectiveSaveRoots.Where(root =>
+                !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return profile.UserConfirmed
+               && fileRoots.Length > 0
+               && fileRoots.All(root => root.UserConfirmed && Directory.Exists(root.Path))
+               && profile.EffectiveRegistrySaveRules.All(rule => rule.UserConfirmed);
+    }
+
+    private static bool SaveRootCollectionsEqual(
+        IReadOnlyCollection<SaveRootRule> first,
+        IReadOnlyCollection<SaveRootRule> second)
+    {
+        if (first.Count != second.Count) return false;
+        return first.All(left => second.Any(right =>
+            string.Equals(left.RootId, right.RootId, StringComparison.OrdinalIgnoreCase)
+            && PathValuesEqual(left.Path, right.Path)
+            && left.Source == right.Source
+            && left.Confidence == right.Confidence
+            && left.UserConfirmed == right.UserConfirmed
+            && left.IncludePatterns.SequenceEqual(right.IncludePatterns, StringComparer.OrdinalIgnoreCase)
+            && left.ExcludePatterns.SequenceEqual(right.ExcludePatterns, StringComparer.OrdinalIgnoreCase)));
+    }
+
+    private static bool RegistryRuleCollectionsEqual(
+        IReadOnlyCollection<RegistrySaveRule> first,
+        IReadOnlyCollection<RegistrySaveRule> second)
+    {
+        if (first.Count != second.Count) return false;
+        return first.All(left => second.Any(right =>
+            string.Equals(left.RuleId, right.RuleId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.KeyPath, right.KeyPath, StringComparison.OrdinalIgnoreCase)
+            && left.UserConfirmed == right.UserConfirmed));
+    }
+
+    private static bool PathValuesEqual(string? first, string? second)
+    {
+        if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second))
+            return string.IsNullOrWhiteSpace(first) && string.IsNullOrWhiteSpace(second);
+        try
+        {
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(first)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(second)),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private string? GetLocalProfileIntegrityError(CloudGame game, LocalGameProfile profile)
+    {
+        bool cloudStoreGame = string.Equals(game.Provider, GameIdentity.Steam, StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(game.Provider, GameIdentity.Epic, StringComparison.OrdinalIgnoreCase);
+        if (cloudStoreGame
+            && (!string.Equals(game.Provider, profile.Provider, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(game.ProviderGameId, profile.ProviderGameId, StringComparison.OrdinalIgnoreCase)))
+            return "本机配置的平台身份与当前游戏不一致，已停止启动和同步，请重新配置。";
+
+        if (cloudStoreGame && !string.IsNullOrWhiteSpace(profile.InstallDirectory))
+        {
+            foreach (string executablePath in new[] { profile.ExecutablePath, profile.IdentityExecutablePath }
+                         .OfType<string>()
+                         .Where(path => !string.IsNullOrWhiteSpace(path)))
+            {
+                if (!IsPathInsideDirectory(profile.InstallDirectory, executablePath))
+                    return "本机配置的 EXE 不在当前平台游戏安装目录中，可能混入了另一款游戏，已停止启动和同步。";
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(profile.ExecutablePath)
+            && !string.IsNullOrWhiteSpace(profile.SaveDirectory))
+        {
+            LocalGameProfile? duplicated = _localGameProfiles.Values.FirstOrDefault(other =>
+                !string.Equals(other.GameId, profile.GameId, StringComparison.Ordinal)
+                && PathValuesEqual(other.ExecutablePath, profile.ExecutablePath)
+                && PathValuesEqual(other.SaveDirectory, profile.SaveDirectory));
+            if (duplicated is not null)
+                return "本机 EXE 与存档目录同时指向了另一款游戏的配置，已停止启动和同步，请重新确认当前游戏路径。";
+        }
+        return null;
+    }
+
+    private static bool IsPathInsideDirectory(string directory, string path)
+    {
+        try
+        {
+            string fullDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+            string fullPath = Path.GetFullPath(path);
+            string relative = Path.GetRelativePath(fullDirectory, fullPath);
+            return !Path.IsPathRooted(relative)
+                   && !relative.Equals("..", StringComparison.Ordinal)
+                   && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                   && !relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
     private void ApplySyncResult(string gameId, CloudSyncResult result)
     {
         string gameName = Games.FirstOrDefault(game => game.GameId == gameId)?.Name ?? "游戏";
@@ -1882,6 +2116,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         string gameId = selectedGame.GameId;
         if (expectedGameId is not null && !string.Equals(gameId, expectedGameId, StringComparison.Ordinal))
             throw new InvalidOperationException("操作期间当前游戏已变化，已停止保存以避免写错游戏配置。");
+        string userId = RequireAuthenticatedUserId();
+        bool addGameWizardActive = _isAddGameWizardActive;
+        EnsureConfigurationWriteTarget(
+            gameId, userId, sessionGeneration, addGameWizardActive);
         bool userConfirmed = confirmationDraft?.UserConfirmed ?? IsSaveDirectoryConfirmed;
         IReadOnlyList<SaveRootRule> additionalRoots = confirmationDraft?.AdditionalRoots
             ?? AdditionalSaveRoots.ToArray();
@@ -1893,8 +2131,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         string executablePath = AutoSnapshotExecutablePath;
         SaveLocationSource source = SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual;
         int confidence = SelectedSaveLocationCandidate?.Confidence ?? (userConfirmed ? 100 : 0);
-        string userId = RequireAuthenticatedUserId();
-        bool addGameWizardActive = _isAddGameWizardActive;
         _localGameProfiles.TryGetValue(gameId, out LocalGameProfile? existingProfile);
         GameLaunchProfile? launchProfile = addGameWizardActive
             ? BuildPendingLaunchProfile()
@@ -1921,13 +2157,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 latestResolution.FailureReason ?? "快捷方式解析失败。";
             requireResolvedShortcut = true;
         }
-        EnsureUiOperationTarget(gameId, userId, sessionGeneration);
+        EnsureConfigurationWriteTarget(
+            gameId, userId, sessionGeneration, addGameWizardActive);
         string? validationError = ValidateLaunchProfile(launchProfile, requireResolvedShortcut);
         bool launchRequired = addGameWizardActive || autoSnapshotEnabled;
         if (validationError is not null && launchRequired) throw new InvalidOperationException(validationError);
         if (validationError is not null) launchProfile = null;
         await PrepareRegistrySnapshotsAsync(server, userId, gameId, registryRules);
-        EnsureUiOperationTarget(gameId, userId, sessionGeneration);
+        EnsureConfigurationWriteTarget(
+            gameId, userId, sessionGeneration, addGameWizardActive);
         string? identityExecutablePath = launchProfile is null ? null : identity.ExecutablePath;
         if (launchProfile is { TargetType: GameLaunchTargetType.Shortcut }
             && _shortcutResolutions.TryGetValue(launchProfile.Target, out ShortcutResolution? shortcut)
@@ -1955,12 +2193,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         LocalGameProfile profile = new(
             GameSaveServerIdentity.CreateStableKey(server), gameId,
             identity.Provider, identity.ProviderGameId, identity.InstallDirectory,
-            saveDirectory, processName, executablePath,
+            saveDirectory, processName, string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
             source, confidence,
             userConfirmed, autoSnapshotEnabled && userConfirmed && launchProfile is not null,
             configuredRoots, registryRules, identityExecutablePath, launchProfile, userId);
         await _localGameProfileStore.SaveAsync(profile, CancellationToken.None);
-        EnsureUiOperationTarget(gameId, userId, sessionGeneration);
+        EnsureConfigurationWriteTarget(
+            gameId, userId, sessionGeneration, addGameWizardActive);
         _localGameProfiles[profile.GameId] = profile;
         RefreshGameRuntimeStatus();
         return profile;
@@ -1977,6 +2216,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
             || !string.Equals(_authenticatedUserId, userId, StringComparison.Ordinal)
             || !IsSelectedGame(gameId))
             throw new InvalidOperationException("操作期间账号或游戏已变化，已停止写入以保证数据对应关系。");
+    }
+
+    private void EnsureConfigurationWriteTarget(
+        string gameId,
+        string userId,
+        long expectedSessionGeneration,
+        bool expectedAddGameWizardActive)
+    {
+        EnsureUiOperationTarget(gameId, userId, expectedSessionGeneration);
+        if (_isAddGameWizardActive != expectedAddGameWizardActive
+            || (!expectedAddGameWizardActive
+                && !string.Equals(_configurationOwnerGameId, gameId, StringComparison.Ordinal)))
+            throw new InvalidOperationException("当前界面配置不属于所选游戏，已停止保存以避免覆盖其他游戏的本机数据。");
     }
 
     private GameLaunchProfile BuildPendingLaunchProfile()
@@ -3025,17 +3277,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             operationServer = server;
             session = CaptureSessionStamp(server);
             string userId = session.UserId;
+            LocalGameProfile syncProfile = GetRequiredLocalProfile(server, userId, gameId);
+            EnsureDisplayedConfigurationMatches(syncProfile);
             string token = await RequireDeviceTokenAsync(server);
             EnsureSessionCurrent(session, server);
             EnsureUiOperationTarget(gameId, userId, session.Generation);
-            bool automaticSyncEnabled = IsAutoSyncEnabled;
-            await SaveLocalProfileAsync(
-                server, automaticSyncEnabled, expectedGameId: gameId,
-                expectedSessionGeneration: session.Generation);
+            EnsureDisplayedConfigurationMatches(syncProfile);
             CloudSyncResult result;
             try
             {
-                result = await RunQueuedSyncAsync(server, token, userId, gameId, GetRequiredLocalProfile(gameId),
+                result = await RunQueuedSyncAsync(server, token, userId, gameId, syncProfile,
                     SnapshotTrigger.Manual, "手动同步", false, session.CancellationToken,
                     expectedSessionGeneration: session.Generation);
             }
@@ -3051,7 +3302,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     return;
                 }
                 EnsureSessionCurrent(session, server);
-                result = await RunQueuedSyncAsync(server, token, userId, gameId, GetRequiredLocalProfile(gameId),
+                result = await RunQueuedSyncAsync(server, token, userId, gameId, syncProfile,
                     SnapshotTrigger.Manual, "手动同步（已确认大量删除）", false,
                     session.CancellationToken, true, session.Generation);
             }
@@ -3092,14 +3343,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             operationServer = server;
             session = CaptureSessionStamp(server);
             string userId = session.UserId;
+            LocalGameProfile syncProfile = GetRequiredLocalProfile(server, userId, gameId);
+            EnsureDisplayedConfigurationMatches(syncProfile);
             string token = await RequireDeviceTokenAsync(server);
             EnsureSessionCurrent(session, server);
             EnsureUiOperationTarget(gameId, userId, session.Generation);
-            bool automaticSyncEnabled = IsAutoSyncEnabled;
-            await SaveLocalProfileAsync(
-                server, automaticSyncEnabled, expectedGameId: gameId,
-                expectedSessionGeneration: session.Generation);
-            CloudSyncResult result = await RunQueuedSyncAsync(server, token, userId, gameId, GetRequiredLocalProfile(gameId),
+            EnsureDisplayedConfigurationMatches(syncProfile);
+            CloudSyncResult result = await RunQueuedSyncAsync(server, token, userId, gameId, syncProfile,
                 SnapshotTrigger.Manual, "多设备冲突：保留本机版本", true,
                 session.CancellationToken, true, session.Generation);
             EnsureSessionCurrent(session, server);
@@ -3497,6 +3747,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string GetGameProtectionStatusText(CloudGame game)
     {
         if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile)) return "未配置存档";
+        if (GetLocalProfileIntegrityError(game, profile) is not null) return "本机配置异常";
         if (!profile.UserConfirmed || profile.EffectiveSaveRoots.Any(root => !root.UserConfirmed)) return "存档待确认";
         if (profile.EffectiveSaveRoots.Where(root => !string.Equals(root.RootId, "registry", StringComparison.OrdinalIgnoreCase)).Any(root => !Directory.Exists(root.Path))) return "存档目录失效";
         return profile.AutoSnapshotEnabled ? "已保护 · 自动同步" : "已保护 · 手动同步";
@@ -3505,6 +3756,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile) || profile.EffectiveLaunchProfile is null)
             return "启动配置待验证";
+        if (GetLocalProfileIntegrityError(game, profile) is not null) return "启动配置异常";
         return IsGameRunning(profile) ? "运行中" : "未启动";
     }
 
@@ -3650,6 +3902,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SelectedGame = game;
             CurrentPage = "游戏详情";
             StatusText = "该游戏的启动配置待验证，请在游戏详情中选择正确的 EXE。";
+            return;
+        }
+        string? integrityError = GetLocalProfileIntegrityError(game, profile);
+        if (integrityError is not null)
+        {
+            SelectedGame = game;
+            CurrentPage = "游戏详情";
+            StatusText = integrityError;
             return;
         }
 
@@ -3884,6 +4144,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RuntimeStatusVersion++;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutoSyncConfigurationText)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LaunchDisabledReason)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedGameHealthText)));
     }
 
     private static HashSet<string> SnapshotRunningProcessNames()
@@ -3912,6 +4173,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             EnsureSessionCurrent(session, server);
             if (!_localGameProfiles.TryGetValue(gameId, out LocalGameProfile? savedProfile) || !IsAutomaticSyncProfileReady(savedProfile))
                 throw new InvalidOperationException("启动入口或存档目录尚未配置完成，请先在游戏详情中完成配置");
+            CloudGame game = Games.FirstOrDefault(item =>
+                                 string.Equals(item.GameId, gameId, StringComparison.Ordinal))
+                             ?? (IsSelectedGame(gameId) ? SelectedGame : null)
+                ?? throw new InvalidOperationException("当前游戏已不在游戏库中，请刷新后重试。");
+            string? integrityError = GetLocalProfileIntegrityError(game, savedProfile);
+            if (integrityError is not null) throw new InvalidDataException(integrityError);
             if (IsGameRunningNow(savedProfile))
                 throw new InvalidOperationException("游戏正在运行，请退出游戏后再启用自动同步，以便先完成云端版本检查。");
             LocalGameProfile profile = savedProfile with { AutoSnapshotEnabled = true };
@@ -3987,6 +4254,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private long BeginSessionTransition()
     {
+        Interlocked.Increment(ref _gameContextGeneration);
+        _configurationOwnerGameId = null;
         if (_learningBefore is not null || _learningCancellation is not null)
             ResetSaveLearningState(cancel: true);
         CancellationTokenSource[] activeSyncs;
@@ -4046,6 +4315,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ClearAuthenticatedUiState()
     {
+        Interlocked.Increment(ref _gameContextGeneration);
+        _configurationOwnerGameId = null;
         if (_learningBefore is not null || _learningCancellation is not null)
             ResetSaveLearningState(cancel: true);
         IsAutoSyncEnabled = false;
@@ -4351,6 +4622,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (_launchesInProgress.ContainsKey(game.GameId)) return "正在验证该游戏的启动状态。";
         if (!_localGameProfiles.TryGetValue(game.GameId, out LocalGameProfile? profile)) return "尚未保存本机启动配置。";
+        string? integrityError = GetLocalProfileIntegrityError(game, profile);
+        if (integrityError is not null) return integrityError;
         if (IsGameRunning(profile)) return "检测到游戏已经在运行，请先退出当前进程。";
         GameLaunchProfile? launchProfile = profile.EffectiveLaunchProfile;
         if (launchProfile is null) return "启动配置待验证。";
@@ -4385,6 +4658,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         return IsAuthenticated && SelectedGame is not null && !IsAutoSyncEnabled
             && _localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? profile)
+            && GetLocalProfileIntegrityError(SelectedGame, profile) is null
             && IsAutomaticSyncProfileReady(profile)
             && !IsGameRunning(profile);
     }
@@ -4402,9 +4676,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             && fileRoots.All(root => root.UserConfirmed && Directory.Exists(root.Path))
             && profile.EffectiveRegistrySaveRules.All(rule => rule.UserConfirmed);
     }
-    private bool CanSynchronize() =>
-        IsAuthenticated && SelectedGame is not null && !IsSelectedGameSyncing && HasConfirmedExistingFileRoots()
-        && (!_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? profile) || !IsGameRunning(profile));
+    private bool CanSynchronize()
+    {
+        if (!IsAuthenticated || SelectedGame is null || IsSelectedGameSyncing
+            || !_localGameProfiles.TryGetValue(SelectedGame.GameId, out LocalGameProfile? profile)
+            || !IsProfileOwnedByCurrentSession(profile, SelectedGame.GameId)) return false;
+        return GetLocalProfileIntegrityError(SelectedGame, profile) is null
+               && DoesDisplayedConfigurationMatch(profile)
+               && IsManualSyncProfileReady(profile)
+               && !IsGameRunning(profile);
+    }
 
     private bool CanRestore() =>
         CanSynchronize() && SelectedSnapshot is not null &&
@@ -4414,12 +4695,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         GameIdentity game = GetCurrentGameIdentity();
         return _learningCancellation is null && _learningBefore is null && IsLaunchTargetValid(CreateLaunchProfile(game));
-    }
-
-    private bool HasConfirmedExistingFileRoots()
-    {
-        if (!IsSaveDirectoryConfirmed || string.IsNullOrWhiteSpace(SaveDirectory) || !Directory.Exists(SaveDirectory)) return false;
-        return AdditionalSaveRoots.All(root => root.UserConfirmed && Directory.Exists(root.Path));
     }
 
     private void RaiseCommandStates()
