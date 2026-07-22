@@ -28,6 +28,39 @@ internal static class AddGameWizardValidationVerification
         await File.WriteAllTextAsync(Path.Combine(additional, "b.sav"), "b");
         try
         {
+            var isolationStore = new RecordingProfileStore();
+            MainViewModel isolationViewModel = SmokeViewModelFactory.Create(isolationStore);
+            var existingGame = new GameSaveManager.Application.Api.CloudGame(
+                "existing-game", "已有游戏", "CUSTOM", null);
+            isolationViewModel.SelectedGame = existingGame;
+            isolationViewModel.SaveDirectory = outside;
+            isolationViewModel.BeginAddGameWizard();
+            Ensure(isolationViewModel.SelectedGame is null,
+                "打开添加向导后必须解除旧游戏选择，草稿不能继续归属于已有游戏。");
+            isolationViewModel.SelectedDiscoveredGame = new DiscoveredGame(new GameIdentity(
+                "待添加游戏", GameIdentity.Local, null, gameDirectory, executable, "game"));
+            isolationViewModel.SaveDirectory = primary;
+            await InvokePrivateAsync(isolationViewModel, "PreviewSaveDirectoryAsync");
+            await InvokePrivateAsync(isolationViewModel, "ConfirmSaveDirectoryAsync");
+            Ensure(isolationStore.SaveCount == 0,
+                "新游戏尚未从服务端取得 gameId 时，确认向导存档只能修改草稿，禁止写入旧游戏 Profile。");
+
+            // 即使未来某个 UI 路径在向导期间误设回旧游戏，底层保存边界也必须再次拒绝。
+            isolationViewModel.SelectedGame = existingGame;
+            MethodInfo saveMethod = typeof(MainViewModel).GetMethod(
+                "SaveLocalProfileAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("未找到本机配置保存方法。");
+            Task rejectedSave = (Task)(saveMethod.Invoke(isolationViewModel,
+                [new Uri("http://localhost:8080"), false, null, existingGame.GameId, null])
+                ?? throw new InvalidOperationException("本机配置保存未返回任务。"));
+            await ExpectThrowsAsync<InvalidOperationException>(() => rejectedSave);
+            Ensure(isolationStore.SaveCount == 0,
+                "添加向导底层保存必须只接受创建接口刚返回的新 gameId。");
+            isolationViewModel.EndAddGameWizard(completed: false);
+            Ensure(isolationViewModel.SelectedGame?.GameId == existingGame.GameId
+                   && isolationViewModel.SaveDirectory == outside,
+                "取消添加向导后应完整恢复原游戏选择和配置草稿。");
+
             MainViewModel viewModel = SmokeViewModelFactory.Create();
             AddGameWizardViewModel wizard = viewModel.AddGameWizard;
             viewModel.BeginAddGameWizard();
@@ -68,7 +101,14 @@ internal static class AddGameWizardValidationVerification
                    && !viewModel.CompleteSaveLearningCommand.CanExecute(null),
                 "取消学习后应清理基线并允许重新开始。");
 
-            viewModel.SaveDirectory = primary;
+            viewModel.SelectManualSaveDirectory(primary);
+            Ensure(viewModel.SelectedSaveLocationCandidate is
+                       { Source: SaveLocationSource.Manual } selectedManualCandidate
+                   && string.Equals(selectedManualCandidate.Path, viewModel.SaveDirectory,
+                       StringComparison.OrdinalIgnoreCase)
+                   && viewModel.SaveLocationCandidates.Count(item =>
+                       item.Source == SaveLocationSource.Manual) == 1,
+                "手动选择存档目录后必须立即加入候选列表并选中，不得等到下一步才显示。");
             Ensure(wizard.TryMoveNext() && wizard.Step == 4, "选择存在的主目录后应进入预览确认。");
             viewModel.AdditionalSaveRootPath = additional;
             await InvokePrivateAsync(viewModel, "AddAdditionalSaveRootAsync");
@@ -303,6 +343,7 @@ internal static class AddGameWizardValidationVerification
     private sealed class RecordingProfileStore : ILocalGameProfileStore
     {
         public LocalGameProfile? SavedProfile { get; private set; }
+        public int SaveCount { get; private set; }
         public bool FailSaves { get; set; }
 
         public Task<LocalGameProfile?> GetAsync(string serverKey, string userId, string gameId, CancellationToken cancellationToken) =>
@@ -311,6 +352,7 @@ internal static class AddGameWizardValidationVerification
         public Task SaveAsync(LocalGameProfile profile, CancellationToken cancellationToken)
         {
             if (FailSaves) return Task.FromException(new IOException("模拟配置确认持久化失败。"));
+            SaveCount++;
             SavedProfile = profile;
             return Task.CompletedTask;
         }

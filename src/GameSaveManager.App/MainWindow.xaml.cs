@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private MainViewModel? _subscribedViewModel;
     private bool _allowClose;
     private bool _shutdownInProgress;
+    private bool _closePromptPending;
     private int _notificationGeneration;
 
     public MainWindow()
@@ -77,29 +78,38 @@ public partial class MainWindow : Window
             new Views.AddGameWizardWindow(viewModel) { Owner = this }.ShowDialog();
     }
 
-    private async void MainWindow_OnClosing(object? sender, CancelEventArgs e)
+    private void MainWindow_OnClosing(object? sender, CancelEventArgs e)
     {
         if (_allowClose) return;
-        Views.ThemedDialogResult choice = Views.ThemedDialogWindow.ShowThemed(
-            this,
-            "关闭 GameSave Manager",
-            "你可以将程序最小化到系统托盘并继续自动同步，也可以完全退出程序。",
-            "最小化到托盘",
-            "退出程序",
-            "取消");
-        if (choice == Views.ThemedDialogResult.Primary)
+        e.Cancel = true;
+        if (_shutdownInProgress || _closePromptPending) return;
+
+        // WPF 禁止在 Closing 回调内再次 Show/Hide/Close。先取消本次关闭，
+        // 待事件返回后再询问用户并执行真正的退出流程。
+        _closePromptPending = true;
+        _ = Dispatcher.InvokeAsync(PromptForClose);
+    }
+
+    private void PromptForClose()
+    {
+        try
         {
-            e.Cancel = true;
-            HideToTray();
+            if (_allowClose || _shutdownInProgress) return;
+            Views.ThemedDialogResult choice = Views.ThemedDialogWindow.ShowThemed(
+                this,
+                "关闭 GameSave Manager",
+                "你可以将程序最小化到系统托盘并继续自动同步，也可以完全退出程序。",
+                "最小化到托盘",
+                "退出程序",
+                "取消");
+            if (choice == Views.ThemedDialogResult.Primary)
+                HideToTray();
+            else if (choice == Views.ThemedDialogResult.Secondary)
+                _ = CompleteShutdownAndCloseAsync();
         }
-        else if (choice == Views.ThemedDialogResult.Cancel)
+        finally
         {
-            e.Cancel = true;
-        }
-        else
-        {
-            e.Cancel = true;
-            await CompleteShutdownAndCloseAsync();
+            _closePromptPending = false;
         }
     }
 
@@ -119,8 +129,10 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
+            _allowClose = false;
             if (DataContext is MainViewModel viewModel)
                 await viewModel.ResumeAfterCancelledShutdownAsync();
+            if (!IsVisible) _trayIcon.Visible = true;
             Views.ThemedDialogWindow.ShowThemed(
                 this,
                 "退出前清理失败",
@@ -176,6 +188,11 @@ public partial class MainWindow : Window
 
     private void ViewModel_OnUserConfirmationRequested(object? sender, UserConfirmationEventArgs e)
     {
+        if (_shutdownInProgress || _allowClose)
+        {
+            e.Confirmed = false;
+            return;
+        }
         e.Confirmed = Views.ThemedDialogWindow.ShowThemed(
             this,
             e.Title,
@@ -188,6 +205,7 @@ public partial class MainWindow : Window
     {
         void ShowNotification()
         {
+            if (_shutdownInProgress || _allowClose) return;
             try
             {
                 bool keepVisible = !IsVisible || _trayIcon.Visible;
@@ -212,7 +230,8 @@ public partial class MainWindow : Window
                 System.Diagnostics.Trace.TraceWarning($"Windows 通知显示失败：{exception.GetType().Name}");
             }
         }
-        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+        if (_shutdownInProgress || _allowClose
+            || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
         if (Dispatcher.CheckAccess()) ShowNotification();
         else _ = Dispatcher.InvokeAsync(ShowNotification);
     }
@@ -268,7 +287,9 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
+            _allowClose = false;
             await viewModel.ResumeAfterCancelledShutdownAsync();
+            if (!IsVisible) _trayIcon.Visible = true;
             Views.ThemedDialogWindow.ShowThemed(
                 this,
                 "安装更新失败",
@@ -287,7 +308,8 @@ public partial class MainWindow : Window
 
     private void ViewModel_OnSyncConflictDetected(object? sender, SyncConflictEventArgs e)
     {
-        if (sender is MainViewModel viewModel
+        if (!_shutdownInProgress && !_allowClose
+            && sender is MainViewModel viewModel
             && string.Equals(viewModel.SelectedGame?.GameId, e.GameId, StringComparison.Ordinal))
             new Views.ConflictResolutionDialog(viewModel) { Owner = this }.ShowDialog();
     }

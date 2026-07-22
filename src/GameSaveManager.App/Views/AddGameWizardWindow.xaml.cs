@@ -65,7 +65,7 @@ public partial class AddGameWizardWindow : Window
         if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK
             && DataContext is AddGameWizardViewModel wizard)
         {
-            wizard.Host.SaveDirectory = dialog.SelectedPath;
+            wizard.Host.SelectManualSaveDirectory(dialog.SelectedPath);
         }
     }
 

@@ -99,6 +99,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isAutoSyncEnabled;
     private bool _resumeAutomaticSyncAfterConfiguration;
     private bool _isAddGameWizardActive;
+    private string? _addGameWizardCreatedGameId;
     private AddGameWizardReturnState? _addGameWizardReturnState;
     private bool _isSyncing;
     private string _syncProgressText = "等待同步";
@@ -587,7 +588,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             LogicalSizeText);
         Interlocked.Increment(ref _gameContextGeneration);
         _configurationOwnerGameId = null;
+        _addGameWizardCreatedGameId = null;
         _isAddGameWizardActive = true;
+        // 添加向导使用独立草稿；创建接口返回新 gameId 前，不能让任何草稿字段归属于旧游戏。
+        SelectedGame = null;
         AddGameWizard.Reset();
         NewGameName = string.Empty;
         SelectedDiscoveredGame = null;
@@ -634,8 +638,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             RegistrySavePreviews.Clear();
             foreach (RegistrySavePreview preview in state.RegistrySavePreviews)
                 RegistrySavePreviews.Add(preview);
+            IsAutoSyncEnabled = SelectedGame is not null
+                && _autoSyncCoordinator.ActiveGameIds.Contains(SelectedGame.GameId);
         }
         _configurationOwnerGameId = SelectedGame?.GameId;
+        _addGameWizardCreatedGameId = null;
         _addGameWizardReturnState = null;
         RaiseCommandStates();
     }
@@ -2041,7 +2048,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (!await SuspendAutomaticSyncForConfigurationAsync(gameId)) return;
         AdditionalSaveRootPath = string.Empty;
         StatusText = $"已添加待确认的附加存档目录：{path}。完整预览并确认后才会参与同步。";
-        if (IsAuthenticated && gameId is not null)
+        if (IsAuthenticated && gameId is not null && !_isAddGameWizardActive)
             await SaveLocalProfileAsync(ParseServerUri(), autoSnapshotEnabled: false, expectedGameId: gameId);
     }
 
@@ -2088,7 +2095,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (!await SuspendAutomaticSyncForConfigurationAsync(gameId)) return;
         SelectedAdditionalSaveRoot = null;
         StatusText = "已移除附加存档目录；保存或同步后会更新本机配置。";
-        if (IsAuthenticated && gameId is not null)
+        if (IsAuthenticated && gameId is not null && !_isAddGameWizardActive)
             await SaveLocalProfileAsync(ParseServerUri(), autoSnapshotEnabled: false, expectedGameId: gameId);
     }
 
@@ -2226,6 +2233,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         EnsureUiOperationTarget(gameId, userId, expectedSessionGeneration);
         if (_isAddGameWizardActive != expectedAddGameWizardActive
+            || (expectedAddGameWizardActive
+                && !string.Equals(_addGameWizardCreatedGameId, gameId, StringComparison.Ordinal))
             || (!expectedAddGameWizardActive
                 && !string.Equals(_configurationOwnerGameId, gameId, StringComparison.Ordinal)))
             throw new InvalidOperationException("当前界面配置不属于所选游戏，已停止保存以避免覆盖其他游戏的本机数据。");
@@ -2617,6 +2626,41 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public void SelectManualSaveDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            throw new InvalidOperationException("请选择存在的存档目录。");
+
+        string fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        SaveLocationCandidate? candidate = SaveLocationCandidates.FirstOrDefault(item =>
+            PathValuesEqual(item.Path, fullPath));
+
+        foreach (SaveLocationCandidate staleManualCandidate in SaveLocationCandidates
+                     .Where(item => item.Source == SaveLocationSource.Manual
+                         && !ReferenceEquals(item, candidate))
+                     .ToArray())
+            SaveLocationCandidates.Remove(staleManualCandidate);
+
+        if (candidate is null)
+        {
+            candidate = new SaveLocationCandidate(
+                fullPath,
+                100,
+                SaveLocationSource.Manual,
+                "用户手动选择的存档目录。",
+                0,
+                0,
+                null,
+                [],
+                true);
+            SaveLocationCandidates.Add(candidate);
+        }
+
+        SelectedSaveLocationCandidate = candidate;
+        SaveDirectory = fullPath;
+        StatusText = $"已选择存档目录：{fullPath}。请进入下一步预览并确认。";
+    }
+
     private SaveRootRule BuildPrimarySaveRootRule() => SaveRootRule.CreateDefault(
         SaveDirectory, SelectedSaveLocationCandidate?.Source ?? SaveLocationSource.Manual, 100, false);
 
@@ -2731,7 +2775,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 .Select(rule => rule with { UserConfirmed = true }).ToArray();
             var draft = new SaveProfileConfirmationDraft(
                 true, confirmedAdditionalRoots, confirmedRegistryRules);
-            if (SelectedGame is not null)
+            if (!_isAddGameWizardActive && SelectedGame is not null)
             {
                 Uri server = ParseServerUri();
                 operationServer = server;
@@ -2950,6 +2994,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             EnsureSessionCurrent(operationSession, server);
             CloudGame game = createdGame;
+            _addGameWizardCreatedGameId = game.GameId;
             if (!Games.Any(item => string.Equals(item.GameId, game.GameId, StringComparison.Ordinal)))
                 Games.Add(game);
             SelectedGame = Games.First(item => string.Equals(item.GameId, game.GameId, StringComparison.Ordinal));
@@ -3728,7 +3773,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AutoSnapshotExecutablePath = executablePath;
             AutoSnapshotProcessName = Path.GetFileName(executablePath);
-            if (gameId is not null)
+            if (gameId is not null && !_isAddGameWizardActive)
                 await SaveLocalProfileAsync(
                     ParseServerUri(), IsAutoSyncEnabled, expectedGameId: gameId,
                     expectedSessionGeneration: sessionGeneration);
@@ -4325,6 +4370,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _authenticatedUserId = string.Empty;
         _resumeAutomaticSyncAfterConfiguration = false;
         _isAddGameWizardActive = false;
+        _addGameWizardCreatedGameId = null;
         _addGameWizardReturnState = null;
         AddGameWizard.Reset();
         _gameSyncUiStates.Clear();

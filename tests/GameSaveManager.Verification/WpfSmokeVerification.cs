@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.ComponentModel;
+using System.Reflection;
 using System.Windows;
 using WpfApplication = GameSaveManager.App.App;
 using GameSaveManager.App;
@@ -62,6 +64,22 @@ internal static class WpfSmokeVerification
                 .Where(message => message.Contains("error", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
             if (errors.Length > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
+
+            var closingArgs = new CancelEventArgs();
+            MethodInfo closingHandler = typeof(MainWindow).GetMethod(
+                "MainWindow_OnClosing", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("未找到主窗口关闭处理方法。");
+            closingHandler.Invoke(window, [window, closingArgs]);
+            bool closePromptPending = (bool)(typeof(MainWindow).GetField(
+                "_closePromptPending", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(window)
+                ?? false);
+            if (!closingArgs.Cancel || !closePromptPending)
+                throw new InvalidOperationException(
+                    "主窗口必须先取消 Closing，并延后显示退出确认，不得在 Closing 内重入关闭。");
+
+            typeof(MainWindow).GetField("_allowClose", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(window, true);
+            window.Close();
         }
         finally
         {
